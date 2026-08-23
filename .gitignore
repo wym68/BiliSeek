@@ -1,0 +1,78 @@
+# ===== Gradle =====
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# ===== 本地环境配置（含 SDK 路径、签名等机器相关信息）=====
+local.properties
+
+# ===== IntelliJ / Android Studio =====
+.idea/
+*.iml
+*.iws
+*.ipr
+.navigation/
+
+# ===== 构建产物 =====
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+
+# ===== NDK / 原生构建 =====
+.cxx/
+.externalNativeBuild/
+
+# ===== 性能分析 / 调试 =====
+captures/
+*.hprof
+profiling/
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+
+# ===== 密钥文件（按需取消注释，避免泄露签名密钥）=====
+# *.jks
+# *.keystore
+
+# ===== 日志 =====
+*.log
+
+# ===== Kotlin 编译器缓存 =====
+.kotlinc/
+.kotlin/
+
+# ===== 工具链本地数据 =====
+.codegraph
+
+# ===== AI 编码工具本地数据（会话、缓存、个人配置等）=====
+# Claude Code（如需共享团队级 .claude/settings.json，可改为仅忽略 settings.local.json）
+.claude/
+CLAUDE.local.md
+
+# OpenCode
+.opencode/
+
+# OMO / OhMyOpenCode（本地计划、缓存）
+.omo/
+
+# pi / oh-my-pi
+.pi/
+.pi.md
+
+# 其他常见 AI 工具本地文件
+.cursor/
+.windsurf/
+.gemini/
+.aider*
+
+# ===== 操作系统杂项 =====
+.DS_Store
+Thumbs.db
