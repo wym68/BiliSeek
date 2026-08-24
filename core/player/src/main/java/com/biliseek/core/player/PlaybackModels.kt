@@ -82,6 +82,10 @@ data class PlaybackState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val videoTrackSelected: Boolean = false,
+    /** 当前条目标题，MiniPlayer 展示用 */
+    val title: String = "",
+    val bvid: String = "",
+    val cid: Long = 0,
     val lastSwitch: SwitchDiagnostics? = null,
     /** 取流中（网络请求阶段，尚未进入播放器） */
     val isResolving: Boolean = false,

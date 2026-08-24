@@ -129,6 +129,11 @@ class PlayerConnection(private val context: Context) {
             )
             .build()
 
+        _state.value = _state.value.copy(
+            title = request.title,
+            bvid = (request as? PlaybackRequest.Bili)?.bvid.orEmpty(),
+            cid = (request as? PlaybackRequest.Bili)?.cid ?: 0L,
+        )
         c.setMediaItem(item)
         applyVideoTrack(enabled = false)
         c.prepare()

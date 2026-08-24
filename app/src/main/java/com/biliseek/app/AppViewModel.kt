@@ -12,6 +12,16 @@ import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.parseSearchInput
 import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlayerConnection
+import com.biliseek.app.data.BiliSeekDatabase
+import com.biliseek.app.data.LibraryRepository
+import com.biliseek.app.data.PlayHistoryEntity
+import com.biliseek.app.data.PlaylistEntity
+import com.biliseek.app.data.PlaylistTrack
+import com.biliseek.app.data.TrackEntity
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +53,7 @@ data class SearchUiState(
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val network = BiliNetwork.get(app)
+    private val library = LibraryRepository(BiliSeekDatabase.get(app))
     val connection = PlayerConnection(app)
 
     val authState = network.authGate.state
@@ -63,6 +74,70 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var pollJob: Job? = null
 
+    // ── 本地库 ──────────────────────────────────────────
+
+    val playlists = library.observePlaylists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val searchHistory = library.observeSearchHistory()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val recentPlays = library.observeRecent()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val heatmap = library.observeHeatmap()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _openedPlaylist = MutableStateFlow<PlaylistEntity?>(null)
+    val openedPlaylist: StateFlow<PlaylistEntity?> = _openedPlaylist.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val openedTracks: StateFlow<List<PlaylistTrack>> = _openedPlaylist
+        .flatMapLatest { p -> if (p == null) flowOf(emptyList()) else library.observeTracks(p.id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun createPlaylist(name: String) = viewModelScope.launch { library.createPlaylist(name) }
+    fun renamePlaylist(id: Long, name: String) = viewModelScope.launch { library.renamePlaylist(id, name) }
+    fun deletePlaylist(id: Long) = viewModelScope.launch {
+        library.deletePlaylist(id)
+        if (_openedPlaylist.value?.id == id) _openedPlaylist.value = null
+    }
+    fun openPlaylist(p: PlaylistEntity) { _openedPlaylist.value = p }
+    fun closePlaylist() { _openedPlaylist.value = null }
+    fun removeFromPlaylist(trackId: Long) = viewModelScope.launch {
+        _openedPlaylist.value?.let { library.removeFromPlaylist(it.id, trackId) }
+    }
+
+    /** 长按搜索结果加入歌单。没有歌单时自动建一个默认的。 */
+    fun addToPlaylist(video: SearchVideo, cid: Long = 0) = viewModelScope.launch {
+        val target = playlists.value.firstOrNull()?.id ?: library.createPlaylist("我的歌单")
+        library.addToPlaylist(
+            target,
+            TrackEntity(
+                bvid = video.bvid,
+                cid = cid,
+                title = com.biliseek.core.network.stripHighlight(video.title),
+                author = video.author,
+                coverUrl = com.biliseek.core.network.normalizeCoverUrl(video.pic),
+                durationSec = 0,
+            ),
+        )
+    }
+
+    fun playHistoryEntry(entry: PlayHistoryEntity) =
+        play(PlaybackRequest.Bili(entry.bvid, entry.cid.takeIf { it > 0 }, entry.title))
+
+    fun playTrack(item: PlaylistTrack) =
+        play(PlaybackRequest.Bili(item.track.bvid, item.track.cid.takeIf { it > 0 }, item.track.title))
+
+    fun deleteSearchKeyword(keyword: String) = viewModelScope.launch { library.deleteSearch(keyword) }
+    fun clearSearchHistory() = viewModelScope.launch { library.clearSearchHistory() }
+
+    fun searchKeyword(keyword: String) {
+        _search.value = _search.value.copy(keyword = keyword)
+        submitSearch()
+    }
+
     init {
         network.authGate.start()
         viewModelScope.launch {
@@ -74,7 +149,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ── 搜索 ────────────────────────────────────────────
 
     fun onKeywordChange(text: String) {
-        _search.value = _search.value.copy(keyword = text)
+        // 清空搜索框即回到首页空状态：结果一并清掉，否则会停留在上次的列表上
+        _search.value = if (text.isBlank()) {
+            SearchUiState()
+        } else {
+            _search.value.copy(keyword = text)
+        }
     }
 
     /** 提交搜索。输入是 BV/AV/短链时直接播放，否则走关键词搜索。 */
@@ -87,6 +167,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             is SearchIntent.Keyword -> {
                 if (intent.text.isBlank()) return
+                viewModelScope.launch { library.recordSearch(intent.text) }
                 doSearch(intent.text, page = 1)
             }
             // AV 号与短链的解析留到后续里程碑，先退回关键词搜索
@@ -144,7 +225,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 .onSuccess { pages ->
                     if (pages.size <= 1) {
                         _search.value = _search.value.copy(pages = emptyList(), pagesOfBvid = "")
-                        play(PlaybackRequest.Bili(video.bvid, pages.firstOrNull()?.cid, video.title))
+                        play(PlaybackRequest.Bili(video.bvid, pages.firstOrNull()?.cid, cleanTitle(video.title)))
                     } else {
                         _search.value = _search.value.copy(
                             pages = pages.map {
@@ -154,9 +235,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
                 }
-                .onFailure { play(PlaybackRequest.Bili(video.bvid, title = video.title)) }
+                .onFailure { play(PlaybackRequest.Bili(video.bvid, title = cleanTitle(video.title))) }
         }
     }
+
+    private fun cleanTitle(raw: String) = com.biliseek.core.network.stripHighlight(raw)
 
     fun playPage(bvid: String, entry: PageEntry) {
         play(PlaybackRequest.Bili(bvid, entry.cid, entry.title))
@@ -170,6 +253,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             connection.play(request)
             _playbackStarted.tryEmit(Unit)
+            (request as? PlaybackRequest.Bili)?.let { r ->
+                library.recordPlay(r.bvid, r.cid ?: 0L, r.title)
+            }
         }
     }
 

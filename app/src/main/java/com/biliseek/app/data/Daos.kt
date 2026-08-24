@@ -1,0 +1,122 @@
+package com.biliseek.app.data
+
+import androidx.room.Dao
+import androidx.room.Embedded
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
+
+/** 歌单里的一条，含关联的排序键。 */
+data class PlaylistTrack(
+    @Embedded val track: TrackEntity,
+    val sortKey: Double,
+)
+
+@Dao
+interface PlaylistDao {
+
+    @Query("SELECT * FROM playlist ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<PlaylistEntity>>
+
+    @Query("SELECT * FROM playlist WHERE id = :id")
+    suspend fun byId(id: Long): PlaylistEntity?
+
+    @Insert
+    suspend fun insert(playlist: PlaylistEntity): Long
+
+    @Query("UPDATE playlist SET name = :name, updatedAt = :now WHERE id = :id")
+    suspend fun rename(id: Long, name: String, now: Long)
+
+    @Query("DELETE FROM playlist WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("SELECT COUNT(*) FROM playlist_track WHERE playlistId = :id")
+    fun observeCount(id: Long): Flow<Int>
+
+    /** 本地歌单走 Flow（增删改自动刷新）；远程列表走分页，两者不强求统一。 */
+    @Transaction
+    @Query(
+        """
+        SELECT t.*, pt.sortKey AS sortKey FROM track t
+        INNER JOIN playlist_track pt ON pt.trackId = t.id
+        WHERE pt.playlistId = :playlistId
+        ORDER BY pt.sortKey ASC
+        """,
+    )
+    fun observeTracks(playlistId: Long): Flow<List<PlaylistTrack>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertTrack(track: TrackEntity): Long
+
+    @Query("SELECT * FROM track WHERE bvid = :bvid AND cid = :cid")
+    suspend fun findTrack(bvid: String, cid: Long): TrackEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun link(link: PlaylistTrackEntity)
+
+    @Query("DELETE FROM playlist_track WHERE playlistId = :playlistId AND trackId = :trackId")
+    suspend fun unlink(playlistId: Long, trackId: Long)
+
+    @Query("SELECT MAX(sortKey) FROM playlist_track WHERE playlistId = :playlistId")
+    suspend fun maxSortKey(playlistId: Long): Double?
+
+    @Query("UPDATE playlist_track SET sortKey = :sortKey WHERE playlistId = :playlistId AND trackId = :trackId")
+    suspend fun updateSortKey(playlistId: Long, trackId: Long, sortKey: Double)
+}
+
+@Dao
+interface HistoryDao {
+
+    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 20): Flow<List<PlayHistoryEntity>>
+
+    @Query("SELECT * FROM play_history WHERE bvid = :bvid AND cid = :cid")
+    suspend fun find(bvid: String, cid: Long): PlayHistoryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: PlayHistoryEntity)
+
+    @Query("DELETE FROM play_history")
+    suspend fun clear()
+
+    /** 播放热力图：按天聚合的播放次数。 */
+    @Query(
+        """
+        SELECT playedAt / 86400000 AS day, COUNT(*) AS count
+        FROM play_history GROUP BY day ORDER BY day DESC LIMIT :days
+        """,
+    )
+    fun observeHeatmap(days: Int = 90): Flow<List<DayCount>>
+}
+
+data class DayCount(val day: Long, val count: Int)
+
+@Dao
+interface SearchHistoryDao {
+
+    @Query("SELECT * FROM search_history ORDER BY searchedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int = SEARCH_HISTORY_LIMIT): Flow<List<SearchHistoryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entry: SearchHistoryEntity)
+
+    @Query("DELETE FROM search_history WHERE keyword = :keyword")
+    suspend fun delete(keyword: String)
+
+    @Query("DELETE FROM search_history")
+    suspend fun clear()
+
+    /** 只保留最近 N 条，多余的裁掉。 */
+    @Query(
+        """
+        DELETE FROM search_history WHERE id NOT IN
+        (SELECT id FROM search_history ORDER BY searchedAt DESC LIMIT :limit)
+        """,
+    )
+    suspend fun trim(limit: Int = SEARCH_HISTORY_LIMIT)
+}
+
+/** 首页空状态的搜索历史上限，与 BBPlayer 一致。 */
+const val SEARCH_HISTORY_LIMIT = 10

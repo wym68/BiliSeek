@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -35,6 +36,16 @@ android {
     }
 }
 
+android.sourceSets.getByName("androidTest") {
+    // 迁移测试需要读取导出的 schema
+    assets.srcDir(projectDir.resolve("schemas"))
+}
+
+// Room schema 导出目录，迁移测试依赖它
+ksp {
+    arg("room.schemaLocation", projectDir.resolve("schemas").path)
+}
+
 dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:player"))
@@ -53,10 +64,15 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.zxing.core)
 
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.room.testing)
 }

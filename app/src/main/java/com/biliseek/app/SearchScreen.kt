@@ -1,6 +1,7 @@
 package com.biliseek.app
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,10 +42,13 @@ fun SearchScreen(
     onKeywordChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onResultClick: (SearchVideo) -> Unit,
+    onResultLongClick: (SearchVideo) -> Unit,
     onLoadMore: () -> Unit,
     onPageClick: (PageEntry) -> Unit,
     onDismissPages: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 无搜索时展示的首页空状态 */
+    emptyContent: @Composable () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -110,12 +114,14 @@ fun SearchScreen(
             state.isLoading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator()
             }
-            state.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("输入关键词开始搜索", style = MaterialTheme.typography.bodyMedium)
-            }
+            state.items.isEmpty() -> Box(Modifier.fillMaxSize()) { emptyContent() }
             else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(state.items, key = { it.bvid }) { video ->
-                    ResultRow(video) { onResultClick(video) }
+                    ResultRow(
+                        video = video,
+                        onClick = { onResultClick(video) },
+                        onLongClick = { onResultLongClick(video) },
+                    )
                     HorizontalDivider()
                 }
                 if (state.isLoadingMore) {
@@ -130,12 +136,14 @@ fun SearchScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ResultRow(video: SearchVideo, onClick: () -> Unit) {
+private fun ResultRow(video: SearchVideo, onClick: () -> Unit, onLongClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            // 长按加入歌单
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
