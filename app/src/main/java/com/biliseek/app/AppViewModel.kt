@@ -127,8 +127,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun playHistoryEntry(entry: PlayHistoryEntity) =
         play(PlaybackRequest.Bili(entry.bvid, entry.cid.takeIf { it > 0 }, entry.title))
 
-    fun playTrack(item: PlaylistTrack) =
-        play(PlaybackRequest.Bili(item.track.bvid, item.track.cid.takeIf { it > 0 }, item.track.title))
+    fun playTrack(item: PlaylistTrack) {
+        val items = openedTracks.value
+        playPlaylist(items, items.indexOfFirst { it.track.id == item.track.id }.coerceAtLeast(0))
+    }
 
     fun deleteSearchKeyword(keyword: String) = viewModelScope.launch { library.deleteSearch(keyword) }
     fun clearSearchHistory() = viewModelScope.launch { library.clearSearchHistory() }
@@ -140,6 +142,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         network.authGate.start()
+        // 续播与位置回写：播放内核不认识数据库，通过回调解耦
+        connection.resumePositionProvider = { bvid, cid -> library.resumePosition(bvid, cid) }
+        connection.positionRecorder = { bvid, cid, position ->
+            library.recordPlayPosition(bvid, cid, position)
+        }
         viewModelScope.launch {
             network.sessionStore.load()
             connection.connect()
@@ -241,8 +248,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun cleanTitle(raw: String) = com.biliseek.core.network.stripHighlight(raw)
 
+    /** 点某个分 P：整张多 P 视频作为队列，从该 P 开始播。 */
     fun playPage(bvid: String, entry: PageEntry) {
-        play(PlaybackRequest.Bili(bvid, entry.cid, entry.title))
+        val all = _search.value.pages
+        val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
+        viewModelScope.launch {
+            connection.playQueue(
+                all.map { PlaybackRequest.Bili(bvid, it.cid, it.title) },
+                startIndex = index,
+            )
+            _playbackStarted.tryEmit(Unit)
+            library.recordPlay(bvid, entry.cid, entry.title)
+        }
+    }
+
+    /** 播放整个本地歌单。 */
+    fun playPlaylist(items: List<PlaylistTrack>, startIndex: Int) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            connection.playQueue(
+                items.map {
+                    PlaybackRequest.Bili(it.track.bvid, it.track.cid.takeIf { c -> c > 0 }, it.track.title)
+                },
+                startIndex = startIndex,
+            )
+            _playbackStarted.tryEmit(Unit)
+        }
+    }
+
+    fun skipNext() = connection.skipToNext()
+    fun skipPrevious() = connection.skipToPrevious()
+    fun cyclePlayMode() {
+        val modes = com.biliseek.core.player.PlayMode.entries
+        val next = modes[(modes.indexOf(connection.state.value.playMode) + 1) % modes.size]
+        connection.setPlayMode(next)
+    }
+
+    fun onEnterBackground() = connection.onEnterBackground()
+
+    /** PiP 进出。PiP 是可见呈现态，视频轨保持启用。 */
+    fun onPipChanged(inPip: Boolean) {
+        connection.setPresentation(
+            if (inPip) {
+                com.biliseek.core.player.PresentationMode.PIP
+            } else {
+                com.biliseek.core.player.PresentationMode.INLINE
+            },
+        )
     }
 
     fun dismissPages() {

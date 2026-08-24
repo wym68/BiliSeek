@@ -54,6 +54,10 @@ fun AppShell(
     onExpansionChange: (PlayerExpansion) -> Unit,
     onTogglePlayPause: () -> Unit,
     onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
+    onEnterPip: () -> Unit = {},
+    onSkipNext: () -> Unit = {},
+    onSkipPrevious: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
     searchContent: @Composable () -> Unit,
     libraryContent: @Composable () -> Unit,
     settingsContent: @Composable () -> Unit,
@@ -127,6 +131,10 @@ fun AppShell(
                 onExpansionChange = onExpansionChange,
                 onTogglePlayPause = onTogglePlayPause,
                 onPresentationChange = onPresentationChange,
+                onEnterPip = onEnterPip,
+                onSkipNext = onSkipNext,
+                onSkipPrevious = onSkipPrevious,
+                onCyclePlayMode = onCyclePlayMode,
             )
         }
 

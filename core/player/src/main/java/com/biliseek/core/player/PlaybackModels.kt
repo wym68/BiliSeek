@@ -90,4 +90,29 @@ data class PlaybackState(
     /** 取流中（网络请求阶段，尚未进入播放器） */
     val isResolving: Boolean = false,
     val error: String? = null,
-)
+    /** 播放队列与当前位置 */
+    val queue: List<PlaybackRequest> = emptyList(),
+    val queueIndex: Int = -1,
+    val playMode: PlayMode = PlayMode.SEQUENTIAL,
+) {
+    val hasPrevious: Boolean
+        get() = queue.size > 1 && (playMode != PlayMode.SEQUENTIAL || queueIndex > 0)
+
+    val hasNext: Boolean
+        get() = queue.size > 1 && (playMode != PlayMode.SEQUENTIAL || queueIndex < queue.size - 1)
+}
+
+/** 播放模式。 */
+enum class PlayMode {
+    /** 顺序播放，播完最后一首停止 */
+    SEQUENTIAL,
+
+    /** 列表循环 */
+    REPEAT_ALL,
+
+    /** 单曲循环 */
+    REPEAT_ONE,
+
+    /** 随机 */
+    SHUFFLE,
+}

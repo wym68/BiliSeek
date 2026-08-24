@@ -85,6 +85,12 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
         )
     }
 
+    /** 播放中定期回写位置，只更新进度不改其他字段。 */
+    suspend fun recordPlayPosition(bvid: String, cid: Long, positionMs: Long) {
+        val existing = history.find(bvid, cid) ?: return
+        history.upsert(existing.copy(positionMs = positionMs, playedAt = System.currentTimeMillis()))
+    }
+
     /** 续播用：取上次播放位置。 */
     suspend fun resumePosition(bvid: String, cid: Long): Long =
         history.find(bvid, cid)?.positionMs ?: 0L

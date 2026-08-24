@@ -1,9 +1,16 @@
 package com.biliseek.app
 
+import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.SurfaceView
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -27,9 +34,16 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: AppViewModel by viewModels()
 
+    /** 记录进入 PiP 前的呈现态，退出 PiP 时恢复。 */
+    private var wasInPip = false
+
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝也不阻断 */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        ensureNotificationPermission()
 
         setContent {
             BiliSeekTheme {
@@ -62,6 +76,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 AppShell(
+                    onEnterPip = { enterPip() },
                     playback = playback,
                     expansion = expansion,
                     surfaceView = surfaceView,
@@ -70,6 +85,9 @@ class MainActivity : ComponentActivity() {
                     onPresentationChange = { mode, sv ->
                         viewModel.connection.setPresentation(mode, sv)
                     },
+                    onSkipNext = viewModel::skipNext,
+                    onSkipPrevious = viewModel::skipPrevious,
+                    onCyclePlayMode = viewModel::cyclePlayMode,
                     searchContent = {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
                         val showEmptyState = search.items.isEmpty() &&
@@ -127,5 +145,65 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * Android 13+ 通知需要运行时授权。
+     *
+     * 不授予不影响**锁屏**媒体控制（那由 MediaSession 驱动），
+     * 但通知栏控制会因 `importance=NONE` 而不显示——M0 验收时实测确认过这个区别。
+     */
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun enterPip() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
+        runCatching {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build(),
+            )
+        }
+    }
+
+    /**
+     * 离开 App 时的处置。
+     *
+     * 看模式下若支持 PiP 则进 PiP（呈现态仍为可见，**不回落音频**）；
+     * 否则回落纯音频，避免解码没人看的画面。
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        val state = viewModel.connection.state.value
+        if (state.presentation != com.biliseek.core.player.PresentationMode.NONE) {
+            enterPip()
+        } else {
+            viewModel.onEnterBackground()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        wasInPip = isInPictureInPictureMode
+        viewModel.onPipChanged(isInPictureInPictureMode)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // PiP 窗口仍可见，不回落；真正不可见了才降回纯音频
+        if (!wasInPip && !isInPictureInPictureMode) viewModel.onEnterBackground()
     }
 }

@@ -10,7 +10,11 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.internal.PlayUrlResolver
+import com.biliseek.core.player.internal.resolveManualNextIndex
+import com.biliseek.core.player.internal.resolveStartPosition
+import com.biliseek.core.player.internal.resolveNextIndex
 import com.biliseek.core.player.internal.resolvePlaybackMode
+import com.biliseek.core.player.internal.resolvePreviousIndex
 import com.biliseek.core.player.internal.resolveTrackSelectionParameters
 import com.biliseek.core.player.internal.shouldEnableVideoTrack
 import com.biliseek.core.player.internal.switchLabel
@@ -44,6 +48,17 @@ class PlayerConnection(private val context: Context) {
 
     private var presentation: PresentationMode = PresentationMode.NONE
 
+    /** 队列。B 站来源需逐条取流，因此不用 ExoPlayer 原生播放列表。 */
+    private var queue: List<PlaybackRequest> = emptyList()
+    private var queueIndex: Int = -1
+    private var playMode: PlayMode = PlayMode.SEQUENTIAL
+
+    /** 起播时定位到的历史位置，由外部提供（续播）。 */
+    var resumePositionProvider: (suspend (String, Long) -> Long)? = null
+
+    /** 播放位置回写，用于续播与最近播放。 */
+    var positionRecorder: (suspend (String, Long, Long) -> Unit)? = null
+
     // 切换诊断窗口：setPresentation 期间统计 buffering 与 seek 不连续
     private var recording = false
     private var bufferingEvents = 0
@@ -52,6 +67,7 @@ class PlayerConnection(private val context: Context) {
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (recording && playbackState == Player.STATE_BUFFERING) bufferingEvents++
+            if (playbackState == Player.STATE_ENDED) onTrackEnded()
             pushState()
         }
 
@@ -96,12 +112,17 @@ class PlayerConnection(private val context: Context) {
      * 起播时**先关视频轨再 prepare**——避免起播瞬间就去下载视频分片，
      * 这是「默认听」承诺在时序上的落点。
      */
-    suspend fun play(request: PlaybackRequest) {
+    suspend fun play(request: PlaybackRequest, fromQueue: Boolean = false) {
         val c = controller ?: return
+        if (!fromQueue) {
+            queue = listOf(request)
+            queueIndex = 0
+        }
         _state.value = _state.value.copy(isResolving = true, error = null)
 
         val uri: String
         val mimeType: String?
+        var media: com.biliseek.core.player.internal.ResolvedMedia? = null
         try {
             when (request) {
                 is PlaybackRequest.Direct -> {
@@ -109,9 +130,10 @@ class PlayerConnection(private val context: Context) {
                     mimeType = null
                 }
                 is PlaybackRequest.Bili -> {
-                    val media = resolver.resolve(request.bvid, request.cid)
-                    uri = media.uri
-                    mimeType = media.mimeType
+                    val resolved = resolver.resolve(request.bvid, request.cid)
+                    media = resolved
+                    uri = resolved.uri
+                    mimeType = resolved.mimeType
                 }
             }
         } catch (e: Exception) {
@@ -134,12 +156,63 @@ class PlayerConnection(private val context: Context) {
             bvid = (request as? PlaybackRequest.Bili)?.bvid.orEmpty(),
             cid = (request as? PlaybackRequest.Bili)?.cid ?: 0L,
         )
-        c.setMediaItem(item)
+        // 续播位置必须在 setMediaItem 时一并给出。
+        // 早期写法是 prepare() 之后再 seekTo()，经 MediaController 异步转发到
+        // session 时时序不可靠，seek 会被起播流程覆盖掉——表现为「续播没生效」。
+        val startPosition = (request as? PlaybackRequest.Bili)?.let { r ->
+            val saved = resumePositionProvider?.invoke(r.bvid, r.cid ?: 0L) ?: 0L
+            resolveStartPosition(saved, media?.durationMs ?: 0L)
+        } ?: 0L
+
+        c.setMediaItem(item, startPosition)
         applyVideoTrack(enabled = false)
         c.prepare()
         c.playWhenReady = true
         _state.value = _state.value.copy(isResolving = false)
         pushState()
+    }
+
+    /** 播放一个队列。[startIndex] 指定从哪一首开始。 */
+    suspend fun playQueue(items: List<PlaybackRequest>, startIndex: Int = 0) {
+        queue = items
+        queueIndex = startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        items.getOrNull(queueIndex)?.let { play(it, fromQueue = true) }
+    }
+
+    fun setPlayMode(mode: PlayMode) {
+        playMode = mode
+        pushState()
+    }
+
+    fun skipToNext() {
+        val next = resolveManualNextIndex(queueIndex, queue.size, playMode) ?: return
+        queueIndex = next
+        scope?.launch { queue.getOrNull(next)?.let { play(it, fromQueue = true) } }
+    }
+
+    fun skipToPrevious() {
+        val prev = resolvePreviousIndex(queueIndex, queue.size, playMode) ?: return
+        queueIndex = prev
+        scope?.launch { queue.getOrNull(prev)?.let { play(it, fromQueue = true) } }
+    }
+
+    /** 播完自动推进。与手动切歌不同：单曲循环下这里原地重播。 */
+    private fun onTrackEnded() {
+        val next = resolveNextIndex(queueIndex, queue.size, playMode) ?: return
+        queueIndex = next
+        scope?.launch { queue.getOrNull(next)?.let { play(it, fromQueue = true) } }
+    }
+
+    /**
+     * 生命周期：进后台。
+     *
+     * PiP 属于可见呈现态，**不回落**——否则 PiP 窗口会黑屏。
+     * 这不是特例判断，而是「NONE 才回落」的自然结果。
+     */
+    fun onEnterBackground() {
+        val target = com.biliseek.core.player.internal
+            .resolvePresentationOnEnterBackground(presentation)
+        if (target != presentation) setPresentation(target)
     }
 
     fun togglePlayPause() {
@@ -187,13 +260,6 @@ class PlayerConnection(private val context: Context) {
             recording = false
         }
         pushState()
-    }
-
-    /** 进后台。PiP 不回落（见 [internal.resolvePresentationOnEnterBackground]）。 */
-    fun onEnterBackground() {
-        setPresentation(
-            com.biliseek.core.player.internal.resolvePresentationOnEnterBackground(presentation),
-        )
     }
 
     fun release() {
@@ -244,10 +310,32 @@ class PlayerConnection(private val context: Context) {
             positionMs = c.currentPosition.coerceAtLeast(0L),
             durationMs = c.duration.takeIf { it > 0 } ?: 0L,
             videoTrackSelected = videoSelected,
+            queue = queue,
+            queueIndex = queueIndex,
+            playMode = playMode,
         )
+        recordPositionIfNeeded()
+    }
+
+    private var lastRecordedAt = 0L
+
+    /** 每隔一段时间回写播放位置，供续播与「最近播放」使用。 */
+    private fun recordPositionIfNeeded() {
+        val c = controller ?: return
+        val recorder = positionRecorder ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastRecordedAt < POSITION_RECORD_INTERVAL_MS) return
+        if (!c.isPlaying) return
+        val request = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili ?: return
+        lastRecordedAt = now
+        scope?.launch {
+            recorder(request.bvid, request.cid ?: 0L, c.currentPosition.coerceAtLeast(0L))
+        }
     }
 
     private companion object {
         const val POSITION_POLL_MS = 250L
+        const val POSITION_RECORD_INTERVAL_MS = 5_000L
+
     }
 }

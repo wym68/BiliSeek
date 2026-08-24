@@ -51,6 +51,10 @@ fun PlayerContainer(
     onTogglePlayPause: () -> Unit,
     onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
     modifier: Modifier = Modifier,
+    onEnterPip: () -> Unit = {},
+    onSkipNext: () -> Unit = {},
+    onSkipPrevious: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
 ) {
     when (expansion) {
         PlayerExpansion.COLLAPSED -> MiniPlayer(
@@ -66,6 +70,10 @@ fun PlayerContainer(
             onFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
             onTogglePlayPause = onTogglePlayPause,
             onPresentationChange = onPresentationChange,
+            onEnterPip = onEnterPip,
+            onSkipNext = onSkipNext,
+            onSkipPrevious = onSkipPrevious,
+            onCyclePlayMode = onCyclePlayMode,
             modifier = modifier,
         )
         // 全屏由外层作为顶层 overlay 渲染，不在这里
@@ -145,6 +153,10 @@ private fun ExpandedPlayer(
     onFullscreen: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
+    onEnterPip: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onCyclePlayMode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -198,6 +210,8 @@ private fun ExpandedPlayer(
 
             PlayerControls(state, surfaceView, onTogglePlayPause, onPresentationChange)
 
+            QueueControls(state, onSkipPrevious, onSkipNext, onCyclePlayMode, onEnterPip)
+
             state.error?.let {
                 Text("错误：$it", style = MaterialTheme.typography.bodySmall, color = Color.Red)
             }
@@ -225,6 +239,45 @@ private fun PlayerControls(
                 onClick = { onPresentationChange(PresentationMode.NONE, null) },
             ) { Text("退回「听」") }
         }
+    }
+}
+
+@Composable
+private fun QueueControls(
+    state: PlaybackState,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    onCyclePlayMode: () -> Unit,
+    onEnterPip: () -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.OutlinedButton(
+            onClick = onSkipPrevious,
+            enabled = state.hasPrevious,
+        ) { Text("上一首") }
+        androidx.compose.material3.OutlinedButton(
+            onClick = onSkipNext,
+            enabled = state.hasNext,
+        ) { Text("下一首") }
+        androidx.compose.material3.OutlinedButton(onClick = onCyclePlayMode) {
+            Text(
+                when (state.playMode) {
+                    com.biliseek.core.player.PlayMode.SEQUENTIAL -> "顺序"
+                    com.biliseek.core.player.PlayMode.REPEAT_ALL -> "列表循环"
+                    com.biliseek.core.player.PlayMode.REPEAT_ONE -> "单曲"
+                    com.biliseek.core.player.PlayMode.SHUFFLE -> "随机"
+                },
+            )
+        }
+        if (state.presentation != PresentationMode.NONE) {
+            androidx.compose.material3.OutlinedButton(onClick = onEnterPip) { Text("画中画") }
+        }
+    }
+    if (state.queue.size > 1) {
+        Text(
+            "队列 ${state.queueIndex + 1} / ${state.queue.size}",
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
