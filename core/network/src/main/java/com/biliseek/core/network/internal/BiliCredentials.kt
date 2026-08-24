@@ -19,9 +19,13 @@ data class BiliCredentials(
     val wbiImgKey: String,
     val wbiSubKey: String,
     val wbiFetchedAt: Long,
+    /** buvid 是否已通过 ExClimbWuzhi 激活。未激活的 buvid 搜索只会拿到 v_voucher。 */
+    val activated: Boolean = false,
 ) {
     fun isValid(now: Long = System.currentTimeMillis()): Boolean {
         if (buvid3.isBlank() || wbiImgKey.isBlank() || wbiSubKey.isBlank()) return false
+        // 未激活的 buvid 搜索不可用，视为无效以触发重新种植
+        if (!activated) return false
         // ticket 留 6 小时余量提前续；WBI 密钥每日轮换，按自然日缓存
         if (ticket.isNotBlank() && now > ticketExpiresAt - TICKET_RENEW_MARGIN_MS) return false
         if (now - wbiFetchedAt > WBI_MAX_AGE_MS) return false
@@ -29,7 +33,7 @@ data class BiliCredentials(
     }
 
     companion object {
-        val EMPTY = BiliCredentials("", "", "", 0, "", "", 0)
+        val EMPTY = BiliCredentials("", "", "", 0, "", "", 0, false)
 
         private const val TICKET_RENEW_MARGIN_MS = 6 * 60 * 60 * 1000L
         private const val WBI_MAX_AGE_MS = 12 * 60 * 60 * 1000L

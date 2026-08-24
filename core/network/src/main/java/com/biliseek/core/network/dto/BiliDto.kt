@@ -138,3 +138,62 @@ data class SegmentBase(
 ) {
     fun range(): String = indexRange.ifBlank { indexRangeAlt }
 }
+
+// ── 搜索 ──────────────────────────────────────────────
+
+@Serializable
+data class SearchData(
+    val page: Int = 0,
+    @SerialName("pagesize") val pageSize: Int = 0,
+    @SerialName("numResults") val numResults: Int = 0,
+    @SerialName("numPages") val numPages: Int = 0,
+    val result: List<SearchVideo>? = null,
+)
+
+@Serializable
+data class SearchVideo(
+    val bvid: String = "",
+    val aid: Long = 0,
+    /** 含 `<em>` 高亮标签，展示前需剥离 */
+    val title: String = "",
+    val author: String = "",
+    val mid: Long = 0,
+    /** 形如 "3:51" */
+    val duration: String = "",
+    /** 封面，返回的是 //i0.hdslb.com/... 需补协议 */
+    val pic: String = "",
+    val play: Long = 0,
+    val danmaku: Long = 0,
+    val pubdate: Long = 0,
+)
+
+// ── 登录 ──────────────────────────────────────────────
+
+@Serializable
+data class QrGenerateData(
+    val url: String = "",
+    @SerialName("qrcode_key") val qrcodeKey: String = "",
+)
+
+@Serializable
+data class QrPollData(
+    val url: String = "",
+    @SerialName("refresh_token") val refreshToken: String = "",
+    val timestamp: Long = 0,
+    /** 0 成功 / 86101 未扫码 / 86090 已扫未确认 / 86038 已失效 */
+    val code: Int = 0,
+    val message: String = "",
+)
+
+@Serializable
+data class CookieInfoData(
+    val refresh: Boolean = false,
+    val timestamp: Long = 0,
+)
+
+@Serializable
+data class RefreshData(
+    val status: Int = 0,
+    val message: String = "",
+    @SerialName("refresh_token") val refreshToken: String = "",
+)

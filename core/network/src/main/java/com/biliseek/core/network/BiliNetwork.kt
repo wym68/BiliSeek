@@ -25,9 +25,20 @@ class BiliNetwork private constructor(context: Context) {
         isLenient = true
     }
 
+    val sessionStore: SessionStore = SessionStore(context.applicationContext)
+
     private val client: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(HeaderInterceptor())
-        .cookieJar(BiliCookieJar { authGate.current })
+        .apply {
+            if (BuildConfig.DEBUG) {
+                addNetworkInterceptor(
+                    okhttp3.logging.HttpLoggingInterceptor { line ->
+                        android.util.Log.d("BiliSeekHttp", line)
+                    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.HEADERS },
+                )
+            }
+        }
+        .cookieJar(BiliCookieJar({ authGate.current }, { sessionStore.current }))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
@@ -40,6 +51,10 @@ class BiliNetwork private constructor(context: Context) {
         .create(BiliApi::class.java)
 
     val authGate: AuthGate = AuthGate(context.applicationContext, api)
+
+    val repository: BiliRepository = BiliRepository(api, authGate)
+
+    val loginManager: LoginManager = LoginManager(api, sessionStore)
 
     /**
      * 播放器取流时要用的请求头。

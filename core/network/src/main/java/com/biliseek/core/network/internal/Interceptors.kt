@@ -35,6 +35,7 @@ internal class HeaderInterceptor : Interceptor {
  */
 internal class BiliCookieJar(
     private val credentialsProvider: () -> BiliCredentials,
+    private val sessionProvider: () -> com.biliseek.core.network.BiliSession,
 ) : CookieJar {
 
     private val serverCookies = mutableMapOf<String, Cookie>()
@@ -62,6 +63,12 @@ internal class BiliCookieJar(
         put("buvid3", credentials.buvid3)
         put("buvid4", credentials.buvid4)
         put("bili_ticket", credentials.ticket)
+
+        // 账号凭据。未登录时为空，不影响搜索与播放——「登录非强制」。
+        val session = sessionProvider()
+        put("SESSDATA", session.sessData)
+        put("bili_jct", session.biliJct)
+        put("DedeUserID", session.dedeUserId)
 
         synchronized(serverCookies) {
             serverCookies.values.forEach { cookie ->

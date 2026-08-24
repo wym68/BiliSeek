@@ -2,12 +2,16 @@ package com.biliseek.core.network
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.biliseek.core.network.internal.BiliCredentials
+import com.biliseek.core.network.internal.buildActivationPayload
 import com.biliseek.core.network.internal.hmacSha256Hex
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -138,6 +142,19 @@ class AuthGate(
             "GenWebTicket 失败: code=${ticket.code} ${ticket.message}"
         }
 
+        // buvid 激活。刚下发的 buvid 未经激活时服务端不信任，
+        // 搜索只会返回 v_voucher 风控凭据而非结果。失败不阻断——playurl 仍可用。
+        val activated = runCatching {
+            val body = buildActivationPayload(spi.data.buvid3)
+                .toRequestBody("application/json".toMediaType())
+            val response = api.activateBuvid(body)
+            Log.d(TAG, "buvid 激活: code=${response.code}")
+            response.code == 0
+        }.getOrElse {
+            Log.w(TAG, "buvid 激活失败：${it.message}")
+            false
+        }
+
         val nav = ticket.data.nav
         // GenWebTicket 通常顺带返回 WBI 密钥；万一没有则回退 nav 接口
         val (imgKey, subKey) = if (nav != null && nav.img.isNotBlank()) {
@@ -157,6 +174,7 @@ class AuthGate(
             wbiImgKey = imgKey,
             wbiSubKey = subKey,
             wbiFetchedAt = System.currentTimeMillis(),
+            activated = activated,
         )
     }
 
@@ -169,6 +187,7 @@ class AuthGate(
             p[KEY_WBI_IMG] = c.wbiImgKey
             p[KEY_WBI_SUB] = c.wbiSubKey
             p[KEY_WBI_AT] = c.wbiFetchedAt
+            p[KEY_ACTIVATED] = c.activated
         }
     }
 
@@ -183,6 +202,7 @@ class AuthGate(
             wbiImgKey = p[KEY_WBI_IMG].orEmpty(),
             wbiSubKey = p[KEY_WBI_SUB].orEmpty(),
             wbiFetchedAt = p[KEY_WBI_AT] ?: 0L,
+            activated = p[KEY_ACTIVATED] ?: false,
         )
     }
 
@@ -204,5 +224,6 @@ class AuthGate(
         val KEY_WBI_IMG = stringPreferencesKey("wbi_img_key")
         val KEY_WBI_SUB = stringPreferencesKey("wbi_sub_key")
         val KEY_WBI_AT = longPreferencesKey("wbi_fetched_at")
+        val KEY_ACTIVATED = booleanPreferencesKey("buvid_activated")
     }
 }

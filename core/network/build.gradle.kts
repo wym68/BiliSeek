@@ -31,7 +31,7 @@ dependencies {
     api(libs.retrofit)
     implementation(libs.retrofit.serialization)
     api(libs.kotlinx.serialization.json)
-    debugImplementation(libs.okhttp.logging)
+    implementation(libs.okhttp.logging)
 
     // 风控凭据持久化
     implementation(libs.androidx.datastore.preferences)
