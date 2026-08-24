@@ -219,15 +219,28 @@ SPL 逐字歌词全套、桌面 / 状态栏歌词、歌词智能匹配、外部�
 - 理由：招牌功能是「音视频同轴**无缝**切换」，Media3 原生支持 DASH、多轨、运行时禁用/启用视频轨、PiP；且 BiliPai 与 BBPlayer 的播放内核都是这套，最难的一块可以直接复用。
 - **播放服务基类选 `MediaSessionService`**（跟随 BiliPai），不用 BBPlayer 的 `MediaLibraryService`——后者多一层「媒体库浏览」（Android Auto 可进来翻歌单），需实现 `onGetLibraryRoot` / `onGetChildren` 一套回调，对「搜索驱动、无推荐」的 BiliSeek 价值不大。确有需求再升级。
 
-### 构建基线（参照 BiliPai 已验证的组合）
+### 构建基线（**已在本机实测通过**，2026-08-23）
 
 | 项 | 取值 |
 | --- | --- |
-| SDK | **minSdk 26、targetSdk 35**、compileSdk 37 |
-| 媒体 | Media3 1.10.1+ |
-| 工具链 | AGP 9.x、Kotlin 2.x、JDK 21 |
+| SDK | **minSdk 26、targetSdk 35、compileSdk 37** |
+| AGP | **9.3.1** |
+| Gradle | **9.7.1** |
+| Kotlin | **2.4.10** |
+| JDK | **Android Studio 捆绑的 JBR 25**（见下方说明） |
+| Compose BOM | **2026.08.00** |
+| Media3 | **1.11.0** |
+| Navigation | Navigation Compose 2.9.8（稳定版，不用 Nav3 alpha） |
 
 > minSdk 26 的理由：PiP 自 26 起可用；通知渠道、前台服务类型（Android 14 要求声明 `mediaPlayback`）也从 26 起才干净。
+
+**两处与原计划的偏差（实测后修正）：**
+
+1. **JDK 用 25，不是 21。** 当前 Android Studio（2026.1.3.8）捆绑的 JBR 就是 25，Gradle 9.7.1 在其上构建正常。刻意装 JDK 21 会导致 IDE 与命令行使用不同 JVM，产生两套 Gradle 守护进程与缓存失效。**统一用 Studio 的 JBR**，`JAVA_HOME` 指向 `~/android-studio/jbr`。字节码目标仍设为 JVM 21。
+
+2. **AGP 9 内置 Kotlin 支持，不再需要 `org.jetbrains.kotlin.android` 插件。** 继续声明该插件会直接报错终止构建。Compose 编译器插件 `org.jetbrains.kotlin.plugin.compose` 仍需单独声明。
+
+> KSP（2.3.11，已改用独立版本号）与 Hilt（2.60.1）在 M0 用不到，**骨架暂不引入**，等 M1 接网络、M3 接 Room 时再加。
 
 ### 从 BiliPai 摘码的正确姿势（已定）
 
