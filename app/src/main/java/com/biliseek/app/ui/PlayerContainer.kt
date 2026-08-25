@@ -33,8 +33,13 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
 
-/** 播放器容器的展开程度。 */
-enum class PlayerExpansion { COLLAPSED, EXPANDED, FULLSCREEN }
+/**
+ * 播放器容器的展开程度。
+ *
+ * 暂无全屏态：视频区上滑进全屏的手势有缺陷已移除，
+ * 播放与显示的更多形态留待后续优化（见《架构设计篇》§7.2）。
+ */
+enum class PlayerExpansion { COLLAPSED, EXPANDED }
 
 /**
  * 常驻播放器容器。
@@ -67,7 +72,6 @@ fun PlayerContainer(
             state = state,
             surfaceView = surfaceView,
             onCollapse = { onExpansionChange(PlayerExpansion.COLLAPSED) },
-            onFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
             onTogglePlayPause = onTogglePlayPause,
             onPresentationChange = onPresentationChange,
             onEnterPip = onEnterPip,
@@ -76,8 +80,6 @@ fun PlayerContainer(
             onCyclePlayMode = onCyclePlayMode,
             modifier = modifier,
         )
-        // 全屏由外层作为顶层 overlay 渲染，不在这里
-        PlayerExpansion.FULLSCREEN -> Unit
     }
 }
 
@@ -150,7 +152,6 @@ private fun ExpandedPlayer(
     state: PlaybackState,
     surfaceView: SurfaceView,
     onCollapse: () -> Unit,
-    onFullscreen: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
     onEnterPip: () -> Unit,
@@ -179,16 +180,7 @@ private fun ExpandedPlayer(
                 Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.Black)
-                    .pointerInput(state.presentation) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount < -DRAG_THRESHOLD &&
-                                state.presentation != PresentationMode.NONE
-                            ) {
-                                onFullscreen()
-                            }
-                        }
-                    },
+                    .background(Color.Black),
                 contentAlignment = Alignment.Center,
             ) {
                 if (state.presentation == PresentationMode.NONE) {

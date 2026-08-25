@@ -2,8 +2,6 @@ package com.biliseek.app.ui
 
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,8 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -68,12 +64,7 @@ fun AppShell(
 
     // 展开态下按返回键收回播放器，而不是退出页面——不动导航栈
     BackHandler(enabled = expansion != PlayerExpansion.COLLAPSED) {
-        onExpansionChange(
-            when (expansion) {
-                PlayerExpansion.FULLSCREEN -> PlayerExpansion.EXPANDED
-                else -> PlayerExpansion.COLLAPSED
-            },
-        )
+        onExpansionChange(PlayerExpansion.COLLAPSED)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -138,20 +129,5 @@ fun AppShell(
             )
         }
 
-        // 全屏 overlay：提升到最顶层，退出即销毁，不污染底部导航的选中态与滚动位置
-        if (expansion == PlayerExpansion.FULLSCREEN) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures { _, dragAmount ->
-                            if (dragAmount > 8f) onExpansionChange(PlayerExpansion.EXPANDED)
-                        }
-                    },
-            ) {
-                PlayerSurface(surfaceView, Modifier.fillMaxSize())
-            }
-        }
     }
 }
