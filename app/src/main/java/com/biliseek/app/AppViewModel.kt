@@ -205,7 +205,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun applyPage(result: SearchPage, append: Boolean) {
         val current = _search.value
         _search.value = current.copy(
-            items = if (append) current.items + result.items else result.items,
+            // B 站分页会返回重复条目，必须去重——LazyColumn 的 key 撞重复会直接崩
+            items = if (append) {
+                com.biliseek.core.network.mergeSearchResults(current.items, result.items)
+            } else {
+                com.biliseek.core.network.mergeSearchResults(emptyList(), result.items)
+            },
             page = result.page,
             totalPages = result.totalPages,
             totalResults = result.totalResults,
