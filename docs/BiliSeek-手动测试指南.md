@@ -40,6 +40,18 @@ adb wait-for-device
 adb shell getprop sys.boot_completed        # 返回 1 即就绪
 ```
 
+
+
+虚拟机启动问题解决：
+
+emulator -list-avds                          # 先看 AVD 名字
+
+emulator -avd &lt;你的AVD名&gt; -no-snapshot-load    # 冷启动一次
+
+emulator -avd &lt;你的AVD名&gt; -wipe-data           # 或彻底重置
+
+
+
 ## A2. 安装并清空旧数据
 
 ```bash
@@ -452,11 +464,11 @@ adb shell dumpsys meminfo com.biliseek.debug | grep "TOTAL PSS"
 ```
 
 
-| 检查点 | 期望                                                    |
-| --- | ----------------------------------------------------- |
-| 内存  | 趋于平稳；**持续单调增长**才是泄漏信号（短期波动正常）                         |
-| 崩溃  | `adb logcat -d -s AndroidRuntime:E | grep FATAL` 应无输出 |
-| 播放  | 全程不中断                                                 |
+| 检查点 | 期望                                 |
+| --- | ---------------------------------- |
+| 内存  | 趋于平稳；**持续单调增长**才是泄漏信号（短期波动正常）      |
+| 崩溃  | `adb logcat -d -s AndroidRuntime:E |
+| 播放  | 全程不中断                              |
 
 
 ### 步骤 20 — 流量对比
@@ -841,8 +853,8 @@ adb logcat -d -s AndroidRuntime:E | grep -A 20 FATAL
 
 # ── 连接 ──
 adb devices
-adb connect <IP>:5555
-adb disconnect <IP>:5555
+adb connect [[ORCA_RICH_MD:487abd81f301818ef4658124f4047ecc:inline-html:%3CIP%3E]]:5555
+adb disconnect [[ORCA_RICH_MD:487abd81f301818ef4658124f4047ecc:inline-html:%3CIP%3E]]:5555
 adb emu kill                                                           # 关模拟器
 
 # ── 抓证据 ──

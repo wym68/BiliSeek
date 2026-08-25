@@ -87,13 +87,20 @@ BiliSeek 要填的正是二者之间的空位：**以「听」为默认、以「
 
 ### 合规清单
 
-- [ ] 仓库根目录放置 `LICENSE`（GPLv3 全文）。
-- [ ] 复用自 BiliPai 的源文件保留其版权头；在 `NOTICE` / README 致谢并链接原仓库。
-- [ ] 搬用 BBPlayer 的 Kotlin 文件时，保留其 MIT 许可头与 `Copyright (c) 2025 Roitium.` 版权声明。
-- [ ] ⚠️ **`packages/orpheus/.../io/github/proify/lyricon/**` 的授权需单独回溯确认**——该目录（约 30 个 Kotlin + 6 个 AIDL）包名不属于 BBPlayer，是 vendored 的第三方 Lyricon 协议实现，不能想当然按仓库根 MIT 处理。做桌面歌词（P2）前必须查清。
-- [ ] ⚠️ **README 致谢 biu 时明确标注**：仅参考产品设计与公开接口用法，**未使用其任何代码或资源**（其授权 PolyForm Noncommercial 1.0.0 与本项目 GPLv3 不兼容）。
-- [ ] 发布 APK 时提供对应源代码入口（GPLv3 要求）。
-- [ ] README 附免责声明：数据来自 B 站公开接口、仅供学习研究、非商业、与 B 站无官方关联。
+> 状态截至 MVP 收尾（2026-08-25）
+
+- [x] 仓库根目录放置 `LICENSE`（GPLv3 全文）
+- [x] `NOTICE` 中致谢三个参考项目并逐一说明授权与使用方式
+- [x] README 附免责声明：数据来自 B 站公开接口、仅供学习研究、非商业、与 B 站无官方关联
+- [x] README 明确标注 biu 的 PolyForm Noncommercial 与 GPLv3 不兼容，未使用其代码
+- [ ] 复用自 BiliPai 的源文件保留其版权头
+      —— **当前未逐字复制任何源文件**，均为参照重写；日后直接复制时须补
+- [ ] 搬用 BBPlayer 的 Kotlin 文件时保留 MIT 许可头与版权声明
+      —— **当前未复制**；日后搬 `packages/orpheus` 时须补
+- [ ] ⚠️ `io/github/proify/lyricon/**` 的授权回溯确认
+      —— 做桌面歌词（P2）前必须查清
+- [ ] 发布 APK 时提供对应源代码入口（GPLv3 要求）
+      —— 尚未发布，首次发版时落实
 
 ---
 
