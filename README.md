@@ -124,7 +124,7 @@ echo "org.gradle.java.home=$HOME/android-studio/jbr" >> ~/.gradle/gradle.propert
 | [功能优化篇](docs/BiliSeek-开发文档-功能优化篇.md) | MVP 之后的 M5–M7：先做什么、为什么是它、怎么验 |
 | [MVP 验收清单](docs/BiliSeek-开发文档-MVP验收清单.md) | M0–M4 每个里程碑的验收判据 |
 | [手动测试指南](docs/BiliSeek-手动测试指南.md) | 模拟器 / 真机有线 / 真机无线三条完整流程 |
-| [验收记录](docs/验收记录/) | M0–M7 的实测证据与缺陷记录 |
+| [验收记录](docs/验收记录/) | M0–M7 的实测证据与缺陷记录，含 [Android 16 真机实跑](docs/验收记录/真机-2026-08-26.md) |
 | [学习文档](docs/) | BiliPai / BBPlayer / biu 的读码实录 |
 
 ---

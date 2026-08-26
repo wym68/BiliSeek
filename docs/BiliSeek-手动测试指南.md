@@ -1,8 +1,9 @@
 # BiliSeek 手动测试指南
 
-> 版本：v3.0（补入 M5–M7 功能优化）  
+> 版本：v3.1（补入 M5–M7 功能优化；按真机实跑结果校正）  
 > 日期：2026-08-26  
-> 适用：MVP（M0–M4）+ 功能优化（M5–M7）已完成的构建
+> 适用：MVP（M0–M4）+ 功能优化（M5–M7）已完成的构建  
+> 实跑记录：Part B 步骤 1–20 已在 Android 16 真机上跑通，见[真机验收记录](验收记录/真机-2026-08-26.md)
 
 本文分三条**互相独立、从头到尾可照做**的路径。选一条，从上往下执行即可，不需要在章节间跳转。
 
@@ -196,12 +197,25 @@ adb shell am start -n com.biliseek.debug/com.biliseek.app.MainActivity
 | ---- | ----------------------------------------- |
 | 画面   | 3 秒内出现在原来的封面区，**页面不跳转**                   |
 | 声音   | **不中断、不重复、进度不跳** ← 这才是关键                  |
-| 自检卡片 | 播放页下方出现 `✓ 切换无缝：听 → 看`，buffering=0，seek=0 |
 
 
-再点「**退回「听」**」，同样应看到 `✓ 切换无缝：看 → 听`。
+再点「**退回「听」**」，声音同样不应有任何断点。
 
-> **只要出现 `✗` 就是失败**，说明切换时重新缓冲了或做了 seek。
+耳朵之外还要**用日志坐实**——切换前先清屏，两个方向各切一次：
+
+```bash
+adb logcat -c && adb logcat -d -s BiliSeekPlayer:V > /tmp/switch.log
+grep -ic buffering /tmp/switch.log              # 必须是 0
+grep -ic positionDiscontinuity /tmp/switch.log  # 必须是 0
+```
+
+两个计数**只要不是 0 就是失败**，说明切换时重新缓冲了或做了 seek。再看 `mediaPos` 是否连续：
+
+```
+videoDisabled [eventTime=141.16, mediaPos=75.62]      ← 看 → 听
+videoEnabled  [eventTime=166.18, mediaPos=100.64]     ← 听 → 看
+renderedFirstFrame [eventTime=166.69, mediaPos=101.18]   首帧 0.54 秒
+```
 
 ### 步骤 9 — 跨页面播放不中断
 
@@ -301,10 +315,18 @@ adb shell am force-stop com.biliseek.debug
 adb shell am start -n com.biliseek.debug/com.biliseek.app.MainActivity
 ```
 
-> 模拟器上用命令模拟拖拽（`swipe` 不会触发长按，必须用 `draganddrop`）：
+> 用命令模拟拖拽（`swipe` 不会触发长按）：
 >
 > ```bash
+> # 模拟器：draganddrop 够用
 > adb shell input draganddrop 400 485 400 870 2000
+>
+> # 真机：draganddrop 的按下时长越不过 Compose 的长按阈值，实测无效，
+> # 必须自己拆成「按下 → 停 1 秒 → 逐步移动 → 抬起」
+> adb shell "input motionevent DOWN 400 690; sleep 1; \
+>   for y in 720 780 850 920 990 1060 1130 1200 1260 1290; do \
+>     input motionevent MOVE 400 \$y; done; \
+>   input motionevent UP 400 1290"
 > ```
 
 ### 步骤 14 — 首页空状态
@@ -409,6 +431,16 @@ adb shell locksettings set-disabled false
 
 
 > PiP 黑屏是最典型的失败信号，说明「进后台回落音频」的判定误伤了 PiP。
+
+⚠️ **真机上先确认系统给了权限**，否则根本进不去小窗（音频会继续播，看着像「回落正常」）：
+
+```bash
+adb shell cmd appops get com.biliseek.debug PICTURE_IN_PICTURE     # 期望 allow
+```
+
+返回 `deny` 就手动开：**设置 → 应用管理 → BiliSeek → 权限 → 画中画**。
+国产 ROM（实测 ColorOS / Android 16）默认不给，且**不允许用 adb 改**——
+`cmd appops set` 会报 `SecurityException: uid 2000 does not have MANAGE_APP_OPS_MODES`。
 
 ### 步骤 19 — 续播
 
@@ -624,7 +656,7 @@ adb logcat -c && adb logcat -s BiliSeekAuth:V BiliSeekPlayUrl:V BiliSeekPlayer:V
 | 5   | **拖动进度条**        | 松手位置准确，3 秒后**不回弹**；拖完 3 秒内杀进程重开，位置仍是拖到的那处 |
 | 6   | **切倍速**          | 只高亮一个；音调不变只变快慢                          |
 | 7   | **睡眠定时**         | 「剩余 mm:ss」递减；单曲循环 +「播完当前」时**放完真的停**      |
-| 8   | 点「切「看」」          | 画面出现在原位不跳页；自检卡片 `✓ 切换无缝`                |
+| 8   | 点「切「看」」          | 画面出现在原位不跳页；日志里 buffering / positionDiscontinuity 均为 0 |
 | 9   | 切三个底部页签          | 声音全程不中断，MiniPlayer 常驻                   |
 | 10  | 搜 `album` 点专辑类结果 | 结果里只占一条；点入展开分 P 列表；点某 P 时长对得上           |
 | 11  | **队列面板**         | 「展开」列出全部并高亮当前；点第 3 项跳过去；单曲循环下「下一首」仍换歌   |
@@ -1028,18 +1060,21 @@ adb shell dumpsys activity activities | grep -i PictureInPictureMode
 adb shell dumpsys meminfo com.biliseek.debug | grep "TOTAL PSS"
 ```
 
-## 1.6 界面内的自检卡片
+## 1.6 切换无缝的判据在日志里，不在界面上
 
-有一项**不需要看日志**：切听/看时，播放页会直接显示诊断结果。
+早期版本在播放页显示过一张自检卡片（`✓ 切换无缝：听 → 看 / buffering 0 / seek 0`）。
+**这个卡片在 M3 的播放器容器重构里已被移除**，界面上不再有它——
+诊断数据仍在产出（`PlaybackState.lastSwitch`），但没有 UI 消费。
 
+所以判据落在日志上，见[步骤 8](#步骤-8--一键切看核心卖点)：
+
+```bash
+adb logcat -c && adb logcat -d -s BiliSeekPlayer:V > /tmp/switch.log
+grep -ic buffering /tmp/switch.log              # 须为 0
+grep -ic positionDiscontinuity /tmp/switch.log  # 须为 0
 ```
-✓ 切换无缝：听 → 看
-buffering 次数      0   (须为 0)
-seek 不连续次数     0   (须为 0)
-位置 25340ms → 25342ms
-```
 
-出现 `✗` 即失败。这是把验收判据做进了 App 本身。
+> 想把判据搬回界面也行——`lastSwitch` 是现成的，只差一个 Composable。
 
 ---
 
@@ -1052,7 +1087,7 @@ seek 不连续次数     0   (须为 0)
 | 有数据但播不出声                        | 请求头缺 Referer，CDN 返回 403。看 `BiliSeekHttp` 日志                    |
 | 接口返回 `-412`                     | WBI 签名参数集不对                                                    |
 | 接口返回 `-352`                     | 触发风控。**别反复重试**，等一会儿再用                                          |
-| 切看时声音断一下                        | 播放源被重建了。看自检卡片的 buffering / seek 计数                             |
+| 切看时声音断一下                        | 播放源被重建了。数日志里的 buffering / positionDiscontinuity，须为 0           |
 | 关了画面但流量照跑                       | 只清了 surface 没禁用视频轨。看 `videoDisabled` 日志                        |
 | PiP 窗口黑屏                        | 「进后台」判定误伤了 PiP                                                 |
 | 切页签时声音中断                        | MiniPlayer 被卷进了导航重组                                            |
@@ -1087,10 +1122,12 @@ seek 不连续次数     0   (须为 0)
 | 歌词 / 下载导出 / 收藏夹同步      | P1/P2，未实现                                |
 | 低端机降级策略未移植             | 老机器上模糊/动效不降级                             |
 | 流量策略（仅 Wi-Fi 拉视频）      | 移动网络下看视频不受限                              |
-| **播完后按「播放」无反应**        | 曲目播到结尾后点「播放」不会从头开始，表现为点了没反应              |
+| **播完后按「播放」无反应**        | 模拟器上观察到；**真机（Android 16）未复现**，实测从头开始播。两边行为可能不同，暂留 |
 | **队列内非首条不进播放历史**       | 多 P 视频只有第一个 P 出现在「最近播放」，自动推进的后续曲目不记录     |
 | 拖拽重排依赖固定行高             | 行高写死 72dp；若标题改为可换行会导致落点换算偏移              |
 | 拖拽过程中其他行不实时让位          | 只有被拖行浮起，松手才重排，没有中间态动画                    |
+| **搜索结果行的时长未规整**        | 直接显示接口原样的 `mm:ss`，分钟不进位（如 `667:37`）；歌单与播放页走的是 `h:mm:ss`，三处口径不一致 |
+| **切换无缝的自检卡片已不存在**      | M3 重构时移除，诊断数据仍在产出但无 UI 消费；判据改在日志上，见 [附录 1.6](#16-切换无缝的判据在日志里不在界面上) |
 
 
 **M5–M7 已修掉的老缺口**（旧版本文档里列过，现在不该再出现）：
