@@ -1,14 +1,15 @@
-# BiliSeek 项目开发文档 · 功能优化篇（M5–M7）
+# BiliSeek 项目开发文档 · 功能优化篇（M5–M8）
 
-> 版本：v1.0  
-> 日期：2026-08-25  
+> 版本：v1.1（2026-08-26 补入 M8）  
+> 日期：2026-08-25 / 2026-08-26  
 > 前置文档：《功能选型篇》v0.2、《架构设计篇》v0.2、《MVP 收尾总结》  
-> 范围：MVP（M0–M4）之后的功能优化阶段，拆为 M5 / M6 / M7 三个里程碑。  
+> 范围：MVP（M0–M4）之后的功能优化阶段，拆为 M5 / M6 / M7 / M8 四个里程碑。
+> M5–M7 已完成并验收（含 Android 16 真机实跑），M8 为下一阶段规划。  
 > 用途：本文回答「MVP 之后先做什么、为什么是它、怎么验」。判据部分与《验收清单》同格式，完成时逐条勾选。
 
 ---
 
-## 1. 为什么是这三件事
+## 1. 为什么是这三件事（M5–M7）
 
 MVP 闭环已达成，但**闭环不等于好用**。逐个文件读过现有代码之后，当前状态是「能跑通，但每一步都硌手」。下面每一条都注明了代码位置——这些是读码撞出来的，不是从文档抄的。
 
@@ -197,9 +198,10 @@ suspend fun recordDuration(bvid: String, cid: Long, durationSec: Long) {
 
 ---
 
-## 6. 验收判据
+## 6. M5–M7 验收判据
 
 每个里程碑独立验收，产出 `docs/验收记录/M{n}-{日期}.md`，格式沿用 M0–M4。
+（M8 的判据见 §8.8。）
 
 ### 6.1 自动化
 
@@ -245,7 +247,7 @@ suspend fun recordDuration(bvid: String, cid: Long, durationSec: Long) {
 
 ---
 
-## 7. 收尾
+## 7. M5–M7 的收尾
 
 三个里程碑完成后：
 
@@ -256,3 +258,160 @@ suspend fun recordDuration(bvid: String, cid: Long, durationSec: Long) {
    2026-08-26 已在 PJD110 / Android 16 上跑通《手动测试指南》Part B 步骤 1–20，
    见[真机验收记录](验收记录/真机-2026-08-26.md)。
    **仍欠 Part B 的 B6（步骤 21–27）**：耳机、蓝牙、音频焦点、长时稳定性、流量、Hi-Res、低端机。
+
+---
+
+## 8. M8 — 设置页与音质，外加三项补完
+
+> 版本：规划稿（2026-08-26）  
+> 收口目标：设置页做实、音质这条链路从接口打通到 UI，顺带修掉真机上暴露的三个既有缺口。
+
+### 8.1 为什么是这几件事
+
+M5–M7 抹平了「第一次上手到日常使用」的硌手点，真机也跑通了。但再读一遍代码，有三处很扎眼——**都是「东西已经在了，只差最后一步」**：
+
+| # | 现状 | 代码位置 |
+| --- | --- | --- |
+| 1 | **「设置」页里一个设置项都没有**。`settingsContent` 只塞了一个 `LoginPanel`，选型篇 P1 的「默认模式设置」「流量策略」没有落脚点 | `MainActivity.kt:153` |
+| 2 | **`preferHiRes` 是条死参数**。`resolve()` 收了它、还把它算进缓存 key，但 `toMedia()` 里写死 `collectTracks(dash, preferHiRes = false)`——UI 就算传 `true` 也选不到 Hi-Res 轨 | `PlayUrlResolver.kt:38`、`:79` |
+| 3 | **`measuredLoudness` 白拿着没用**。`ResolvedMedia` 一路带着它，全项目无消费点。B 站投稿音量参差极大，而这个数据是接口白送的 | `PlayUrlResolver.kt:17` |
+
+外加真机实跑（见[真机验收记录](验收记录/真机-2026-08-26.md) §C）暴露的两条与 M7 遗留的一条，一并在本里程碑清掉。
+
+**不做的**：收藏夹同步、歌词、下载导出 m4a 留 M9+；低端机降级不做——手上没有 2–4 GB 的老设备，做完也验不了，属于「写了等于没写」。Cookie 公钥仍留空，保持 `NotConfigured`。
+
+### 8.2 SettingsStore（其余全挂在它上面，先做）
+
+新建 `app/data/SettingsStore.kt`，照 `SessionStore.kt:26` 的现成写法（`preferencesDataStore` + `load()` + `StateFlow`）。DataStore 已在用，不引新库。
+
+```kotlin
+data class AppSettings(
+    val defaultPresentation: DefaultPresentation = AUDIO_ONLY,  // 出厂守身份：默认只听
+    val lastPresentationWasVideo: Boolean = false,              // 「记住上次」用
+    val allowVideoOnMetered: Boolean = false,                   // 流量策略
+    val audioQuality: AudioQuality = AUTO,
+    val loudnessNormalization: Boolean = true,
+)
+```
+
+`AppViewModel` 已是 `AndroidViewModel`（`AppViewModel.kt:58`），在构造处与 `network` / `library` 并列即可。
+
+UI 新建 `app/ui/SettingsScreen.kt`，分四组：播放 / 网络 / 音质 / 账号。**账号一组直接复用现有 `LoginPanel`**（`LoginScreen.kt:23`），不重写。
+
+### 8.3 流量策略与默认模式
+
+- 判定抽成纯函数 `resolveVideoGate(settings, isMetered): VideoGate`（`Allow` / `BlockedByMetered`），放 `app/data/VideoGatePolicy.kt`，配单测——与 `ReorderPolicy` / `QueuePolicy` 同一惯例。
+- 计量网络用 `ConnectivityManager.isActiveNetworkMetered` 在 VM 里读，**策略本身保持纯函数**。
+- 被拦时给一次性放行（「仍要看」），**不写回设置**：一次例外不该变成永久开关。
+- 「记住上次」：`onPresentationChange` 时写 `lastPresentationWasVideo`；起播后是否自动切 INLINE **必须在 UI 层决定**——`surfaceView` 由 `AppShell` 持有，VM 拿不到。
+
+### 8.4 音质选择与 Hi-Res 打通（本里程碑的主体）
+
+设计在《架构设计篇》§4.4 已定好，照它执行。
+
+**取流层**（`core/player/internal/`）：
+
+- `toMedia(data)` 改为 `toMedia(data, preferHiRes)`，把 `resolve()` 的参数真正传下去——**就是 §8.1 那个死值**。
+- `collectTracks`（`LocalDashManifestBuilder.kt:49`）已有 flac 分支，补杜比：DTO 里 `Dash.dolby` 已存在（`BiliDto.kt:95`），条件是 `type > 0 且 codecs 含 ec-3/eac3`。
+- 新建 `internal/QualityPolicy.kt`：纯函数 `resolveEffectiveQuality(requested, speed, available)`，落实 §4.4 的边界——**倍速 > 1.5× 时 Hi-Res/杜比自动回退 AAC**。回退原因用密封类暴露（`不可用 / 倍速不兼容 / 无可播放音频`），配单测。
+
+**门面层**（`PlayerConnection.kt`）：
+
+- 加 `var qualityProvider: (() -> AudioQuality)?`，照 `resumePositionProvider`（`:67`）/ `durationRecorder`（`:77`）的解耦惯例——播放内核不认识设置存储。
+- `play()` 里改调 `resolver.resolve(bvid, cid, preferHiRes = ...)`（当前在 `:166`）。
+- 切倍速时若生效的是 Hi-Res 且新倍速 > 1.5×，重新取流降级。缓存 key 已含 `preferHiRes`，两份天然分开，不会互相污染。
+- `PlaybackState` 加 `audioQuality` 与 `qualityFallback`，播放页显示**实际生效**的音质与回退原因，而不是用户请求的那个。
+
+**解码兼容**（`PlaybackService.kt:42`）：
+
+- 新建 `internal/HiResCompatibleRenderersFactory.kt`，把 FLAC 解码器最小输入缓冲抬到 1 MiB，在 `ExoPlayer.Builder` 上 `setRenderersFactory(...)`。
+- 依据：部分设备只给 `c2.android.flac.decoder` 分配 32 KiB，B 站 Hi-Res 单帧会超，抛 `InsufficientCapacityException`（《架构设计篇》§4.4 边界 2，照搬 BiliPai）。
+- ⚠️ **这条合入时验不了**——需要真机 + 大会员账号。写的时候就要接受它带着「未验证」标记进仓库，别在验收记录里含糊过去。
+
+### 8.5 响度均衡
+
+- `VolumeInfo` 里 `measured_i` 与 `target_i` **都有**（`BiliDto.kt:76-77`），把 `targetI` 一并带进 `ResolvedMedia`。
+- 新建纯函数 `internal/LoudnessPolicy.kt`：`loudnessGain(measuredI, targetI): Float`，配单测。两个硬边界：
+  - `measuredI == 0.0`（无数据）→ `1.0f`
+  - **结果 clamp 到 (0, 1]**——`Player.setVolume` 只能衰减不能增益，算出 >1 的增益若不夹回，表现是「开了响度均衡但毫无变化」，最难排查的那种。
+- `play()` 取流后按设置套用；开关关掉时恢复 `1.0f`。
+
+### 8.6 三项补完
+
+#### 队列内非首条不进播放历史
+
+根因已定位：所有队列推进（`skipToIndex` `:253`、`skipToNext` `:259`、播完自动推进 `onTrackEnded` `:271`）都收敛到 `play(item, fromQueue = true)`，而 `recordPlay` 只在 VM 的三个**起播入口**调（`AppViewModel.kt:407 / 421 / 483`）。
+
+- `PlayerConnection` 加 `var trackStartRecorder: (suspend (PlaybackRequest.Bili) -> Unit)?`，在 `play()` 里**取流之前**调用。顺序不能反——`AppViewModel.kt:476` 的注释写明了原因：历史行必须先落库，取流后的时长回写走「更新已有行」的窄接口，行不存在时那次写会静默丢掉。
+- `PlaybackRequest.Bili` 补 `author` 与 `durationSec`，让回调一处写全，然后**删掉 VM 里那三处手动 `recordPlay`**。不补字段的话回调只能写残缺行，反而不如现状。
+
+#### 搜索结果行的时长口径
+
+搜索行直接显示接口原样的 `mm:ss`（分钟不进位，如 `667:37`），而歌单与播放页走的是 `h:mm:ss`。改成过一遍现成的 `parseDurationText`（`SearchInput.kt`）+ `formatDuration`（`Formatting.kt:9`）。
+**边界**：解析失败返回 0 时**回退显示原文**，不要把无法解析的时长显示成 `00:00`。
+
+#### 全屏入口重做
+
+c006079 把全屏整个移除了（手势有缺陷），但《架构设计篇》§7.2 的 overlay 方案保留、`PresentationMode.FULLSCREEN` 在 core 里也留着且有单测——UI 层重新接上即可。
+
+- **入口改成显式按钮**（看模式下视频区角落），**不再用 `detectVerticalDragGestures`**——那正是当初的缺陷来源。
+- 结构照 §7.2：`AppShell.kt:75` 的 `Box` 里加 `FullscreenPlayerOverlay` 分支，Scaffold 原样不动。不走「把底部导航逐个隐掉」那条路。
+- **SurfaceView 单父容器约束必须正面处理**：`PlayerSurface.kt:20` 的 factory 虽会先 `removeView`，但全屏与内联同时渲染时会抢父容器。做法是全屏时让内联那份**不渲染** `PlayerSurface`（`PlayerContainer.kt:253` 的分支加条件），保证同一时刻只有一个宿主。c006079 的提交说明把这个隐患写得很清楚，重做时不能装作没看见。
+- 返回键恢复分级：FULLSCREEN → EXPANDED → COLLAPSED（`AppShell.kt:71` 的 `BackHandler`）。
+- 沉浸式由 overlay 自己在进入/退出时开关系统栏。
+
+### 8.7 建议的落地顺序
+
+分三段，每段自成一个可提交、可验的整体：
+
+1. **M8-A 补完**（队列历史 + 时长口径）——改动小、风险低，先把真机暴露的缺口修掉。
+2. **M8-B 设置与音质**（§8.2–8.5）——主体。`SettingsStore` 先落地，其余都挂在它上面。
+3. **M8-C 全屏**（§8.6 第三项）——UI 层独立，放最后，出问题不影响前两段。
+
+### 8.8 验收判据
+
+> ✅ **已验收**（2026-08-26，模拟器 API 35）：D-1 ~ D-7、D-9 八条实测通过；
+> D-8 因搜索接口被环境限流只有单测，D-10 需大会员 + 特定机型未验证。
+> 详见 [M8 验收记录](验收记录/M8-2026-08-26.md)。
+
+#### 自动化
+
+```bash
+./gradlew test                        # 新增纯函数全部要有覆盖
+./gradlew connectedDebugAndroidTest   # DB 未变更，应保持通过
+./gradlew installDebug
+```
+
+新增单测清单：`resolveEffectiveQuality`（含倍速 > 1.5× 回退）、`loudnessGain`（无数据 / clamp 上界）、`resolveVideoGate`、`parseDurationText` 的脏数据回退。
+
+#### 手动判据（真机）
+
+| # | 判据 | 说明 |
+| --- | --- | --- |
+| D-1 | 设置页四组均可用，改完杀进程重开仍生效 | 验 `SettingsStore` 落库 |
+| D-2 | 移动网络下切「看」被拦，且「仍要看」可一次性放行 | 放行**不得**写回设置 |
+| D-3 | 「记住上次」开启后，起播自动进看模式；关闭时守默认只听 | 产品身份的兜底 |
+| ★ D-4 | 选 Hi-Res 后播放页显示**实际生效**音质（大会员账号） | **本里程碑最硬的判据**，验死参数是否真打通 |
+| ★ D-5 | Hi-Res 播放中切到 2.0× → 自动回退 AAC 并给出原因 | §4.4 边界 1 |
+| D-6 | 开关响度均衡，音量有可感知变化；无响度数据的视频不受影响 | 验 clamp 与 0.0 分支 |
+| ★ D-7 | 队列自动推进后的曲目**出现在「最近播放」** | 验 `trackStartRecorder` |
+| D-8 | 搜索结果时长为 `h:mm:ss`，无法解析的仍显示原文 | |
+| D-9 | 全屏进出画面不闪断，返回键逐级收回 | 验 SurfaceView 单宿主 |
+| ⏸ D-10 | Hi-Res FLAC 在真机不崩（`InsufficientCapacityException`） | 需大会员 + 特定机型，合入时大概率**未验证** |
+
+#### 与真机补测的交集
+
+Part B 的 B6（步骤 21–27）与本里程碑并行进行，两处有交集：
+
+- **步骤 26 Hi-Res** 要等 M8-B 落地后才有意义——现在没有任何 UI 能请求 Hi-Res。
+- **步骤 25 流量对比**正好顺带验 D-2：移动网络下看模式应被拦。
+
+### 8.9 收尾
+
+1. ✅ 《功能选型篇》P1 清单勾掉：音质选择 / 响度均衡 / 流量策略 / 默认模式设置。
+2. ✅ 《架构设计篇》§4.4 与 §7.2 去掉「当前未启用」标注。
+3. ✅ 《手动测试指南》补设置页、音质与全屏三个步骤（21–23），真机独有项顺延到 24–30。
+4. ✅ 产出 [`docs/验收记录/M8-2026-08-26.md`](验收记录/M8-2026-08-26.md)。
+
+**留给下一阶段的两条尾巴**：无损音质的正向命中与 FLAC 解码兼容都需要大会员账号；
+搜索结果时长口径（D-8）只有单测，等真机上顺手看一眼。

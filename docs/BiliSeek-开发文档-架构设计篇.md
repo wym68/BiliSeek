@@ -166,7 +166,10 @@ B 站返回的是 DASH 的 JSON 而非标准 MPD，需自行拼装喂给 Media3�
 
 playurl 响应整份缓存，TTL 取略小于实际有效期（约 2h）。切模式、重播、从 MiniPlayer 恢复都命中缓存，不重新请求。
 
-### 4.4 音质选择 【已定】
+### 4.4 音质选择 【已定】✅ M8 已落地
+
+落点：策略在 `core/player/internal/QualityPolicy.kt`（纯函数 + 单测），
+取流在 `PlayUrlResolver`，偏好经 `PlayerConnection.preferenceProvider` 注入。
 
 三个独立来源，优先级由用户偏好决定：
 
@@ -373,8 +376,11 @@ Scaffold
 
 **关键设计**：从听到看到全屏，全程没有导航栈操作。「退回听」始终是一步可逆的状态变更，不涉及返回栈——这是守住「视频不反客为主」的结构性保障。
 
-**全屏的层级** ⏸ **当前未启用**：视频区上滑进全屏的手势有缺陷，已在 MVP 阶段移除，
-播放与显示的更多形态留待后续优化。下面的设计保留，实现时按此执行。
+**全屏的层级** ✅ **M8 已落地**：MVP 阶段用过「视频区上滑进全屏」，触发判定有缺陷被整个移除；
+M8 重做时**入口改成显式按钮**，把那类误触从根上去掉，层级按下面的设计执行。
+
+> 实现时的硬约束：全屏与内联**不能同时渲染** `PlayerSurface`——
+> 同一个 SurfaceView 只能有一个父容器，两处并存会抛 `already has a parent`。
 
 全屏时播放器容器**提升到 Scaffold 之上**成为顶层 overlay，Scaffold 本身原样不动。
 
@@ -463,7 +469,7 @@ BiliPai `docs/wiki/ui-design/` 的 15+ 份设计规范（方向、基础、排�
 | --- | --- | --- |
 | MediaController 无法转发 surface / 轨道参数 | **架构级**，需退回单例方案 | M0 优先验证 |
 | B 站风控策略变动（WBI/ticket 算法调整） | 全站不可用 | 三件套集中在 `:core:network`，改动面收敛；关注上游项目更新 |
-| FLAC 解码在部分设备崩溃 | Hi-Res 不可用 | 已知解法（1 MiB 输入缓冲），P1 落地时一并处理 |
+| FLAC 解码在部分设备崩溃 | Hi-Res 不可用 | M8 已按已知解法预防（`HiResCompatibleRenderersFactory` 把输入缓冲抬到 1 MiB），**但需大会员 + 特定机型才验得到，目前未实测** |
 | Cookie 刷新流程复杂度被低估 | 用户周期性掉登录 | 排期单列，复用 BiliPai 现成实现 |
 | `design-system` 组件 Miuix 耦合比预期深 | 视觉移植受阻 | 渐进剥离，先只用 token 层 |
 
