@@ -1,15 +1,19 @@
 package com.biliseek.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -19,15 +23,25 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.biliseek.app.data.PlaylistEntity
 import com.biliseek.app.data.PlaylistTrack
+import com.biliseek.app.data.reorderNeighbors
+import com.biliseek.app.data.reorderTargetIndex
+import com.biliseek.core.player.formatDuration
+import kotlin.math.roundToInt
 
 @Composable
 fun LibraryScreen(
@@ -41,13 +55,22 @@ fun LibraryScreen(
     onRename: (Long, String) -> Unit,
     onTrackClick: (PlaylistTrack) -> Unit,
     onTrackRemove: (Long) -> Unit,
+    onTrackReorder: (Long, Double?, Double?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
 
     if (openedPlaylist != null) {
-        PlaylistDetail(openedPlaylist, tracks, onClose, onTrackClick, onTrackRemove, modifier)
+        PlaylistDetail(
+            openedPlaylist,
+            tracks,
+            onClose,
+            onTrackClick,
+            onTrackRemove,
+            onTrackReorder,
+            modifier,
+        )
         return
     }
 
@@ -109,8 +132,14 @@ private fun PlaylistDetail(
     onClose: () -> Unit,
     onTrackClick: (PlaylistTrack) -> Unit,
     onTrackRemove: (Long) -> Unit,
+    onTrackReorder: (Long, Double?, Double?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 拖拽态。行高固定，位移换算成「挪了几格」即可，不必测量每一行
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val rowHeightPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
+
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
@@ -125,16 +154,63 @@ private fun PlaylistDetail(
                 Text("空歌单。在搜索结果里长按可加入", style = MaterialTheme.typography.bodySmall)
             }
         } else {
+            Text(
+                "长按条目可拖动排序",
+                Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.labelSmall,
+            )
             LazyColumn(Modifier.fillMaxSize()) {
-                items(tracks, key = { it.track.id }) { item ->
+                itemsIndexed(tracks, key = { _, it -> it.track.id }) { index, item ->
+                    val dragging = draggingId == item.track.id
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .height(ROW_HEIGHT)
+                            .zIndex(if (dragging) 1f else 0f)
+                            .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
+                            .background(
+                                if (dragging) {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
+                            .pointerInput(item.track.id, tracks.size) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        draggingId = item.track.id
+                                        dragOffset = 0f
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragOffset += amount.y
+                                    },
+                                    onDragEnd = {
+                                        val slots = (dragOffset / rowHeightPx).roundToInt()
+                                        val to = reorderTargetIndex(index, slots, tracks.size)
+                                        if (to != index) {
+                                            val (before, after) = reorderNeighbors(
+                                                tracks.map { it.sortKey },
+                                                index,
+                                                to,
+                                            )
+                                            onTrackReorder(item.track.id, before, after)
+                                        }
+                                        draggingId = null
+                                        dragOffset = 0f
+                                    },
+                                    onDragCancel = {
+                                        draggingId = null
+                                        dragOffset = 0f
+                                    },
+                                )
+                            }
                             .clickable { onTrackClick(item) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        CoverThumbnail(item.track.coverUrl, width = 72.dp)
                         Column(Modifier.weight(1f)) {
                             Text(
                                 item.track.title,
@@ -142,7 +218,11 @@ private fun PlaylistDetail(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(item.track.author, style = MaterialTheme.typography.labelSmall)
+                            Text(
+                                item.track.author + "  " +
+                                    formatDuration(item.track.durationSec * 1000),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
                         }
                         TextButton(onClick = { onTrackRemove(item.track.id) }) { Text("移除") }
                     }
@@ -152,6 +232,9 @@ private fun PlaylistDetail(
         }
     }
 }
+
+/** 固定行高，拖拽位移据此换算成挪动了几格。 */
+private val ROW_HEIGHT = 72.dp
 
 @Composable
 private fun NameDialog(title: String, initial: String, onDone: (String) -> Unit) {

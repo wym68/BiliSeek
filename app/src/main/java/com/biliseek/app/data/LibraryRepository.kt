@@ -60,6 +60,12 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
 
     fun observeHeatmap(days: Int = 90): Flow<List<DayCount>> = history.observeHeatmap(days)
 
+    /**
+     * 记录一次播放。
+     *
+     * [positionMs] 传 `null` 表示**保留既有进度**——起播时调用本方法不应该把
+     * 续播位置抹平，那正是「点最近播放却从头开始」的成因。
+     */
     suspend fun recordPlay(
         bvid: String,
         cid: Long,
@@ -67,7 +73,7 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
         author: String = "",
         coverUrl: String = "",
         durationSec: Long = 0,
-        positionMs: Long = 0,
+        positionMs: Long? = null,
     ) {
         val existing = history.find(bvid, cid)
         history.upsert(
@@ -79,7 +85,7 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
                 author = author.ifBlank { existing?.author.orEmpty() },
                 coverUrl = coverUrl.ifBlank { existing?.coverUrl.orEmpty() },
                 durationSec = if (durationSec > 0) durationSec else existing?.durationSec ?: 0,
-                positionMs = positionMs,
+                positionMs = positionMs ?: existing?.positionMs ?: 0L,
                 playedAt = System.currentTimeMillis(),
             ),
         )
@@ -89,6 +95,19 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     suspend fun recordPlayPosition(bvid: String, cid: Long, positionMs: Long) {
         val existing = history.find(bvid, cid) ?: return
         history.upsert(existing.copy(positionMs = positionMs, playedAt = System.currentTimeMillis()))
+    }
+
+    /**
+     * 取流后回写时长，**不动 positionMs / playedAt**。
+     *
+     * 不能复用 [recordPlay]：那是「记录一次播放」的语义，会刷新播放时间，
+     * 把一次后台的时长补写伪装成用户又听了一遍。
+     */
+    suspend fun recordDuration(bvid: String, cid: Long, durationSec: Long) {
+        if (durationSec <= 0) return
+        val existing = history.find(bvid, cid) ?: return
+        if (existing.durationSec == durationSec) return
+        history.upsert(existing.copy(durationSec = durationSec))
     }
 
     /** 续播用：取上次播放位置。 */

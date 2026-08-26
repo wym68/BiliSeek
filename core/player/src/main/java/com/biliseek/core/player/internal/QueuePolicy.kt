@@ -32,6 +32,23 @@ internal fun resolvePreviousIndex(current: Int, size: Int, mode: PlayMode): Int?
     }
 }
 
+/**
+ * 「下一首播放」的插入位置。
+ *
+ * 队列为空或还没起播（[current] < 0）时追加到末尾；否则插在当前项之后。
+ */
+internal fun resolveEnqueueNextIndex(current: Int, size: Int): Int =
+    if (current < 0) size else (current + 1).coerceAtMost(size)
+
+/**
+ * 在 [insertAt] 处插入一项后，当前下标应变成什么。
+ *
+ * 插入点在当前项**之前或同位**时，当前项被顶下去了一格；否则不动。
+ * 忘了修正这个下标，「下一首播放」就会表现为「插完之后正在播的歌变了」。
+ */
+internal fun resolveIndexAfterInsert(current: Int, insertAt: Int): Int =
+    if (current >= 0 && insertAt <= current) current + 1 else current
+
 /** 手动「下一首」。单曲循环下手动下一首也应换歌，不能原地打转。 */
 internal fun resolveManualNextIndex(current: Int, size: Int, mode: PlayMode): Int? {
     if (size <= 0) return null

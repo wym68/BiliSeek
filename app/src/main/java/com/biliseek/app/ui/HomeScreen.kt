@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.DayCount
 import com.biliseek.app.data.PlayHistoryEntity
 import com.biliseek.app.data.SearchHistoryEntity
+import com.biliseek.core.player.formatDuration
 
 /**
  * 首页空状态。
@@ -53,7 +54,7 @@ fun HomeEmptyState(
     ) {
         if (searchHistory.isEmpty() && recentPlays.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(32.dp)) {
-                Text("Seek and you shall hear.", style = MaterialTheme.typography.titleMedium)
+                Text("Seek and you shall find.", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "搜索全 B 站，默认只听。想看画面时一键切换。",
                     style = MaterialTheme.typography.bodySmall,
@@ -100,6 +101,7 @@ fun HomeEmptyState(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            CoverThumbnail(entry.coverUrl, width = 72.dp)
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     entry.title,
@@ -108,7 +110,8 @@ fun HomeEmptyState(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    "${entry.positionMs / 1000}s / ${entry.durationSec}s",
+                                    formatDuration(entry.positionMs) + " / " +
+                                        formatDuration(entry.durationSec * 1000),
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }

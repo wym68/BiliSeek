@@ -10,6 +10,11 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.internal.PlayUrlResolver
+import com.biliseek.core.player.internal.SleepTimerSpec
+import com.biliseek.core.player.internal.deadlineAfter
+import com.biliseek.core.player.internal.hasSleepTimerExpired
+import com.biliseek.core.player.internal.resolveEnqueueNextIndex
+import com.biliseek.core.player.internal.resolveIndexAfterInsert
 import com.biliseek.core.player.internal.resolveManualNextIndex
 import com.biliseek.core.player.internal.resolveStartPosition
 import com.biliseek.core.player.internal.resolveNextIndex
@@ -17,6 +22,8 @@ import com.biliseek.core.player.internal.resolvePlaybackMode
 import com.biliseek.core.player.internal.resolvePreviousIndex
 import com.biliseek.core.player.internal.resolveTrackSelectionParameters
 import com.biliseek.core.player.internal.shouldEnableVideoTrack
+import com.biliseek.core.player.internal.shouldStopOnTrackEnd
+import com.biliseek.core.player.internal.sleepTimerRemaining
 import com.biliseek.core.player.internal.switchLabel
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +35,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 
 /**
@@ -40,6 +49,7 @@ import kotlin.coroutines.resume
 class PlayerConnection(private val context: Context) {
 
     private var controller: MediaController? = null
+    private val connectMutex = Mutex()
     private var scope: CoroutineScope? = null
     private val resolver = PlayUrlResolver(BiliNetwork.get(context))
 
@@ -58,6 +68,16 @@ class PlayerConnection(private val context: Context) {
 
     /** 播放位置回写，用于续播与最近播放。 */
     var positionRecorder: (suspend (String, Long, Long) -> Unit)? = null
+
+    /**
+     * 时长回写：`(bvid, cid, durationSec)`。取流拿到时长后调用一次。
+     *
+     * 与上面两个回调并列——播放内核不认识数据库，这是本模块既有的解耦惯例。
+     */
+    var durationRecorder: (suspend (String, Long, Long) -> Unit)? = null
+
+    /** 睡眠定时器。归本类持有：用户设完就会锁屏走开，状态不能绑 UI 生命周期。 */
+    private var sleepTimer: SleepTimerSpec? = null
 
     // 切换诊断窗口：setPresentation 期间统计 buffering 与 seek 不连续
     private var recording = false
@@ -85,8 +105,14 @@ class PlayerConnection(private val context: Context) {
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) = pushState()
     }
 
-    suspend fun connect() {
-        if (controller != null) return
+    /**
+     * 绑定播放服务。可重入：并发调用只会真正建立一次连接。
+     *
+     * 加锁的原因是 [play] 会自己补一次 connect——外部分享进来时，
+     * 起播请求与启动时的 connect 是并发的，不锁会建出两个 controller。
+     */
+    suspend fun connect() = connectMutex.withLock {
+        if (controller != null) return@withLock
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val future = MediaController.Builder(context, token).buildAsync()
         val mediaController = suspendCancellableCoroutine { cont ->
@@ -113,7 +139,14 @@ class PlayerConnection(private val context: Context) {
      * 这是「默认听」承诺在时序上的落点。
      */
     suspend fun play(request: PlaybackRequest, fromQueue: Boolean = false) {
-        val c = controller ?: return
+        // 起播可能早于绑定完成——外部分享会新建一个 Activity，
+        // onCreate 里就把链接喂了进来，而 connect() 还在路上。
+        // 早期写法是 `controller ?: return`，请求就这么无声无息地丢了。
+        if (controller == null) runCatching { connect() }
+        val c = controller ?: run {
+            _state.value = _state.value.copy(isResolving = false, error = "播放器未就绪")
+            return
+        }
         if (!fromQueue) {
             queue = listOf(request)
             queueIndex = 0
@@ -155,7 +188,17 @@ class PlayerConnection(private val context: Context) {
             title = request.title,
             bvid = (request as? PlaybackRequest.Bili)?.bvid.orEmpty(),
             cid = (request as? PlaybackRequest.Bili)?.cid ?: 0L,
+            coverUrl = (request as? PlaybackRequest.Bili)?.coverUrl.orEmpty(),
         )
+
+        // 时长回写。取流是唯一知道真实时长的地方——播放器要 prepare 完才有 duration，
+        // 而用户可能在那之前就退出，界面会一直显示「/ 0s」。
+        (request as? PlaybackRequest.Bili)?.let { r ->
+            val durationSec = (media?.durationMs ?: 0L) / 1000
+            if (durationSec > 0) {
+                durationRecorder?.invoke(r.bvid, r.cid ?: 0L, durationSec)
+            }
+        }
         // 续播位置必须在 setMediaItem 时一并给出。
         // 早期写法是 prepare() 之后再 seekTo()，经 MediaController 异步转发到
         // session 时时序不可靠，seek 会被起播流程覆盖掉——表现为「续播没生效」。
@@ -179,9 +222,38 @@ class PlayerConnection(private val context: Context) {
         items.getOrNull(queueIndex)?.let { play(it, fromQueue = true) }
     }
 
+    /**
+     * 重放当前条目。取流失败后的「重试」入口。
+     *
+     * 取流失败时队列与下标都还在，重放即可——不必让 UI 记住上一次的请求参数。
+     */
+    fun retry() {
+        val request = queue.getOrNull(queueIndex) ?: return
+        scope?.launch { play(request, fromQueue = true) }
+    }
+
     fun setPlayMode(mode: PlayMode) {
         playMode = mode
         pushState()
+    }
+
+    /** 「下一首播放」。插在当前项之后，不打断正在播的这首。 */
+    fun enqueueNext(request: PlaybackRequest) {
+        if (queue.isEmpty() || queueIndex < 0) {
+            scope?.launch { play(request) }
+            return
+        }
+        val at = resolveEnqueueNextIndex(queueIndex, queue.size)
+        queue = queue.toMutableList().apply { add(at, request) }
+        queueIndex = resolveIndexAfterInsert(queueIndex, at)
+        pushState()
+    }
+
+    /** 队列面板里点某一项直接跳过去。 */
+    fun skipToIndex(index: Int) {
+        val target = queue.getOrNull(index) ?: return
+        queueIndex = index
+        scope?.launch { play(target, fromQueue = true) }
     }
 
     fun skipToNext() {
@@ -198,6 +270,13 @@ class PlayerConnection(private val context: Context) {
 
     /** 播完自动推进。与手动切歌不同：单曲循环下这里原地重播。 */
     private fun onTrackEnded() {
+        // 「播完当前曲目再停」优先于播放模式——单曲循环下也必须真的停下来
+        if (shouldStopOnTrackEnd(sleepTimer)) {
+            sleepTimer = null
+            controller?.pause()
+            pushState()
+            return
+        }
         val next = resolveNextIndex(queueIndex, queue.size, playMode) ?: return
         queueIndex = next
         scope?.launch { queue.getOrNull(next)?.let { play(it, fromQueue = true) } }
@@ -218,6 +297,55 @@ class PlayerConnection(private val context: Context) {
     fun togglePlayPause() {
         val c = controller ?: return
         if (c.isPlaying) c.pause() else c.play()
+    }
+
+    /**
+     * 跳转到指定位置。
+     *
+     * 回写不能等 [recordPositionIfNeeded] 的 5 秒节流：用户拖完进度条随手切后台，
+     * 进程被杀时那一次拖动就白拖了。这里归零节流并立刻强制写一次。
+     */
+    fun seekTo(positionMs: Long) {
+        val c = controller ?: return
+        val duration = c.duration.takeIf { it > 0 } ?: 0L
+        val target = when {
+            duration > 0 -> positionMs.coerceIn(0L, duration)
+            else -> positionMs.coerceAtLeast(0L)
+        }
+        c.seekTo(target)
+        lastRecordedAt = 0L
+        recordPositionNow(target)
+        pushState()
+    }
+
+    /** 相对快进 / 快退。供进度条之外的入口（通知栏按钮、耳机键）复用。 */
+    fun seekBy(deltaMs: Long) {
+        val c = controller ?: return
+        seekTo(c.currentPosition + deltaMs)
+    }
+
+    /** 倍速。音调由 ExoPlayer 的时间伸缩保持不变。 */
+    fun setSpeed(speed: Float) {
+        val c = controller ?: return
+        c.setPlaybackSpeed(speed)
+        pushState()
+    }
+
+    /** 设倒计时睡眠定时器。[durationMs] 非正视为取消。 */
+    fun setSleepTimer(durationMs: Long) {
+        sleepTimer = deadlineAfter(System.currentTimeMillis(), durationMs)
+        pushState()
+    }
+
+    /** 播完当前曲目再停。 */
+    fun setSleepTimerEndOfTrack() {
+        sleepTimer = SleepTimerSpec.EndOfTrack
+        pushState()
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimer = null
+        pushState()
     }
 
     /**
@@ -298,6 +426,8 @@ class PlayerConnection(private val context: Context) {
 
     private fun pushState() {
         val c = controller ?: return
+        checkSleepTimer()
+        val now = System.currentTimeMillis()
         val hasMedia = c.mediaItemCount > 0
         val videoSelected = c.currentTracks.groups.any { group ->
             group.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && group.isSelected
@@ -313,8 +443,19 @@ class PlayerConnection(private val context: Context) {
             queue = queue,
             queueIndex = queueIndex,
             playMode = playMode,
+            sleepTimerRemainingMs = sleepTimerRemaining(sleepTimer, now),
+            sleepTimerEndOfTrack = sleepTimer is SleepTimerSpec.EndOfTrack,
+            speed = c.playbackParameters.speed,
         )
         recordPositionIfNeeded()
+    }
+
+    /** 倒计时到点即暂停。250ms 的轮询循环保证了判定粒度。 */
+    private fun checkSleepTimer() {
+        val c = controller ?: return
+        if (!hasSleepTimerExpired(sleepTimer, System.currentTimeMillis())) return
+        sleepTimer = null
+        if (c.isPlaying) c.pause()
     }
 
     private var lastRecordedAt = 0L
@@ -330,6 +471,17 @@ class PlayerConnection(private val context: Context) {
         lastRecordedAt = now
         scope?.launch {
             recorder(request.bvid, request.cid ?: 0L, c.currentPosition.coerceAtLeast(0L))
+        }
+    }
+
+    /** 无视节流、无视是否在播，立刻回写一次。位置由调用方给出——`seekTo` 是异步转发的，
+     *  紧接着读 `currentPosition` 拿到的可能还是旧值。 */
+    private fun recordPositionNow(positionMs: Long) {
+        val recorder = positionRecorder ?: return
+        val request = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili ?: return
+        lastRecordedAt = System.currentTimeMillis()
+        scope?.launch {
+            recorder(request.bvid, request.cid ?: 0L, positionMs.coerceAtLeast(0L))
         }
     }
 

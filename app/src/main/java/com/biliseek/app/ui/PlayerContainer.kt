@@ -2,7 +2,6 @@ package com.biliseek.app.ui
 
 import android.view.SurfaceView
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -11,27 +10,43 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
+import com.biliseek.core.player.formatDuration
 
 /**
  * 播放器容器的展开程度。
@@ -40,6 +55,21 @@ import com.biliseek.core.player.PresentationMode
  * 播放与显示的更多形态留待后续优化（见《架构设计篇》§7.2）。
  */
 enum class PlayerExpansion { COLLAPSED, EXPANDED }
+
+/**
+ * 展开播放器控制区的一项。
+ *
+ * 控制区由**动作列表驱动渲染**，不是写死的 Row。后续「歌词」「音质」「下载」
+ * 只需往列表里追加一项，布局代码不动——这是《功能优化篇》§3.5 要求的扩展位。
+ */
+data class PlayerAction(
+    val key: String,
+    val label: String,
+    val enabled: Boolean = true,
+    /** 主要动作用实心按钮，其余用描边按钮。 */
+    val primary: Boolean = false,
+    val onClick: () -> Unit,
+)
 
 /**
  * 常驻播放器容器。
@@ -60,6 +90,12 @@ fun PlayerContainer(
     onSkipNext: () -> Unit = {},
     onSkipPrevious: () -> Unit = {},
     onCyclePlayMode: () -> Unit = {},
+    onSeek: (Long) -> Unit = {},
+    onSetSpeed: (Float) -> Unit = {},
+    /** 0 取消、负数表示「播完当前」、正数为倒计时毫秒。 */
+    onSetSleepTimer: (Long) -> Unit = {},
+    onRetryPlayback: () -> Unit = {},
+    onQueueSkipTo: (Int) -> Unit = {},
 ) {
     when (expansion) {
         PlayerExpansion.COLLAPSED -> MiniPlayer(
@@ -78,6 +114,11 @@ fun PlayerContainer(
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
             onCyclePlayMode = onCyclePlayMode,
+            onSeek = onSeek,
+            onSetSpeed = onSetSpeed,
+            onSetSleepTimer = onSetSleepTimer,
+            onRetryPlayback = onRetryPlayback,
+            onQueueSkipTo = onQueueSkipTo,
             modifier = modifier,
         )
     }
@@ -113,6 +154,7 @@ private fun MiniPlayer(
                 } else {
                     0f
                 }
+                // Mini 上的进度条不可拖：这么细的条子拖不准，拖动入口在展开态
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().height(2.dp),
@@ -123,8 +165,9 @@ private fun MiniPlayer(
                         .clickable(onClick = onExpand)
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    CoverThumbnail(state.coverUrl, width = 56.dp)
                     Column(Modifier.weight(1f)) {
                         Text(
                             state.title.ifBlank { "BiliSeek" },
@@ -133,7 +176,8 @@ private fun MiniPlayer(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            "${state.positionMs / 1000}s / ${state.durationMs / 1000}s" +
+                            formatDuration(state.positionMs) + " / " +
+                                formatDuration(state.durationMs) +
                                 if (state.presentation != PresentationMode.NONE) " · 看" else " · 听",
                             style = MaterialTheme.typography.labelSmall,
                         )
@@ -158,11 +202,19 @@ private fun ExpandedPlayer(
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
     onCyclePlayMode: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onSetSpeed: (Float) -> Unit,
+    onSetSleepTimer: (Long) -> Unit,
+    onRetryPlayback: () -> Unit,
+    onQueueSkipTo: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().padding(16.dp),
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -184,10 +236,19 @@ private fun ExpandedPlayer(
                 contentAlignment = Alignment.Center,
             ) {
                 if (state.presentation == PresentationMode.NONE) {
-                    Text(
-                        if (state.isResolving) "取流中…" else "纯音频模式",
-                        color = Color.White,
-                    )
+                    if (state.coverUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = state.coverUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    if (state.isResolving) {
+                        Text("取流中…", color = Color.White)
+                    } else if (state.coverUrl.isBlank()) {
+                        Text("纯音频模式", color = Color.White)
+                    }
                 } else {
                     PlayerSurface(surfaceView, Modifier.fillMaxSize())
                 }
@@ -200,77 +261,266 @@ private fun ExpandedPlayer(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            PlayerControls(state, surfaceView, onTogglePlayPause, onPresentationChange)
+            ProgressBar(state, onSeek)
 
-            QueueControls(state, onSkipPrevious, onSkipNext, onCyclePlayMode, onEnterPip)
+            PlayerActionRow(
+                buildPlayerActions(
+                    state = state,
+                    surfaceView = surfaceView,
+                    onTogglePlayPause = onTogglePlayPause,
+                    onPresentationChange = onPresentationChange,
+                    onSkipPrevious = onSkipPrevious,
+                    onSkipNext = onSkipNext,
+                    onCyclePlayMode = onCyclePlayMode,
+                    onEnterPip = onEnterPip,
+                ),
+            )
 
+            SpeedRow(state.speed, onSetSpeed)
+            SleepTimerRow(state, onSetSleepTimer)
+
+            if (state.queue.size > 1) {
+                QueuePanel(state, onQueueSkipTo)
+            }
+
+            // 取流失败不是死路：队列与下标都还在，重放即可
             state.error?.let {
-                Text("错误：$it", style = MaterialTheme.typography.bodySmall, color = Color.Red)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "取流失败：$it",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Red,
+                    )
+                    Button(onClick = onRetryPlayback) { Text("重试") }
+                }
             }
         }
     }
 }
 
+/**
+ * 可拖动的进度条。
+ *
+ * **拖动期间必须用本地状态。** 250ms 的 `pushState()` 轮询会不停推来播放器的真实位置，
+ * 若 `Slider` 直接绑 `state.positionMs`，手指还没松开就会被拽回去。
+ */
 @Composable
-private fun PlayerControls(
-    state: PlaybackState,
-    surfaceView: SurfaceView,
-    onTogglePlayPause: () -> Unit,
-    onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        androidx.compose.material3.OutlinedButton(onClick = onTogglePlayPause) {
-            Text(if (state.isPlaying) "暂停" else "播放")
-        }
-        if (state.presentation == PresentationMode.NONE) {
-            androidx.compose.material3.Button(
-                onClick = { onPresentationChange(PresentationMode.INLINE, surfaceView) },
-            ) { Text("切「看」") }
-        } else {
-            androidx.compose.material3.Button(
-                onClick = { onPresentationChange(PresentationMode.NONE, null) },
-            ) { Text("退回「听」") }
+private fun ProgressBar(state: PlaybackState, onSeek: (Long) -> Unit) {
+    var dragging by remember { mutableStateOf(false) }
+    var dragValue by remember { mutableFloatStateOf(0f) }
+
+    val duration = state.durationMs
+    val max = duration.coerceAtLeast(1L).toFloat()
+    val value = (if (dragging) dragValue else state.positionMs.toFloat()).coerceIn(0f, max)
+
+    Column {
+        Slider(
+            value = value,
+            onValueChange = {
+                // 只改本地，不下发 seek——否则每一帧都是一次跳转
+                dragging = true
+                dragValue = it
+            },
+            onValueChangeFinished = {
+                onSeek(dragValue.toLong())
+                dragging = false
+            },
+            valueRange = 0f..max,
+            enabled = duration > 0,
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatDuration(value.toLong()), style = MaterialTheme.typography.labelSmall)
+            Text(formatDuration(duration), style = MaterialTheme.typography.labelSmall)
         }
     }
 }
 
-@Composable
-private fun QueueControls(
+private fun buildPlayerActions(
     state: PlaybackState,
+    surfaceView: SurfaceView,
+    onTogglePlayPause: () -> Unit,
+    onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
     onCyclePlayMode: () -> Unit,
     onEnterPip: () -> Unit,
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        androidx.compose.material3.OutlinedButton(
-            onClick = onSkipPrevious,
-            enabled = state.hasPrevious,
-        ) { Text("上一首") }
-        androidx.compose.material3.OutlinedButton(
-            onClick = onSkipNext,
-            enabled = state.hasNext,
-        ) { Text("下一首") }
-        androidx.compose.material3.OutlinedButton(onClick = onCyclePlayMode) {
-            Text(
-                when (state.playMode) {
-                    com.biliseek.core.player.PlayMode.SEQUENTIAL -> "顺序"
-                    com.biliseek.core.player.PlayMode.REPEAT_ALL -> "列表循环"
-                    com.biliseek.core.player.PlayMode.REPEAT_ONE -> "单曲"
-                    com.biliseek.core.player.PlayMode.SHUFFLE -> "随机"
-                },
-            )
-        }
-        if (state.presentation != PresentationMode.NONE) {
-            androidx.compose.material3.OutlinedButton(onClick = onEnterPip) { Text("画中画") }
-        }
+): List<PlayerAction> = buildList {
+    add(
+        PlayerAction(
+            key = "play",
+            label = if (state.isPlaying) "暂停" else "播放",
+            onClick = onTogglePlayPause,
+        ),
+    )
+    add(
+        if (state.presentation == PresentationMode.NONE) {
+            PlayerAction("presentation", "切「看」", primary = true) {
+                onPresentationChange(PresentationMode.INLINE, surfaceView)
+            }
+        } else {
+            PlayerAction("presentation", "退回「听」", primary = true) {
+                onPresentationChange(PresentationMode.NONE, null)
+            }
+        },
+    )
+    add(PlayerAction("previous", "上一首", enabled = state.hasPrevious, onClick = onSkipPrevious))
+    add(PlayerAction("next", "下一首", enabled = state.hasNext, onClick = onSkipNext))
+    add(
+        PlayerAction(
+            key = "playMode",
+            label = when (state.playMode) {
+                com.biliseek.core.player.PlayMode.SEQUENTIAL -> "顺序"
+                com.biliseek.core.player.PlayMode.REPEAT_ALL -> "列表循环"
+                com.biliseek.core.player.PlayMode.REPEAT_ONE -> "单曲"
+                com.biliseek.core.player.PlayMode.SHUFFLE -> "随机"
+            },
+            onClick = onCyclePlayMode,
+        ),
+    )
+    if (state.presentation != PresentationMode.NONE) {
+        add(PlayerAction("pip", "画中画", onClick = onEnterPip))
     }
-    if (state.queue.size > 1) {
-        Text(
-            "队列 ${state.queueIndex + 1} / ${state.queue.size}",
-            style = MaterialTheme.typography.labelSmall,
-        )
+    // 后续「歌词」「音质」「下载」在此追加即可，无需改动布局
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlayerActionRow(actions: List<PlayerAction>) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        actions.forEach { action ->
+            if (action.primary) {
+                Button(onClick = action.onClick, enabled = action.enabled) { Text(action.label) }
+            } else {
+                OutlinedButton(onClick = action.onClick, enabled = action.enabled) {
+                    Text(action.label)
+                }
+            }
+        }
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SpeedRow(current: Float, onSetSpeed: (Float) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("倍速", style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SPEEDS.forEach { speed ->
+                FilterChip(
+                    // 浮点相等不可靠，比差值
+                    selected = kotlin.math.abs(current - speed) < 0.01f,
+                    onClick = { onSetSpeed(speed) },
+                    label = { Text("${speed}×") },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SleepTimerRow(state: PlaybackState, onSetSleepTimer: (Long) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                buildString {
+                    append("睡眠定时")
+                    state.sleepTimerRemainingMs?.let { append(" · 剩余 ${formatDuration(it)}") }
+                    if (state.sleepTimerEndOfTrack) append(" · 播完当前")
+                },
+                style = MaterialTheme.typography.labelMedium,
+            )
+            if (state.sleepTimerActive) {
+                TextButton(onClick = { onSetSleepTimer(0) }) { Text("取消") }
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SLEEP_MINUTES.forEach { minutes ->
+                FilterChip(
+                    selected = false,
+                    onClick = { onSetSleepTimer(minutes * 60_000L) },
+                    label = { Text("$minutes 分钟") },
+                )
+            }
+            FilterChip(
+                selected = state.sleepTimerEndOfTrack,
+                onClick = { onSetSleepTimer(-1) },
+                label = { Text("播完当前") },
+            )
+        }
+    }
+}
+
+/**
+ * 队列面板。
+ *
+ * 早期只有一行「队列 N / M」——知道自己在队列里，却看不见队列有什么、也跳不过去。
+ * 默认收起：多 P 视频动辄几十上百条，展开后会把控制区顶出屏幕。
+ */
+@Composable
+private fun QueuePanel(state: PlaybackState, onSkipTo: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "队列 ${state.queueIndex + 1} / ${state.queue.size}",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "收起" else "展开")
+            }
+        }
+        if (!expanded) return@Column
+
+        state.queue.forEachIndexed { index, request ->
+            val current = index == state.queueIndex
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onSkipTo(index) }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "${index + 1}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    request.title.ifBlank { "未命名" },
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (current) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+                if (current) {
+                    Text("正在播放", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+private val SPEEDS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+private val SLEEP_MINUTES = listOf(15, 30, 60)
 
 private const val DRAG_THRESHOLD = 8f

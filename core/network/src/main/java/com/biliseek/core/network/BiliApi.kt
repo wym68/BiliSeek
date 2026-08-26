@@ -13,6 +13,7 @@ import com.biliseek.core.network.dto.RefreshData
 import com.biliseek.core.network.dto.SearchData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.Field
@@ -79,6 +80,14 @@ interface BiliApi {
     @GET("x/web-interface/wbi/search/type")
     suspend fun searchType(@QueryMap params: Map<String, String>): BiliResponse<SearchData>
 
+    /**
+     * 展开 b23.tv 短链。OkHttp 默认跟随重定向，最终地址从 `response.raw().request.url` 取。
+     *
+     * 返回体是最终页面的 HTML，用不上，取到 URL 就关掉。
+     */
+    @GET
+    suspend fun resolveShortLink(@Url url: String): Response<ResponseBody>
+
     // ── 登录（passport 域，用全 URL）────────────────────
 
     @GET
@@ -91,6 +100,14 @@ interface BiliApi {
     ): Response<BiliResponse<QrPollData>>
 
     // ── Cookie 刷新 ────────────────────────────────────
+
+    /**
+     * `refresh_csrf` 藏在这个页面的 HTML 里，不是 JSON。
+     * 返回原始 [ResponseBody] 由调用方解析——Retrofit 原生支持，
+     * 不必为**一个**接口引入 HTML 转换器。
+     */
+    @GET
+    suspend fun correspond(@Url url: String): Response<ResponseBody>
 
     @GET
     suspend fun cookieInfo(

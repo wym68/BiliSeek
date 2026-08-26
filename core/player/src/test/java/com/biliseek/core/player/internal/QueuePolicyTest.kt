@@ -8,6 +8,45 @@ import org.junit.Test
 
 class QueuePolicyTest {
 
+    // ── 「下一首播放」的插入 ────────────────────────────
+
+    @Test
+    fun `插在当前项之后`() {
+        assertEquals(1, resolveEnqueueNextIndex(current = 0, size = 3))
+        assertEquals(3, resolveEnqueueNextIndex(current = 2, size = 5))
+    }
+
+    @Test
+    fun `当前是最后一项时追加到末尾`() {
+        assertEquals(3, resolveEnqueueNextIndex(current = 2, size = 3))
+    }
+
+    @Test
+    fun `还没起播时追加到末尾`() {
+        assertEquals(0, resolveEnqueueNextIndex(current = -1, size = 0))
+        assertEquals(4, resolveEnqueueNextIndex(current = -1, size = 4))
+    }
+
+    /**
+     * 忘了修正下标，「下一首播放」就会表现为「插完之后正在播的歌变了」。
+     * 插在当前项之后时下标不动；插在之前或同位时要顺延一格。
+     */
+    @Test
+    fun `插入后修正当前下标`() {
+        assertEquals(2, resolveIndexAfterInsert(current = 2, insertAt = 3))
+        assertEquals(3, resolveIndexAfterInsert(current = 2, insertAt = 2))
+        assertEquals(3, resolveIndexAfterInsert(current = 2, insertAt = 0))
+        assertEquals(-1, resolveIndexAfterInsert(current = -1, insertAt = 0))
+    }
+
+    @Test
+    fun `下一首播放不会顶掉正在播的那一首`() {
+        val current = 1
+        val at = resolveEnqueueNextIndex(current, size = 4)
+        assertEquals(current, resolveIndexAfterInsert(current, at))
+    }
+
+
     @Test
     fun `顺序播放到末尾即停止`() {
         assertEquals(1, resolveNextIndex(0, 3, PlayMode.SEQUENTIAL))

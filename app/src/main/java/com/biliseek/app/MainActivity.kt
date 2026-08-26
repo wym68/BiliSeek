@@ -1,6 +1,10 @@
 package com.biliseek.app
 
 import android.app.PictureInPictureParams
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -27,7 +31,9 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
+import com.biliseek.app.ui.PlaylistPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
+import com.biliseek.core.network.sharedTextFrom
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
 class MainActivity : ComponentActivity() {
@@ -44,6 +50,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         ensureNotificationPermission()
+        handleSharedIntent(intent)
 
         setContent {
             BiliSeekTheme {
@@ -57,6 +64,7 @@ class MainActivity : ComponentActivity() {
                 val searchHistory by viewModel.searchHistory.collectAsState()
                 val recentPlays by viewModel.recentPlays.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
+                val pendingAdd by viewModel.pendingAdd.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
 
@@ -88,6 +96,11 @@ class MainActivity : ComponentActivity() {
                     onSkipNext = viewModel::skipNext,
                     onSkipPrevious = viewModel::skipPrevious,
                     onCyclePlayMode = viewModel::cyclePlayMode,
+                    onSeek = viewModel::seekTo,
+                    onSetSpeed = viewModel::setSpeed,
+                    onSetSleepTimer = viewModel::setSleepTimer,
+                    onRetryPlayback = viewModel::retryPlayback,
+                    onQueueSkipTo = viewModel::queueSkipTo,
                     searchContent = {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
                         val showEmptyState = search.items.isEmpty() &&
@@ -99,10 +112,14 @@ class MainActivity : ComponentActivity() {
                             onKeywordChange = viewModel::onKeywordChange,
                             onSubmit = viewModel::submitSearch,
                             onResultClick = viewModel::onResultClick,
-                            onResultLongClick = { viewModel.addToPlaylist(it) },
+                            onAddToPlaylist = viewModel::requestAddToPlaylist,
+                            onPlayNext = viewModel::enqueueNext,
+                            onCopyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
+                            onShowPages = viewModel::showPages,
                             onLoadMore = viewModel::loadMore,
                             onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
                             onDismissPages = viewModel::dismissPages,
+                            onRetry = viewModel::retrySearch,
                             emptyContent = {
                                 if (showEmptyState) {
                                     HomeEmptyState(
@@ -130,6 +147,7 @@ class MainActivity : ComponentActivity() {
                             onRename = viewModel::renamePlaylist,
                             onTrackClick = viewModel::playTrack,
                             onTrackRemove = viewModel::removeFromPlaylist,
+                            onTrackReorder = viewModel::reorderTrack,
                         )
                     },
                     settingsContent = {
@@ -143,8 +161,45 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                 )
+
+                // 加入歌单不再替用户选第一个：问清楚加到哪儿
+                pendingAdd?.let {
+                    PlaylistPickerDialog(
+                        playlists = playlists,
+                        onPick = viewModel::confirmAddToPlaylist,
+                        onCreate = viewModel::createPlaylistAndAdd,
+                        onDismiss = viewModel::dismissAddToPlaylist,
+                    )
+                }
             }
         }
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("BiliSeek", text))
+    }
+
+    /**
+     * 分享 / 链接进来的第二处入口。
+     *
+     * **两处都要接。** App 已在后台时系统不会再走 `onCreate`，
+     * 只漏这一处的表现是「第一次分享能用，第二次点了没反应」。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSharedIntent(intent)
+    }
+
+    private fun handleSharedIntent(intent: Intent?) {
+        val text = sharedTextFrom(
+            action = intent?.action,
+            type = intent?.type,
+            extraText = intent?.getStringExtra(Intent.EXTRA_TEXT),
+            dataString = intent?.dataString,
+        ) ?: return
+        viewModel.handleSharedText(text)
     }
 
     /**

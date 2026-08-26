@@ -53,6 +53,8 @@ sealed interface PlaybackRequest {
         val bvid: String,
         val cid: Long? = null,
         override val title: String = "",
+        /** 封面。随请求一路带到 [PlaybackState]，展开播放器与通知栏都要用。 */
+        val coverUrl: String = "",
     ) : PlaybackRequest
 }
 
@@ -86,6 +88,8 @@ data class PlaybackState(
     val title: String = "",
     val bvid: String = "",
     val cid: Long = 0,
+    /** 当前条目封面，纯音频模式下顶替黑框 */
+    val coverUrl: String = "",
     val lastSwitch: SwitchDiagnostics? = null,
     /** 取流中（网络请求阶段，尚未进入播放器） */
     val isResolving: Boolean = false,
@@ -94,7 +98,16 @@ data class PlaybackState(
     val queue: List<PlaybackRequest> = emptyList(),
     val queueIndex: Int = -1,
     val playMode: PlayMode = PlayMode.SEQUENTIAL,
+    /** 睡眠定时器剩余毫秒。null 表示没设倒计时（可能设了「播完当前」）。 */
+    val sleepTimerRemainingMs: Long? = null,
+    /** 「播完当前曲目再停」已生效。此模式剩余时间不可预估，故与上一字段并存。 */
+    val sleepTimerEndOfTrack: Boolean = false,
+    val speed: Float = 1.0f,
 ) {
+    /** 定时器是否已设置——两种终止条件任一生效即为真。 */
+    val sleepTimerActive: Boolean
+        get() = sleepTimerRemainingMs != null || sleepTimerEndOfTrack
+
     val hasPrevious: Boolean
         get() = queue.size > 1 && (playMode != PlayMode.SEQUENTIAL || queueIndex > 0)
 

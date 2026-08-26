@@ -56,6 +56,8 @@ class BiliNetwork private constructor(context: Context) {
 
     val loginManager: LoginManager = LoginManager(api, sessionStore)
 
+    val cookieRefresher: CookieRefresher = CookieRefresher(api, sessionStore)
+
     /**
      * 播放器取流时要用的请求头。
      * B 站 CDN 校验 Referer，ExoPlayer 的 DataSource 必须带上，否则 403。

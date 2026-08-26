@@ -24,6 +24,7 @@ serialization = "1.11.0"
 datastore = "1.2.1"
 zxing = "3.5.3"
 room = "2.8.4"
+coil = "3.5.0"
 ksp = "2.3.11"
 
 # 协程
@@ -69,6 +70,10 @@ room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
+# 图片加载。coil-network-okhttp 让封面请求走我们自己的 OkHttp（Referer 注入）
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }

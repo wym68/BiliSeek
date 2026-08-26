@@ -65,6 +65,113 @@ private fun decodeHtmlEntities(text: String): String = text
     .replace("&nbsp;", " ")
     .replace("&amp;", "&")
 
+/**
+ * AV 号 → BV 号。**本地换算，不打网络请求。**
+ *
+ * B 站公开的换表算法：`(1<<51 | aid) xor XOR_CODE` 后按 Base58 换表填进固定位置，
+ * 再交换两组下标打乱。多一次网络请求就是多给服务端一个「这个客户端不认识 BV」的行为特征，
+ * 与本项目「不留多余行为特征」的取向相悖。
+ */
+fun avToBv(aid: Long): String {
+    require(aid > 0) { "aid 必须为正：$aid" }
+    val chars = charArrayOf('B', 'V', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0')
+    var index = chars.size - 1
+    var tmp = (MAX_AID or aid) xor XOR_CODE
+    while (tmp > 0 && index >= 0) {
+        chars[index] = BV_ALPHABET[(tmp % BV_BASE).toInt()]
+        tmp /= BV_BASE
+        index--
+    }
+    swap(chars, 3, 9)
+    swap(chars, 4, 7)
+    return String(chars)
+}
+
+/** BV 号 → AV 号。[avToBv] 的逆运算，本身没有调用点，但让换算的正确性可以被往返验证。 */
+fun bvToAv(bvid: String): Long {
+    require(bvid.length == 12 && bvid.startsWith("BV")) { "不是合法 BV 号：$bvid" }
+    val chars = bvid.toCharArray()
+    swap(chars, 3, 9)
+    swap(chars, 4, 7)
+    var tmp = 0L
+    for (i in 3 until chars.size) {
+        val digit = BV_ALPHABET.indexOf(chars[i])
+        require(digit >= 0) { "BV 号含非法字符：${chars[i]}" }
+        tmp = tmp * BV_BASE + digit
+    }
+    return (tmp and BV_MASK_CODE) xor XOR_CODE
+}
+
+private fun swap(chars: CharArray, a: Int, b: Int) {
+    val t = chars[a]
+    chars[a] = chars[b]
+    chars[b] = t
+}
+
+private const val XOR_CODE = 23442827791579L
+private const val BV_MASK_CODE = 2251799813685247L
+private const val MAX_AID = 1L shl 51
+private const val BV_BASE = 58L
+private const val BV_ALPHABET = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
+
+/**
+ * 短链展开后的落点是否可信。
+ *
+ * `b23.tv` 是通用短链服务，**重定向落点不保证还在 B 站**。
+ * 不校验就等于把「跟随任意 302」的能力交给了链接的提供者。
+ */
+fun isTrustedBiliHost(url: String): Boolean {
+    val host = Regex("^https?://([^/?#]+)", RegexOption.IGNORE_CASE)
+        .find(url.trim())
+        ?.groupValues
+        ?.get(1)
+        ?.substringAfter('@') // 挡掉 https://bilibili.com@evil.com/ 这类写法
+        ?.substringBefore(':')
+        ?.lowercase()
+        ?: return false
+    return host == "bilibili.com" || host.endsWith(".bilibili.com")
+}
+
+/**
+ * 从外部分享的 Intent 里取出待解析文本。
+ *
+ * 只收字符串，不认识 `Intent`——这样它能和其他解析函数一样被单测覆盖。
+ * `ACTION_SEND` 走 [extraText]（B 站 App 的「分享到」），
+ * `ACTION_VIEW` 走 [dataString]（浏览器里点链接）。
+ */
+fun sharedTextFrom(
+    action: String?,
+    type: String?,
+    extraText: String?,
+    dataString: String?,
+): String? = when {
+    action == ACTION_SEND && type?.startsWith("text/") == true ->
+        extraText?.takeIf { it.isNotBlank() }
+    action == ACTION_VIEW -> dataString?.takeIf { it.isNotBlank() }
+    else -> null
+}
+
+private const val ACTION_SEND = "android.intent.action.SEND"
+private const val ACTION_VIEW = "android.intent.action.VIEW"
+
+/**
+ * 解析搜索结果里的时长文本，返回秒数。
+ *
+ * 接口给的是 `"4:32"` / `"1:02:03"` 这样的展示文本而非数字，
+ * 但它是入库时**唯一**能拿到时长的地方——取流要等到真正播放才发生。
+ * 解析不出来返回 0，由后续播放时的时长回写补上。
+ */
+fun parseDurationText(text: String): Long {
+    val parts = text.trim().split(':')
+    if (parts.isEmpty() || parts.size > 3) return 0
+    var total = 0L
+    for (part in parts) {
+        val value = part.trim().toLongOrNull()?.takeIf { it >= 0 } ?: return 0
+        total = total * 60 + value
+    }
+    return total
+}
+
 /** 封面地址返回的是 `//i0.hdslb.com/...`，需补协议。 */
 fun normalizeCoverUrl(pic: String): String = when {
     pic.isBlank() -> ""

@@ -54,6 +54,11 @@ fun AppShell(
     onSkipNext: () -> Unit = {},
     onSkipPrevious: () -> Unit = {},
     onCyclePlayMode: () -> Unit = {},
+    onSeek: (Long) -> Unit = {},
+    onSetSpeed: (Float) -> Unit = {},
+    onSetSleepTimer: (Long) -> Unit = {},
+    onRetryPlayback: () -> Unit = {},
+    onQueueSkipTo: (Int) -> Unit = {},
     searchContent: @Composable () -> Unit,
     libraryContent: @Composable () -> Unit,
     settingsContent: @Composable () -> Unit,
@@ -126,6 +131,11 @@ fun AppShell(
                 onSkipNext = onSkipNext,
                 onSkipPrevious = onSkipPrevious,
                 onCyclePlayMode = onCyclePlayMode,
+                onSeek = onSeek,
+                onSetSpeed = onSetSpeed,
+                onSetSleepTimer = onSetSleepTimer,
+                onRetryPlayback = onRetryPlayback,
+                onQueueSkipTo = onQueueSkipTo,
             )
         }
 

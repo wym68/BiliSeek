@@ -71,6 +71,26 @@ class SearchInputTest {
     }
 
     @Test
+    fun `时长文本解析成秒`() {
+        assertEquals(272L, parseDurationText("4:32"))
+        assertEquals(3723L, parseDurationText("1:02:03"))
+        assertEquals(0L, parseDurationText("0:00"))
+        assertEquals(59L, parseDurationText("59"))
+        assertEquals(272L, parseDurationText("  4:32  "))
+    }
+
+    /** 解析不出来返回 0，交给播放时的时长回写补上，绝不能抛异常打断入库。 */
+    @Test
+    fun `时长文本脏数据返回零`() {
+        assertEquals(0L, parseDurationText(""))
+        assertEquals(0L, parseDurationText("   "))
+        assertEquals(0L, parseDurationText("--"))
+        assertEquals(0L, parseDurationText("4:3x"))
+        assertEquals(0L, parseDurationText("1:2:3:4"))
+        assertEquals(0L, parseDurationText("-1:30"))
+    }
+
+    @Test
     fun `封面地址补协议`() {
         assertEquals("https://i0.hdslb.com/a.jpg", normalizeCoverUrl("//i0.hdslb.com/a.jpg"))
         assertEquals("https://x.com/a.jpg", normalizeCoverUrl("https://x.com/a.jpg"))

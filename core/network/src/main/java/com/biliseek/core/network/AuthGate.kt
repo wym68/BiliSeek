@@ -8,14 +8,20 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.biliseek.core.network.internal.BiliCredentials
+import com.biliseek.core.network.internal.RetryBudget
+import com.biliseek.core.network.internal.SeedingProfile
 import com.biliseek.core.network.internal.buildActivationPayload
 import com.biliseek.core.network.internal.hmacSha256Hex
+import com.biliseek.core.network.internal.nextBackoffMs
+import com.biliseek.core.network.internal.retryBudgetFor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,9 +66,9 @@ class AuthGate(
     var current: BiliCredentials = BiliCredentials.EMPTY
         private set
 
-    /** 启动时调用。立即返回，准备工作在后台进行。 */
+    /** 启动时调用。立即返回，准备工作在后台进行，走慢退避预算。 */
     fun start() {
-        scope.launch { ensureReady() }
+        scope.launch { ensureReady(SeedingProfile.BACKGROUND) }
     }
 
     /**
@@ -73,10 +79,13 @@ class AuthGate(
      * 调用方会无限挂起——界面上表现为「取流中」转不完，既无错误也无恢复路径。
      *
      * 每次调用都会重新触发一轮 [ensureReady]，因此网络恢复后用户再点一次即可自愈。
+     *
+     * 走 [SeedingProfile.FOREGROUND] 预算：**不退避、不重试、短超时**。
+     * 用户在等，多试几次只是把「转圈」拉长；报错并给一个「重试」按钮才是有用的。
      */
     suspend fun awaitReady(): BiliCredentials {
         (state.value as? AuthState.Ready)?.let { return it.credentials }
-        ensureReady()
+        ensureReady(SeedingProfile.FOREGROUND)
         return when (val s = state.value) {
             is AuthState.Ready -> s.credentials
             is AuthState.Failed -> throw IllegalStateException("风控凭据不可用：${s.reason}")
@@ -93,38 +102,63 @@ class AuthGate(
         }
     }
 
-    private suspend fun ensureReady() {
-        mutex.withLock {
-            if (_state.value is AuthState.Ready) return
+    /**
+     * 按 [profile] 的预算种植凭据。
+     *
+     * **锁不覆盖退避。** 早期实现把整个 `repeat(5)` 指数退避（合计 31 秒纯等待）
+     * 圈在 `mutex.withLock` 里，后台预热一旦进入退避，所有用户请求全被堵死，
+     * 错误要约 85 秒才浮现。这里退避一律在锁外。
+     *
+     * 每次尝试还整体套一层超时——前台请求可能不是卡在网络上，而是卡在
+     * 后台预热持有的那把锁上，只限制网络耗时救不了它。
+     */
+    private suspend fun ensureReady(profile: SeedingProfile) {
+        val budget = retryBudgetFor(profile)
+        var attempt = 0
+        while (true) {
+            val error = attemptSeed(budget) ?: return
 
-            restore()?.let { restored ->
-                if (restored.isValid()) {
-                    current = restored
-                    _state.value = AuthState.Ready(restored)
-                    Log.d(TAG, "凭据从本地恢复，跳过网络请求")
-                    return
-                }
+            Log.w(TAG, "凭据获取失败（第 ${attempt + 1} 次，$profile）：${error.message}")
+            // 后台可能刚刚种成，别把已经就绪的状态覆盖回失败
+            if (_state.value !is AuthState.Ready) {
+                _state.value = AuthState.Failed(error.message ?: "unknown")
             }
 
-            _state.value = AuthState.Preparing
-            var backoffMs = INITIAL_BACKOFF_MS
-            repeat(MAX_ATTEMPTS) { attempt ->
-                runCatching { fetchCredentials() }
-                    .onSuccess { credentials ->
-                        current = credentials
-                        persist(credentials)
-                        _state.value = AuthState.Ready(credentials)
-                        Log.d(TAG, "风控凭据种植完成")
-                        return
-                    }
-                    .onFailure { error ->
-                        Log.w(TAG, "凭据获取失败（第 ${attempt + 1} 次）：${error.message}")
-                        _state.value = AuthState.Failed(error.message ?: "unknown")
-                        delay(backoffMs)
-                        backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
-                    }
+            val backoff = nextBackoffMs(budget, attempt) ?: return
+            delay(backoff) // ← 锁外
+            attempt++
+        }
+    }
+
+    /** 一次种植尝试。成功返回 `null`，失败返回原因。 */
+    private suspend fun attemptSeed(budget: RetryBudget): Throwable? = try {
+        val done = withTimeoutOrNull(budget.attemptTimeoutMs) { seedOnce() } != null
+        if (done) null else IllegalStateException("凭据种植超时（${budget.attemptTimeoutMs}ms）")
+    } catch (e: CancellationException) {
+        throw e // 真正的取消要放行，不能当成一次失败吞掉
+    } catch (e: Exception) {
+        e
+    }
+
+    /** 临界区：检查状态 → 取凭据 → 写入。不含任何退避等待。 */
+    private suspend fun seedOnce() = mutex.withLock {
+        if (_state.value is AuthState.Ready) return@withLock
+
+        restore()?.let { restored ->
+            if (restored.isValid()) {
+                current = restored
+                _state.value = AuthState.Ready(restored)
+                Log.d(TAG, "凭据从本地恢复，跳过网络请求")
+                return@withLock
             }
         }
+
+        _state.value = AuthState.Preparing
+        val credentials = fetchCredentials()
+        current = credentials
+        persist(credentials)
+        _state.value = AuthState.Ready(credentials)
+        Log.d(TAG, "风控凭据种植完成")
     }
 
     /** 两次请求备齐三件套。 */
@@ -212,10 +246,6 @@ class AuthGate(
         /** GenWebTicket 的固定常量。 */
         const val TICKET_KEY_ID = "ec02"
         const val TICKET_HMAC_KEY = "XgwSnGZ1p"
-
-        const val MAX_ATTEMPTS = 5
-        const val INITIAL_BACKOFF_MS = 1_000L
-        const val MAX_BACKOFF_MS = 30_000L
 
         val KEY_BUVID3 = stringPreferencesKey("buvid3")
         val KEY_BUVID4 = stringPreferencesKey("buvid4")
