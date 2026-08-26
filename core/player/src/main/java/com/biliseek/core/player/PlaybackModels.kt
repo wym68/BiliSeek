@@ -55,7 +55,54 @@ sealed interface PlaybackRequest {
         override val title: String = "",
         /** 封面。随请求一路带到 [PlaybackState]，展开播放器与通知栏都要用。 */
         val coverUrl: String = "",
+        /**
+         * UP 主与时长。**播放历史要用**：队列自动推进时只有请求本身知道这些字段，
+         * 不随请求带着，落库的就是残缺行。
+         */
+        val author: String = "",
+        val durationSec: Long = 0,
     ) : PlaybackRequest
+}
+
+/**
+ * 播放偏好。由设置页提供，取流时现读。
+ *
+ * 只放**会影响取流与音频输出**的项——界面偏好（默认呈现态、流量策略）留在 app 层，
+ * 播放内核不该知道有「页面」这回事。
+ */
+data class PlaybackPreferences(
+    val audioQuality: AudioQuality = AudioQuality.AUTO,
+    val loudnessNormalization: Boolean = true,
+)
+
+/**
+ * 音质偏好。用户在设置页里选，播放时按《架构设计篇》§4.4 解析成实际轨道。
+ */
+enum class AudioQuality {
+    /** 跟随网络自适应，从普通 AAC 里挑。出厂默认。 */
+    AUTO,
+
+    /** 优先无损 / 杜比（需大会员）。拿不到时回退 AAC，回退原因见 [QualityFallback]。 */
+    LOSSLESS,
+
+    /** 省流量：固定选最低码率的那条音频轨。 */
+    SAVER,
+}
+
+/** 音质没能按用户所选生效时的原因。UI 要如实说出来，而不是默默降级。 */
+enum class QualityFallback {
+    /** 按用户所选生效，没有回退。 */
+    NONE,
+
+    /** 这个视频没有无损 / 杜比轨，或账号没有权限。 */
+    UNAVAILABLE,
+
+    /**
+     * 倍速与无损不兼容，已降到 AAC。
+     *
+     * 见《架构设计篇》§4.4 边界 1：高倍速下 Hi-Res / 杜比有兼容问题。
+     */
+    SPEED_INCOMPATIBLE,
 }
 
 /**
@@ -103,6 +150,9 @@ data class PlaybackState(
     /** 「播完当前曲目再停」已生效。此模式剩余时间不可预估，故与上一字段并存。 */
     val sleepTimerEndOfTrack: Boolean = false,
     val speed: Float = 1.0f,
+    /** **实际生效**的音质，不是用户请求的那个。两者不一致时 [qualityFallback] 说明原因。 */
+    val audioQuality: AudioQuality = AudioQuality.AUTO,
+    val qualityFallback: QualityFallback = QualityFallback.NONE,
 ) {
     /** 定时器是否已设置——两种终止条件任一生效即为真。 */
     val sleepTimerActive: Boolean

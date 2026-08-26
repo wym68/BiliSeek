@@ -298,7 +298,10 @@ private fun ResultRow(video: SearchVideo, onClick: () -> Unit, onLongClick: () -
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(video.author, style = MaterialTheme.typography.labelSmall)
-                Text(video.duration, style = MaterialTheme.typography.labelSmall)
+                Text(
+                    com.biliseek.app.ui.normalizeDurationText(video.duration),
+                    style = MaterialTheme.typography.labelSmall,
+                )
                 Text("${video.play} 播放", style = MaterialTheme.typography.labelSmall)
             }
         }

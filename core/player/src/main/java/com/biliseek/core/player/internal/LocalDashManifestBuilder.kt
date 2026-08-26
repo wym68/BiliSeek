@@ -2,6 +2,7 @@ package com.biliseek.core.player.internal
 
 import com.biliseek.core.network.dto.Dash
 import com.biliseek.core.network.dto.DashTrack
+import com.biliseek.core.player.AudioQuality
 import java.util.Locale
 
 /**
@@ -45,17 +46,25 @@ internal fun buildLocalDashManifest(
     append("</MPD>").append('\n')
 }
 
-/** 从 dash 数据里挑出要放进 manifest 的轨道。 */
-internal fun collectTracks(dash: Dash, preferHiRes: Boolean = false): Pair<List<DashTrack>, List<DashTrack>> {
-    val videos = dash.video.filter { it.url().isNotBlank() }.sortedByDescending { it.id }
+/** manifest 的输入：视频轨、音频轨，以及这批音频轨是不是无损 / 杜比。 */
+internal data class CollectedTracks(
+    val videos: List<DashTrack>,
+    val audios: List<DashTrack>,
+    val lossless: Boolean,
+)
 
-    // 优先级：Hi-Res（需大会员）→ 普通 AAC 按码率降序
-    val hiRes = dash.flac?.audio?.takeIf { preferHiRes && it.url().isNotBlank() }
-    val audios = when {
-        hiRes != null -> listOf(hiRes)
-        else -> dash.audio.orEmpty().filter { it.url().isNotBlank() }.sortedByDescending { it.bandwidth }
-    }
-    return videos to audios
+/**
+ * 从 dash 数据里挑出要放进 manifest 的轨道。
+ *
+ * 音频轨的挑选规则归 [selectAudioTracks]——那是策略，配了单测；这里只负责组装。
+ */
+internal fun collectTracks(
+    dash: Dash,
+    quality: AudioQuality = AudioQuality.AUTO,
+): CollectedTracks {
+    val videos = dash.video.filter { it.url().isNotBlank() }.sortedByDescending { it.id }
+    val audio = selectAudioTracks(dash, quality)
+    return CollectedTracks(videos, audio.tracks, audio.lossless)
 }
 
 private fun StringBuilder.appendVideo(t: DashTrack) {

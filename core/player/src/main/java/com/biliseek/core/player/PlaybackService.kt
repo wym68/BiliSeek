@@ -40,6 +40,10 @@ class PlaybackService : MediaSessionService() {
         val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
 
         val exoPlayer = ExoPlayer.Builder(this)
+            // Hi-Res FLAC 在部分机型上会因输入缓冲太小而崩，见该类的说明
+            .setRenderersFactory(
+                com.biliseek.core.player.internal.HiResCompatibleRenderersFactory(this),
+            )
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
             .setAudioAttributes(
                 AudioAttributes.Builder()

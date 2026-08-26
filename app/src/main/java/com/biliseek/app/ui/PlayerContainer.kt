@@ -45,16 +45,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.core.player.PlaybackState
+import com.biliseek.core.player.AudioQuality
 import com.biliseek.core.player.PresentationMode
+import com.biliseek.core.player.QualityFallback
 import com.biliseek.core.player.formatDuration
 
 /**
  * 播放器容器的展开程度。
  *
- * 暂无全屏态：视频区上滑进全屏的手势有缺陷已移除，
- * 播放与显示的更多形态留待后续优化（见《架构设计篇》§7.2）。
+ * [FULLSCREEN] 的入口是**显式按钮**，不是手势。MVP 阶段用过「视频区上滑进全屏」，
+ * 因触发判定有缺陷被整个移除（c006079）；重做时换成按钮，把那类误触从根上去掉。
+ * 层级见《架构设计篇》§7.2。
  */
-enum class PlayerExpansion { COLLAPSED, EXPANDED }
+enum class PlayerExpansion { COLLAPSED, EXPANDED, FULLSCREEN }
 
 /**
  * 展开播放器控制区的一项。
@@ -104,6 +107,9 @@ fun PlayerContainer(
             onTogglePlayPause = onTogglePlayPause,
             modifier = modifier,
         )
+        // 全屏时这一份不渲染：SurfaceView 只能有一个父容器，
+        // 两处同时挂会抛 "already has a parent"。全屏那份由 AppShell 的 overlay 负责
+        PlayerExpansion.FULLSCREEN -> Unit
         PlayerExpansion.EXPANDED -> ExpandedPlayer(
             state = state,
             surfaceView = surfaceView,
@@ -119,8 +125,49 @@ fun PlayerContainer(
             onSetSleepTimer = onSetSleepTimer,
             onRetryPlayback = onRetryPlayback,
             onQueueSkipTo = onQueueSkipTo,
+            onEnterFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
             modifier = modifier,
         )
+    }
+}
+
+/**
+ * 全屏播放层。
+ *
+ * 提升为 Scaffold 之上的 overlay（见《架构设计篇》§7.2），
+ * 底部导航与页面栈原样不动，退出即销毁——不必逐个恢复被藏起来的东西。
+ */
+@Composable
+fun FullscreenPlayerOverlay(
+    surfaceView: SurfaceView,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // 沉浸由 overlay 自己开关：进入时藏系统栏，退出时恢复。
+    // 放在这里而不是 Activity 里，是因为「退出即销毁」保证了恢复一定会执行
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val window = view.context.findActivity()?.window
+        val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        controller?.apply {
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat
+                .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    }
+
+    Surface(color = Color.Black, modifier = modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            PlayerSurface(surfaceView, Modifier.fillMaxSize())
+            // 退出按钮压在画面上，位置固定——手势退出正是当初出问题的地方
+            TextButton(
+                onClick = onExit,
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            ) {
+                Text("退出全屏", color = Color.White)
+            }
+        }
     }
 }
 
@@ -207,6 +254,7 @@ private fun ExpandedPlayer(
     onSetSleepTimer: (Long) -> Unit,
     onRetryPlayback: () -> Unit,
     onQueueSkipTo: (Int) -> Unit,
+    onEnterFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -273,10 +321,12 @@ private fun ExpandedPlayer(
                     onSkipNext = onSkipNext,
                     onCyclePlayMode = onCyclePlayMode,
                     onEnterPip = onEnterPip,
+                    onEnterFullscreen = onEnterFullscreen,
                 ),
             )
 
             SpeedRow(state.speed, onSetSpeed)
+            QualityLine(state)
             SleepTimerRow(state, onSetSleepTimer)
 
             if (state.queue.size > 1) {
@@ -301,6 +351,31 @@ private fun ExpandedPlayer(
             }
         }
     }
+}
+
+/**
+ * 当前**实际生效**的音质，以及没按用户所选生效时的原因。
+ *
+ * 显示生效值而不是设置值：用户选了无损却拿不到时，界面若还写着「无损」，
+ * 那是在骗人；而悄悄降级不吭声，用户会以为无损功能坏了。
+ */
+@Composable
+private fun QualityLine(state: PlaybackState) {
+    if (state.mode == com.biliseek.core.player.PlaybackMode.IDLE) return
+    val quality = when (state.audioQuality) {
+        AudioQuality.AUTO -> "自动"
+        AudioQuality.LOSSLESS -> "无损"
+        AudioQuality.SAVER -> "省流量"
+    }
+    val reason = when (state.qualityFallback) {
+        QualityFallback.NONE -> ""
+        QualityFallback.UNAVAILABLE -> "（本视频无无损音轨，或账号无权限）"
+        QualityFallback.SPEED_INCOMPATIBLE -> "（倍速超过 1.5×，已回退）"
+    }
+    Text(
+        "音质：$quality$reason",
+        style = MaterialTheme.typography.labelSmall,
+    )
 }
 
 /**
@@ -349,6 +424,7 @@ private fun buildPlayerActions(
     onSkipNext: () -> Unit,
     onCyclePlayMode: () -> Unit,
     onEnterPip: () -> Unit,
+    onEnterFullscreen: () -> Unit,
 ): List<PlayerAction> = buildList {
     add(
         PlayerAction(
@@ -383,9 +459,10 @@ private fun buildPlayerActions(
         ),
     )
     if (state.presentation != PresentationMode.NONE) {
+        add(PlayerAction("fullscreen", "全屏", onClick = onEnterFullscreen))
         add(PlayerAction("pip", "画中画", onClick = onEnterPip))
     }
-    // 后续「歌词」「音质」「下载」在此追加即可，无需改动布局
+    // 后续「歌词」「下载」在此追加即可，无需改动布局
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -524,3 +601,10 @@ private val SPEEDS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 private val SLEEP_MINUTES = listOf(15, 30, 60)
 
 private const val DRAG_THRESHOLD = 8f
+
+/** Compose 里拿 Activity：主题包装后 context 往往是 ContextWrapper，得一层层剥。 */
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}

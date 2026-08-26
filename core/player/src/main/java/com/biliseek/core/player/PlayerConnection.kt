@@ -9,10 +9,14 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.biliseek.core.network.BiliNetwork
+import com.biliseek.core.player.internal.EffectiveQuality
 import com.biliseek.core.player.internal.PlayUrlResolver
 import com.biliseek.core.player.internal.SleepTimerSpec
 import com.biliseek.core.player.internal.deadlineAfter
 import com.biliseek.core.player.internal.hasSleepTimerExpired
+import com.biliseek.core.player.internal.loudnessGain
+import com.biliseek.core.player.internal.resolveEffectiveQuality
+import com.biliseek.core.player.internal.shouldRequestLossless
 import com.biliseek.core.player.internal.resolveEnqueueNextIndex
 import com.biliseek.core.player.internal.resolveIndexAfterInsert
 import com.biliseek.core.player.internal.resolveManualNextIndex
@@ -76,8 +80,29 @@ class PlayerConnection(private val context: Context) {
      */
     var durationRecorder: (suspend (String, Long, Long) -> Unit)? = null
 
+    /**
+     * 起播落库。**每一条真正开始播的条目**都会调一次。
+     *
+     * 落点选在 [play] 而不是 UI 的三个起播入口：队列面板跳转、手动切歌、
+     * 播完自动推进全都收敛到 [play]，挂在这里才不会漏掉队列里的第二条及之后。
+     *
+     * **必须在取流之前调用**——时长回写走的是「更新已有行」的窄接口，
+     * 历史行还不存在时那次写会静默丢掉，界面继续显示「/ 00:00」。
+     */
+    var trackStartRecorder: (suspend (PlaybackRequest.Bili) -> Unit)? = null
+
+    /**
+     * 播放偏好（音质、响度均衡开关）。同样走回调——播放内核不认识设置存储。
+     *
+     * 每次取流时**现读**，因此用户改完设置下一首就生效，不必重启播放器。
+     */
+    var preferenceProvider: (() -> PlaybackPreferences)? = null
+
     /** 睡眠定时器。归本类持有：用户设完就会锁屏走开，状态不能绑 UI 生命周期。 */
     private var sleepTimer: SleepTimerSpec? = null
+
+    /** 上一次取流实际生效的音质。取流时算出，供 UI 如实显示。 */
+    private var effective = EffectiveQuality(AudioQuality.AUTO, QualityFallback.NONE)
 
     // 切换诊断窗口：setPresentation 期间统计 buffering 与 seek 不连续
     private var recording = false
@@ -138,7 +163,11 @@ class PlayerConnection(private val context: Context) {
      * 起播时**先关视频轨再 prepare**——避免起播瞬间就去下载视频分片，
      * 这是「默认听」承诺在时序上的落点。
      */
-    suspend fun play(request: PlaybackRequest, fromQueue: Boolean = false) {
+    suspend fun play(
+        request: PlaybackRequest,
+        fromQueue: Boolean = false,
+        startPositionOverride: Long? = null,
+    ) {
         // 起播可能早于绑定完成——外部分享会新建一个 Activity，
         // onCreate 里就把链接喂了进来，而 connect() 还在路上。
         // 早期写法是 `controller ?: return`，请求就这么无声无息地丢了。
@@ -153,6 +182,10 @@ class PlayerConnection(private val context: Context) {
         }
         _state.value = _state.value.copy(isResolving = true, error = null)
 
+        // 先落库再取流，顺序不能反（见 trackStartRecorder 的说明）
+        (request as? PlaybackRequest.Bili)?.let { trackStartRecorder?.invoke(it) }
+
+        val prefs = preferenceProvider?.invoke() ?: PlaybackPreferences()
         val uri: String
         val mimeType: String?
         var media: com.biliseek.core.player.internal.ResolvedMedia? = null
@@ -163,7 +196,16 @@ class PlayerConnection(private val context: Context) {
                     mimeType = null
                 }
                 is PlaybackRequest.Bili -> {
-                    val resolved = resolver.resolve(request.bvid, request.cid)
+                    // 倍速能在取流前就否掉无损，省掉一次注定要回退的请求
+                    val requested = prefs.audioQuality
+                    val ask = if (shouldRequestLossless(requested, currentSpeed())) {
+                        AudioQuality.LOSSLESS
+                    } else if (requested == AudioQuality.LOSSLESS) {
+                        AudioQuality.AUTO
+                    } else {
+                        requested
+                    }
+                    val resolved = resolver.resolve(request.bvid, request.cid, ask)
                     media = resolved
                     uri = resolved.uri
                     mimeType = resolved.mimeType
@@ -202,18 +244,54 @@ class PlayerConnection(private val context: Context) {
         // 续播位置必须在 setMediaItem 时一并给出。
         // 早期写法是 prepare() 之后再 seekTo()，经 MediaController 异步转发到
         // session 时时序不可靠，seek 会被起播流程覆盖掉——表现为「续播没生效」。
-        val startPosition = (request as? PlaybackRequest.Bili)?.let { r ->
+        // 换音质重取时位置由调用方直接给出：走数据库那条路要等 5 秒节流的回写，赶不上
+        val startPosition = startPositionOverride ?: (request as? PlaybackRequest.Bili)?.let { r ->
             val saved = resumePositionProvider?.invoke(r.bvid, r.cid ?: 0L) ?: 0L
             resolveStartPosition(saved, media?.durationMs ?: 0L)
         } ?: 0L
 
         c.setMediaItem(item, startPosition)
         applyVideoTrack(enabled = false)
+        applyLoudness(media, prefs.loudnessNormalization)
         c.prepare()
         c.playWhenReady = true
+
+        // 记下这次实际生效的音质，供 UI 如实显示（含回退原因）
+        effective = resolveEffectiveQuality(
+            requested = prefs.audioQuality,
+            speed = currentSpeed(),
+            losslessSelected = media?.losslessSelected == true,
+        )
         _state.value = _state.value.copy(isResolving = false)
         pushState()
     }
+
+    /**
+     * 套用响度均衡。
+     *
+     * 关掉开关时要显式恢复 1.0——否则上一首压下去的音量会一直带到下一首，
+     * 表现为「关了开关还是小声」。
+     */
+    private fun applyLoudness(
+        media: com.biliseek.core.player.internal.ResolvedMedia?,
+        enabled: Boolean,
+    ) {
+        val c = controller ?: return
+        val gain = if (enabled && media != null) {
+            loudnessGain(media.measuredLoudness, media.targetLoudness)
+        } else {
+            1.0f
+        }
+        c.volume = gain
+        // 没有日志就没法验证：增益是听觉上的细微变化，界面上看不见
+        android.util.Log.d(
+            TAG_LOUDNESS,
+            "响度均衡 ${if (enabled) "开" else "关"}：measured=${media?.measuredLoudness} " +
+                "target=${media?.targetLoudness} → gain=$gain",
+        )
+    }
+
+    private fun currentSpeed(): Float = controller?.playbackParameters?.speed ?: 1.0f
 
     /** 播放一个队列。[startIndex] 指定从哪一首开始。 */
     suspend fun playQueue(items: List<PlaybackRequest>, startIndex: Int = 0) {
@@ -327,8 +405,21 @@ class PlayerConnection(private val context: Context) {
     /** 倍速。音调由 ExoPlayer 的时间伸缩保持不变。 */
     fun setSpeed(speed: Float) {
         val c = controller ?: return
+        val before = c.playbackParameters.speed
         c.setPlaybackSpeed(speed)
         pushState()
+
+        // 无损与高倍速不兼容（《架构设计篇》§4.4 边界 1）。跨过阈值必须**真的换一份
+        // manifest**——只改状态文案的话，界面说着「已回退 AAC」，放的还是无损轨。
+        val requested = (preferenceProvider?.invoke() ?: PlaybackPreferences()).audioQuality
+        if (requested != AudioQuality.LOSSLESS) return
+        val wasLossless = shouldRequestLossless(requested, before)
+        val nowLossless = shouldRequestLossless(requested, speed)
+        if (wasLossless == nowLossless) return
+
+        val item = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili ?: return
+        val position = c.currentPosition.coerceAtLeast(0L)
+        scope?.launch { play(item, fromQueue = true, startPositionOverride = position) }
     }
 
     /** 设倒计时睡眠定时器。[durationMs] 非正视为取消。 */
@@ -446,6 +537,8 @@ class PlayerConnection(private val context: Context) {
             sleepTimerRemainingMs = sleepTimerRemaining(sleepTimer, now),
             sleepTimerEndOfTrack = sleepTimer is SleepTimerSpec.EndOfTrack,
             speed = c.playbackParameters.speed,
+            audioQuality = effective.quality,
+            qualityFallback = effective.fallback,
         )
         recordPositionIfNeeded()
     }
@@ -488,6 +581,6 @@ class PlayerConnection(private val context: Context) {
     private companion object {
         const val POSITION_POLL_MS = 250L
         const val POSITION_RECORD_INTERVAL_MS = 5_000L
-
+        const val TAG_LOUDNESS = "BiliSeekLoudness"
     }
 }

@@ -31,9 +31,12 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
+import com.biliseek.app.ui.MeteredVideoDialog
 import com.biliseek.app.ui.PlaylistPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
+import com.biliseek.app.ui.SettingsScreen
 import com.biliseek.core.network.sharedTextFrom
+import com.biliseek.core.player.PresentationMode
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
 class MainActivity : ComponentActivity() {
@@ -65,6 +68,8 @@ class MainActivity : ComponentActivity() {
                 val recentPlays by viewModel.recentPlays.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
                 val pendingAdd by viewModel.pendingAdd.collectAsState()
+                val settings by viewModel.settings.collectAsState()
+                val videoBlocked by viewModel.videoBlocked.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
 
@@ -80,7 +85,14 @@ class MainActivity : ComponentActivity() {
 
                 // 起播即展开播放器，让用户看到当前在放什么
                 LaunchedEffect(Unit) {
-                    viewModel.playbackStarted.collect { expansion = PlayerExpansion.EXPANDED }
+                    viewModel.playbackStarted.collect {
+                        expansion = PlayerExpansion.EXPANDED
+                        // 「记住上次」：自动进看模式也要过流量策略这一关，
+                        // 否则设置里关掉的移动网络看视频会从这条路溜进去
+                        if (viewModel.shouldAutoEnterVideo()) {
+                            viewModel.requestPresentation(PresentationMode.INLINE, surfaceView)
+                        }
+                    }
                 }
 
                 AppShell(
@@ -88,11 +100,28 @@ class MainActivity : ComponentActivity() {
                     playback = playback,
                     expansion = expansion,
                     surfaceView = surfaceView,
-                    onExpansionChange = { expansion = it },
-                    onTogglePlayPause = viewModel.connection::togglePlayPause,
-                    onPresentationChange = { mode, sv ->
-                        viewModel.connection.setPresentation(mode, sv)
+                    onExpansionChange = { next ->
+                        val leavingFullscreen = expansion == PlayerExpansion.FULLSCREEN
+                        expansion = next
+                        // 全屏与内联都属「可见」，切换本身不动播放器；但呈现态要如实同步，
+                        // 否则进后台的回落判定会以为还停在内联
+                        if (playback.presentation != PresentationMode.NONE) {
+                            when {
+                                next == PlayerExpansion.FULLSCREEN ->
+                                    viewModel.applyPresentation(
+                                        PresentationMode.FULLSCREEN,
+                                        surfaceView,
+                                    )
+                                leavingFullscreen ->
+                                    viewModel.applyPresentation(
+                                        PresentationMode.INLINE,
+                                        surfaceView,
+                                    )
+                            }
+                        }
                     },
+                    onTogglePlayPause = viewModel.connection::togglePlayPause,
+                    onPresentationChange = viewModel::requestPresentation,
                     onSkipNext = viewModel::skipNext,
                     onSkipPrevious = viewModel::skipPrevious,
                     onCyclePlayMode = viewModel::cyclePlayMode,
@@ -151,16 +180,33 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     settingsContent = {
-                        LoginPanel(
-                            loginState = loginState,
-                            session = session,
-                            onStart = viewModel::startLogin,
-                            onCancel = viewModel::cancelLogin,
-                            onLogout = viewModel::logout,
-                            modifier = Modifier.padding(16.dp),
+                        SettingsScreen(
+                            settings = settings,
+                            onDefaultPresentationChange = viewModel::setDefaultPresentation,
+                            onAllowVideoOnMeteredChange = viewModel::setAllowVideoOnMetered,
+                            onAudioQualityChange = viewModel::setAudioQuality,
+                            onLoudnessChange = viewModel::setLoudnessNormalization,
+                            accountContent = {
+                                LoginPanel(
+                                    loginState = loginState,
+                                    session = session,
+                                    onStart = viewModel::startLogin,
+                                    onCancel = viewModel::cancelLogin,
+                                    onLogout = viewModel::logout,
+                                )
+                            },
                         )
                     },
                 )
+
+                // 流量策略拦下的「切看」。给一次性放行，而不是简单地不响应——
+                // 点了没反应会被当成 bug
+                videoBlocked?.let { target ->
+                    MeteredVideoDialog(
+                        onConfirmOnce = { viewModel.applyPresentation(target, surfaceView) },
+                        onDismiss = viewModel::dismissVideoBlocked,
+                    )
+                }
 
                 // 加入歌单不再替用户选第一个：问清楚加到哪儿
                 pendingAdd?.let {

@@ -67,9 +67,14 @@ fun AppShell(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination
 
-    // 展开态下按返回键收回播放器，而不是退出页面——不动导航栈
+    // 返回键逐级收回，不动导航栈：全屏 → 展开 → 收起
     BackHandler(enabled = expansion != PlayerExpansion.COLLAPSED) {
-        onExpansionChange(PlayerExpansion.COLLAPSED)
+        onExpansionChange(
+            when (expansion) {
+                PlayerExpansion.FULLSCREEN -> PlayerExpansion.EXPANDED
+                else -> PlayerExpansion.COLLAPSED
+            },
+        )
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -139,5 +144,13 @@ fun AppShell(
             )
         }
 
+        // 全屏提升到 Scaffold 之上（《架构设计篇》§7.2）。Scaffold 原样不动，
+        // 退出即销毁，不必逐个恢复底部导航与滚动位置
+        if (expansion == PlayerExpansion.FULLSCREEN) {
+            FullscreenPlayerOverlay(
+                surfaceView = surfaceView,
+                onExit = { onExpansionChange(PlayerExpansion.EXPANDED) },
+            )
+        }
     }
 }

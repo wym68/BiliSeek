@@ -5,6 +5,7 @@ import android.util.Log
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.network.WbiSigner
 import com.biliseek.core.network.dto.PlayUrlData
+import com.biliseek.core.player.AudioQuality
 
 /** 一次取流的结果。 */
 internal data class ResolvedMedia(
@@ -13,8 +14,12 @@ internal data class ResolvedMedia(
     val mimeType: String?,
     val durationMs: Long,
     val hasVideoTrack: Boolean,
-    /** playurl 返回的响度数据，响度均衡用（P1） */
+    /** playurl 返回的响度数据（EBU R128），响度均衡用 */
     val measuredLoudness: Double?,
+    /** 接口给的目标响度。有它就不必自己定一个 target。 */
+    val targetLoudness: Double?,
+    /** 这次真的挑中了无损 / 杜比轨。用户选了无损却为 false，就是「不可用」。 */
+    val losslessSelected: Boolean = false,
 )
 
 /**
@@ -31,11 +36,16 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
 
     private val cache = mutableMapOf<String, CacheEntry>()
 
-    suspend fun resolve(bvid: String, cid: Long?, preferHiRes: Boolean = false): ResolvedMedia {
+    suspend fun resolve(
+        bvid: String,
+        cid: Long?,
+        quality: AudioQuality = AudioQuality.AUTO,
+    ): ResolvedMedia {
         val credentials = network.authGate.awaitReady()
 
         val resolvedCid = cid ?: firstCid(bvid)
-        val key = "$bvid:$resolvedCid:$preferHiRes"
+        // 音质进 key：不同档位的 manifest 不一样，共用一份会「换了档位没变化」
+        val key = "$bvid:$resolvedCid:$quality"
 
         cache[key]?.let { entry ->
             if (System.currentTimeMillis() - entry.fetchedAt < CACHE_TTL_MS) {
@@ -61,7 +71,7 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
         require(response.code == 0) { "playurl 失败: code=${response.code} ${response.message}" }
         val data = requireNotNull(response.data) { "playurl 返回 data 为空" }
 
-        val media = toMedia(data)
+        val media = toMedia(data, quality)
         cache[key] = CacheEntry(media, System.currentTimeMillis())
         return media
     }
@@ -73,31 +83,37 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
         return pages.first().cid
     }
 
-    private fun toMedia(data: PlayUrlData): ResolvedMedia {
+    private fun toMedia(data: PlayUrlData, quality: AudioQuality): ResolvedMedia {
         val dash = data.dash
         if (dash != null) {
-            val (videos, audios) = collectTracks(dash, preferHiRes = false)
-            require(audios.isNotEmpty()) { "无可播放音频流" }
+            val tracks = collectTracks(dash, quality)
+            require(tracks.audios.isNotEmpty()) { "无可播放音频流" }
 
             val durationMs = if (dash.duration > 0) dash.duration * 1000 else data.timelength
             val manifest = buildLocalDashManifest(
                 durationMs = durationMs,
                 minBufferMs = (dash.minBufferTime * 1000).toLong().coerceAtLeast(1500),
-                videoTracks = videos,
-                audioTracks = audios,
+                videoTracks = tracks.videos,
+                audioTracks = tracks.audios,
             )
-            Log.d(TAG, "MPD 组装完成：视频轨 ${videos.size} 条，音频轨 ${audios.size} 条")
+            Log.d(
+                TAG,
+                "MPD 组装完成：视频轨 ${tracks.videos.size} 条，音频轨 ${tracks.audios.size} 条" +
+                    "（音质 $quality${if (tracks.lossless) "，无损生效" else ""}）",
+            )
 
             return ResolvedMedia(
                 uri = manifest.toDataUri(),
                 mimeType = MIME_DASH,
                 durationMs = durationMs,
-                hasVideoTrack = videos.isNotEmpty(),
+                hasVideoTrack = tracks.videos.isNotEmpty(),
                 measuredLoudness = data.volume?.measuredI,
+                targetLoudness = data.volume?.targetI,
+                losslessSelected = tracks.lossless,
             )
         }
 
-        // 降级：老式单文件
+        // 降级：老式单文件。此路径没有轨道可挑，音质偏好一律落空
         val durl = data.durl?.firstOrNull()?.url
         require(!durl.isNullOrBlank()) { "dash 与 durl 均不可用" }
         Log.w(TAG, "dash 不可用，回退 durl 单文件")
@@ -107,6 +123,8 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
             durationMs = data.timelength,
             hasVideoTrack = true,
             measuredLoudness = data.volume?.measuredI,
+            targetLoudness = data.volume?.targetI,
+            losslessSelected = false,
         )
     }
 

@@ -13,14 +13,22 @@ import com.biliseek.core.network.SearchPage
 import com.biliseek.core.network.avToBv
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.parseSearchInput
+import android.view.SurfaceView
+import com.biliseek.core.player.PlaybackPreferences
 import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlayerConnection
+import com.biliseek.core.player.PresentationMode
+import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.BiliSeekDatabase
+import com.biliseek.app.data.DefaultPresentation
 import com.biliseek.app.data.LibraryRepository
 import com.biliseek.app.data.PlayHistoryEntity
 import com.biliseek.app.data.PlaylistEntity
 import com.biliseek.app.data.PlaylistTrack
+import com.biliseek.app.data.SettingsStore
 import com.biliseek.app.data.TrackEntity
+import com.biliseek.app.data.VideoGate
+import com.biliseek.app.data.resolveVideoGate
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -59,7 +67,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val network = BiliNetwork.get(app)
     private val library = LibraryRepository(BiliSeekDatabase.get(app))
+    private val settingsStore = SettingsStore(app)
     val connection = PlayerConnection(app)
+
+    val settings: StateFlow<AppSettings> = settingsStore.state
 
     val authState = network.authGate.state
     val loginState: StateFlow<LoginState> = network.loginManager.state
@@ -149,11 +160,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     /** 「下一首播放」。不打断正在播的这首。 */
-    fun enqueueNext(video: SearchVideo) {
-        connection.enqueueNext(
-            PlaybackRequest.Bili(video.bvid, title = cleanTitle(video.title), coverUrl = coverOf(video)),
-        )
-    }
+    fun enqueueNext(video: SearchVideo) = connection.enqueueNext(video.toRequest())
 
     fun queueSkipTo(index: Int) = connection.skipToIndex(index)
 
@@ -183,6 +190,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 entry.cid.takeIf { it > 0 },
                 entry.title,
                 entry.coverUrl,
+                author = entry.author,
+                durationSec = entry.durationSec,
             ),
         )
 
@@ -209,7 +218,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         connection.durationRecorder = { bvid, cid, durationSec ->
             library.recordDuration(bvid, cid, durationSec)
         }
+        // 起播落库挂在门面上而不是三个 UI 入口上：队列自动推进的第二条及之后
+        // 走不到那三个入口，此前就是这样漏掉的
+        connection.trackStartRecorder = { r ->
+            library.recordPlay(
+                bvid = r.bvid,
+                cid = r.cid ?: 0L,
+                title = r.title,
+                author = r.author,
+                coverUrl = r.coverUrl,
+                durationSec = r.durationSec,
+            )
+        }
+        // 取流时现读，用户改完设置下一首即生效
+        connection.preferenceProvider = {
+            val s = settingsStore.current
+            PlaybackPreferences(
+                audioQuality = s.audioQuality,
+                loudnessNormalization = s.loudnessNormalization,
+            )
+        }
         viewModelScope.launch {
+            settingsStore.load()
             network.sessionStore.load()
             connection.connect()
             // 登录态续期。会话已加载后再查，不阻塞 UI，失败也不打扰用户
@@ -362,14 +392,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             pagesOfBvid = "",
                             pagesCover = "",
                         )
-                        play(
-                            PlaybackRequest.Bili(
-                                video.bvid,
-                                pages.firstOrNull()?.cid,
-                                cleanTitle(video.title),
-                                coverOf(video),
-                            ),
-                        )
+                        play(video.toRequest(cid = pages.firstOrNull()?.cid))
                     } else {
                         _search.value = _search.value.copy(
                             pages = pages.map {
@@ -380,19 +403,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
                 }
-                .onFailure {
-                    play(
-                        PlaybackRequest.Bili(
-                            video.bvid,
-                            title = cleanTitle(video.title),
-                            coverUrl = coverOf(video),
-                        ),
-                    )
-                }
+                .onFailure { play(video.toRequest()) }
         }
     }
 
     private fun cleanTitle(raw: String) = com.biliseek.core.network.stripHighlight(raw)
+
+    /** 搜索结果 → 播放请求。UP 主与时长一并带上，队列自动推进时历史才写得全。 */
+    private fun SearchVideo.toRequest(cid: Long? = null) = PlaybackRequest.Bili(
+        bvid = bvid,
+        cid = cid,
+        title = cleanTitle(title),
+        coverUrl = coverOf(this),
+        author = author,
+        durationSec = com.biliseek.core.network.parseDurationText(duration),
+    )
 
     private fun coverOf(video: SearchVideo) =
         com.biliseek.core.network.normalizeCoverUrl(video.pic)
@@ -403,10 +428,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val cover = _search.value.pagesCover
         val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
         viewModelScope.launch {
-            // 与 play() 同理：先落库，时长回写才有行可更新
-            library.recordPlay(bvid, entry.cid, entry.title, coverUrl = cover)
             connection.playQueue(
-                all.map { PlaybackRequest.Bili(bvid, it.cid, it.title, cover) },
+                all.map {
+                    PlaybackRequest.Bili(
+                        bvid,
+                        it.cid,
+                        it.title,
+                        cover,
+                        durationSec = it.durationSec,
+                    )
+                },
                 startIndex = index,
             )
             _playbackStarted.tryEmit(Unit)
@@ -417,9 +448,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun playPlaylist(items: List<PlaylistTrack>, startIndex: Int) {
         if (items.isEmpty()) return
         viewModelScope.launch {
-            items.getOrNull(startIndex)?.track?.let { t ->
-                library.recordPlay(t.bvid, t.cid, t.title, t.author, t.coverUrl, t.durationSec)
-            }
             connection.playQueue(
                 items.map {
                     PlaybackRequest.Bili(
@@ -427,6 +455,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         it.track.cid.takeIf { c -> c > 0 },
                         it.track.title,
                         it.track.coverUrl,
+                        author = it.track.author,
+                        durationSec = it.track.durationSec,
                     )
                 },
                 startIndex = startIndex,
@@ -455,6 +485,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onEnterBackground() = connection.onEnterBackground()
 
+    // ── 设置 ────────────────────────────────────────────
+
+    fun setDefaultPresentation(value: DefaultPresentation) =
+        viewModelScope.launch { settingsStore.setDefaultPresentation(value) }
+
+    fun setAllowVideoOnMetered(value: Boolean) =
+        viewModelScope.launch { settingsStore.setAllowVideoOnMetered(value) }
+
+    fun setAudioQuality(value: com.biliseek.core.player.AudioQuality) =
+        viewModelScope.launch { settingsStore.setAudioQuality(value) }
+
+    fun setLoudnessNormalization(value: Boolean) =
+        viewModelScope.launch { settingsStore.setLoudnessNormalization(value) }
+
+    /** 被流量策略拦下的那次「切看」。非空时 UI 询问是否这一次放行。 */
+    private val _videoBlocked = MutableStateFlow<PresentationMode?>(null)
+    val videoBlocked: StateFlow<PresentationMode?> = _videoBlocked.asStateFlow()
+
+    /**
+     * 呈现态变更的唯一入口。所有「切看」都要过流量策略这一关。
+     *
+     * 退回听与 PiP 不受策略约束：前者只会更省，后者是系统在驱动。
+     */
+    fun requestPresentation(target: PresentationMode, surfaceView: SurfaceView?) {
+        val isVideo = target != PresentationMode.NONE
+        if (!isVideo || target == PresentationMode.PIP) {
+            applyPresentation(target, surfaceView)
+            return
+        }
+        when (resolveVideoGate(settingsStore.current, isMetered())) {
+            VideoGate.ALLOW -> applyPresentation(target, surfaceView)
+            VideoGate.BLOCKED_BY_METERED -> _videoBlocked.value = target
+        }
+    }
+
+    /**
+     * 真正切过去，并记住这次是听还是看（「记住上次」用）。
+     *
+     * 一次性放行也走这里——**但不写回 `allowVideoOnMetered`**：
+     * 用户说的是「这一次」，把它变成永久开关是替用户做主。
+     */
+    fun applyPresentation(target: PresentationMode, surfaceView: SurfaceView?) {
+        _videoBlocked.value = null
+        connection.setPresentation(target, surfaceView)
+        viewModelScope.launch {
+            settingsStore.setLastPresentationWasVideo(target != PresentationMode.NONE)
+        }
+    }
+
+    fun dismissVideoBlocked() { _videoBlocked.value = null }
+
+    /** 起播后是否应自动进看模式。「记住上次」开着且上次在看时才为真。 */
+    fun shouldAutoEnterVideo(): Boolean {
+        val s = settingsStore.current
+        return s.defaultPresentation == DefaultPresentation.REMEMBER_LAST &&
+            s.lastPresentationWasVideo
+    }
+
+    /** 计量网络（移动数据 / 计费热点）判定。策略本身是纯函数，这里只负责问系统。 */
+    private fun isMetered(): Boolean {
+        val cm = getApplication<Application>()
+            .getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return false
+        return cm.isActiveNetworkMetered
+    }
+
     /** PiP 进出。PiP 是可见呈现态，视频轨保持启用。 */
     fun onPipChanged(inPip: Boolean) {
         connection.setPresentation(
@@ -473,15 +569,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * 起播。
      *
-     * **历史记录必须先落库**：取流成功后的时长回写走的是「更新已有行」的窄接口，
-     * 行还不存在时那次回写会静默丢掉，界面继续显示「/ 0s」。
-     * [LibraryRepository.recordPlay] 不传 positionMs 时保留既有进度，因此不会踩坏续播。
+     * 历史落库由 `connection.trackStartRecorder` 在 `play()` 内部完成——
+     * 那里是所有起播路径（含队列自动推进）的唯一收敛点。
      */
     fun play(request: PlaybackRequest) {
         viewModelScope.launch {
-            (request as? PlaybackRequest.Bili)?.let { r ->
-                library.recordPlay(r.bvid, r.cid ?: 0L, r.title, coverUrl = r.coverUrl)
-            }
             connection.play(request)
             _playbackStarted.tryEmit(Unit)
         }

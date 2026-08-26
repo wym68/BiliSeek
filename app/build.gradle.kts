@@ -71,6 +71,9 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
+    // 用户设置（SettingsStore）。会话与风控凭据各有自己的 store，在 :core:network 里
+    implementation(libs.androidx.datastore.preferences)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
