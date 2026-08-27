@@ -171,6 +171,10 @@ playurl 响应整份缓存，TTL 取略小于实际有效期（约 2h）。切�
 落点：策略在 `core/player/internal/QualityPolicy.kt`（纯函数 + 单测），
 取流在 `PlayUrlResolver`，偏好经 `PlayerConnection.preferenceProvider` 注入。
 
+⚠️ **验证口径**：开发者无大会员账号，无损 / 杜比的**正向命中在真机上验不了**。
+按《功能优化篇》§2.4：照常实现、只验逻辑（`QualityPolicyTest` + `LosslessManifestTest`
+把「挑对轨」与「真写进 MPD」两段都钉住）、验收记录里如实标注未验证。
+
 三个独立来源，优先级由用户偏好决定：
 
 ```
@@ -469,7 +473,7 @@ BiliPai `docs/wiki/ui-design/` 的 15+ 份设计规范（方向、基础、排�
 | --- | --- | --- |
 | MediaController 无法转发 surface / 轨道参数 | **架构级**，需退回单例方案 | M0 优先验证 |
 | B 站风控策略变动（WBI/ticket 算法调整） | 全站不可用 | 三件套集中在 `:core:network`，改动面收敛；关注上游项目更新 |
-| FLAC 解码在部分设备崩溃 | Hi-Res 不可用 | M8 已按已知解法预防（`HiResCompatibleRenderersFactory` 把输入缓冲抬到 1 MiB），**但需大会员 + 特定机型才验得到，目前未实测** |
+| FLAC 解码在部分设备崩溃 | Hi-Res 不可用 | M8 已按已知解法预防（`HiResCompatibleRenderersFactory` 把输入缓冲抬到 1 MiB）。**需大会员 + 特定机型才验得到，目前未实测**；判定逻辑已抽成纯函数由 `FlacBufferPolicyTest` 覆盖，见《功能优化篇》§2.4 |
 | Cookie 刷新流程复杂度被低估 | 用户周期性掉登录 | 排期单列，复用 BiliPai 现成实现 |
 | `design-system` 组件 Miuix 耦合比预期深 | 视觉移植受阻 | 渐进剥离，先只用 token 层 |
 

@@ -799,13 +799,24 @@ adb shell dumpsys meminfo com.biliseek.debug | grep "TOTAL PSS"
 
 ### 步骤 29 — Hi-Res（需大会员账号）
 
-登录大会员账号，播放支持 Hi-Res 的视频。
+⏸ **当前跑不了：开发者没有大会员账号。** 按《功能优化篇》§2.4 的口径，
+这类功能**照常实现、只验逻辑、验收记录里如实标注未验证**，不做真机验收。
+
+拿到会员账号之后，这一步要补的是：
+
+1. 设置页音质选「无损优先」，播一条带 Hi-Res 的视频
+2. 播放页应显示「音质：**无损**」而不是「自动（本视频无无损音轨，或账号无权限）」
+3. 取流日志里 `MPD 组装完成：…（音质 LOSSLESS，无损生效）`
+4. 切到 2.0× → 自动回退 AAC，缓存 key 后缀变 `:AUTO`（这一支**没有会员也能验**，见步骤 22）
 
 ⚠️ **部分设备的系统 FLAC 解码器只分配 32 KiB 输入缓冲**，而 B 站 Hi-Res 单帧可能超过，会崩溃。**这个坑只在真机上撞得到。**
 
 ```bash
 adb logcat -s BiliSeekPlayer:V | grep -iE "flac|InsufficientCapacity"
 ```
+
+无账号期间，这条路径由逻辑测试兜底：`FlacBufferPolicyTest`（缓冲抬升的三条边界）、
+`LosslessManifestTest`（无损轨真的写进了 MPD 且没挤掉视频轨）、`QualityPolicyTest`（回退判定）。
 
 ### 步骤 30 — 低端机（如有）
 
@@ -1184,7 +1195,7 @@ grep -ic positionDiscontinuity /tmp/switch.log  # 须为 0
 | **切换无缝的自检卡片已不存在**      | M3 重构时移除，诊断数据仍在产出但无 UI 消费；判据改在日志上，见 [附录 1.6](#16-切换无缝的判据在日志里不在界面上) |
 | **全屏下返回键要按两次**          | 第一次被系统用来恢复沉浸隐藏的系统栏。用「退出全屏」按钮可一次退出 |
 | **展开播放器压住状态栏**          | 展开态是 Scaffold 之上的 overlay，没吃到 `WindowInsets`，顶部「▾」与状态栏时钟挤在一起 |
-| 无损音质与 FLAC 解码兼容未实测      | 链路已通（M8），但正向命中需大会员账号，`HiResCompatibleRenderersFactory` 属「按已知解法预防」 |
+| **无损音质与 FLAC 解码兼容不做真机验收** | 开发者无大会员账号。按《功能优化篇》§2.4：照常实现、只验逻辑（`QualityPolicyTest` / `LosslessManifestTest` / `FlacBufferPolicyTest`）、**验收记录标未验证**。拿到账号后按步骤 29 补 |
 
 
 **M5–M8 已修掉的老缺口**（旧版本文档里列过，现在不该再出现）：

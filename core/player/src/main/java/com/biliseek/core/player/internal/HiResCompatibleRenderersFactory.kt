@@ -65,18 +65,10 @@ private class FlacTolerantAdapterFactory(
 
     override fun createAdapter(configuration: MediaCodecAdapter.Configuration): MediaCodecAdapter {
         val format = configuration.mediaFormat
-        val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
-        // 只抬 FLAC：别的编码没这个毛病，无谓要大缓冲只是白占内存
-        if (mime.contains("flac", ignoreCase = true)) {
-            val current = runCatching { format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) }.getOrDefault(0)
-            if (current < FLAC_MIN_INPUT_SIZE) {
-                format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, FLAC_MIN_INPUT_SIZE)
-            }
-        }
+        // 判定本身在 FlacBufferPolicy 里，有单测钉住；这里只负责与 MediaFormat 打交道
+        val current = runCatching { format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE) }.getOrDefault(0)
+        resolveCodecMaxInputSize(format.getString(MediaFormat.KEY_MIME).orEmpty(), current)
+            ?.let { format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, it) }
         return delegate.createAdapter(configuration)
-    }
-
-    private companion object {
-        const val FLAC_MIN_INPUT_SIZE = 1 shl 20 // 1 MiB
     }
 }
