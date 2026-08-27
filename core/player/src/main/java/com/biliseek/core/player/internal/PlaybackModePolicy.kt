@@ -36,6 +36,23 @@ internal fun resolvePresentationOnEnterBackground(
     else -> PresentationMode.NONE
 }
 
+/**
+ * 换一条内容起播时的呈现态。
+ *
+ * **看模式下切下一首回到听。** 起播本来就会禁掉视频轨（「默认只听」在时序上的落点），
+ * 呈现态必须跟着一起复位——只禁轨不复位，界面会以为还在看模式：
+ * 渲染一块没有画面的 SurfaceView（黑屏、不显示封面），按钮还写着「退回听」。
+ *
+ * PiP 例外，理由与 [resolvePresentationOnEnterBackground] 完全相同：
+ * 那是个**系统窗口**，把轨关掉只会剩一个黑窗，而不是「回到听」。
+ */
+internal fun resolvePresentationOnTrackChange(
+    current: PresentationMode,
+): PresentationMode = when (current) {
+    PresentationMode.PIP -> PresentationMode.PIP
+    else -> PresentationMode.NONE
+}
+
 /** 切换的可读标签，用于诊断输出。 */
 internal fun switchLabel(from: PresentationMode, to: PresentationMode): String {
     val fromVideo = shouldEnableVideoTrack(from)

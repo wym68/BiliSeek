@@ -213,6 +213,11 @@ dash.audio[]       普通 AAC 数组 — 按 bandwidth 排序
 └────────────────────────────────────────┘
 ```
 
+> **不变式的第三个落点**：换内容起播时呈现态必须一并复位（`resolvePresentationOnTrackChange`）。
+> 起播会禁掉视频轨，若呈现态还停在 `INLINE`，「视频轨启用 ⟺ 存在可见 surface」就被打破了——
+> 表现是一块没有画面的 SurfaceView：黑屏、不显示封面、按钮还写着「退回听」。
+> PiP 例外，理由与进后台回落完全相同。
+
 **为什么不用 BiliPai 的单例方案**：它把所有权拆成两半——player 归 `MiniPlayerManager` 单例、session 归 Service，两者生命周期不一致。那 2752 行里的内存压力回收、闲置释放、surface 恢复补丁，相当一部分复杂度就源于「单例活得比 Service 久」。
 
 **硬性约束：Service 不声明 `android:process`，必须与 UI 同进程。**  

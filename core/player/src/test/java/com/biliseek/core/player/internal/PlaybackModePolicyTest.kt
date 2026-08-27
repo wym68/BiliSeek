@@ -83,6 +83,50 @@ class PlaybackModePolicyTest {
     }
 
     @Test
+    fun `换内容起播时看模式回落到听`() {
+        // 产品取向：看模式下切下一首回到听。
+        // 起播本来就会禁掉视频轨，呈现态必须跟着复位，否则界面以为还在看模式——
+        // 渲染一块没有画面的 SurfaceView：黑屏、不显示封面、按钮还写着「退回听」
+        assertEquals(
+            PresentationMode.NONE,
+            resolvePresentationOnTrackChange(PresentationMode.INLINE),
+        )
+        assertEquals(
+            PresentationMode.NONE,
+            resolvePresentationOnTrackChange(PresentationMode.FULLSCREEN),
+        )
+    }
+
+    @Test
+    fun `换内容起播时 PiP 不回落`() {
+        // 与进后台同一个理由：PiP 是系统窗口，关掉轨只会剩一个黑窗，不是「回到听」
+        assertEquals(
+            PresentationMode.PIP,
+            resolvePresentationOnTrackChange(PresentationMode.PIP),
+        )
+    }
+
+    @Test
+    fun `本来就在听模式则原地不动`() {
+        assertEquals(
+            PresentationMode.NONE,
+            resolvePresentationOnTrackChange(PresentationMode.NONE),
+        )
+    }
+
+    @Test
+    fun `换内容与进后台两条回落规则一致`() {
+        // 两者理由相同（PiP 可见、其余回落），不该出现一个改了另一个没改
+        PresentationMode.entries.forEach { presentation ->
+            assertEquals(
+                "呈现态 $presentation 下两条规则分叉了",
+                resolvePresentationOnEnterBackground(presentation),
+                resolvePresentationOnTrackChange(presentation),
+            )
+        }
+    }
+
+    @Test
     fun `切换标签可读`() {
         assertEquals("听 → 看", switchLabel(PresentationMode.NONE, PresentationMode.INLINE))
         assertEquals("看 → 听", switchLabel(PresentationMode.INLINE, PresentationMode.NONE))

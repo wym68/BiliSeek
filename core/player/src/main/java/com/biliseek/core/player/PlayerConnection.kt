@@ -23,6 +23,7 @@ import com.biliseek.core.player.internal.resolveManualNextIndex
 import com.biliseek.core.player.internal.resolveStartPosition
 import com.biliseek.core.player.internal.resolveNextIndex
 import com.biliseek.core.player.internal.resolvePlaybackMode
+import com.biliseek.core.player.internal.resolvePresentationOnTrackChange
 import com.biliseek.core.player.internal.resolvePreviousIndex
 import com.biliseek.core.player.internal.resolveTrackSelectionParameters
 import com.biliseek.core.player.internal.shouldEnableVideoTrack
@@ -251,7 +252,16 @@ class PlayerConnection(private val context: Context) {
         } ?: 0L
 
         c.setMediaItem(item, startPosition)
-        applyVideoTrack(enabled = false)
+
+        // 换内容即回到听。**禁轨、清 surface、复位呈现态三件事必须一起做**——
+        // 早期只做了第一件，字段还停在 INLINE，界面于是渲染一块没有画面的 SurfaceView：
+        // 黑屏、不显示封面、按钮还写着「退回听」。
+        val nextPresentation = resolvePresentationOnTrackChange(presentation)
+        applyVideoTrack(enabled = shouldEnableVideoTrack(nextPresentation))
+        if (nextPresentation != presentation) {
+            presentation = nextPresentation
+            c.clearVideoSurface()
+        }
         applyLoudness(media, prefs.loudnessNormalization)
         c.prepare()
         c.playWhenReady = true
