@@ -105,6 +105,9 @@ echo "org.gradle.java.home=$HOME/android-studio/jbr" >> ~/.gradle/gradle.propert
 ./gradlew connectedDebugAndroidTest   # 仪器化测试（需连设备）
 ```
 
+> 干净机器的完整配置步骤（SDK 组件清单、环境变量、AVD、排障）见
+> [开发环境搭建](docs/BiliSeek-开发环境搭建.md)。
+
 ---
 
 ## 模块结构
@@ -127,6 +130,7 @@ echo "org.gradle.java.home=$HOME/android-studio/jbr" >> ~/.gradle/gradle.propert
 
 | 文档 | 内容 |
 | --- | --- |
+| [开发环境搭建](docs/BiliSeek-开发环境搭建.md) | 干净机器从零配好环境，到跑通测试与安装 |
 | [功能选型篇](docs/BiliSeek-开发文档-功能选型篇.md) | 做什么、从哪取、为什么不做某些事 |
 | [架构设计篇](docs/BiliSeek-开发文档-架构设计篇.md) | 模块边界、播放内核、切轨时序、数据流 |
 | [功能优化篇](docs/BiliSeek-开发文档-功能优化篇.md) | MVP 之后的 M5–M9：先做什么、为什么是它、怎么验 |
