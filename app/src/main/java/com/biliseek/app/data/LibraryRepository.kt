@@ -152,6 +152,25 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
         }
     }
 
+    // ── 收藏夹目录快照（M11）──────────────────────────────
+
+    private val favoriteFolders = db.favoriteFolderDao()
+
+    /** 音乐库「收藏夹」分区的目录流。 */
+    fun observeFavoriteFolders(): Flow<List<FavoriteFolderEntity>> =
+        favoriteFolders.observeAll()
+
+    /**
+     * 整体替换目录快照（M11-A 定案：同步 = clear + 全量 upsert，不做增量）。
+     * 目录小（几十行），增量的删除检测与冲突合并配不上复杂度。
+     */
+    suspend fun replaceFavoriteFolders(folders: List<FavoriteFolderEntity>) {
+        favoriteFolders.clear()
+        folders.forEach { favoriteFolders.upsert(it) }
+    }
+
+    suspend fun clearFavoriteFolders() = favoriteFolders.clear()
+
     // ── 搜索历史 ────────────────────────────────────────
 
     fun observeSearchHistory(): Flow<List<SearchHistoryEntity>> = searches.observeRecent()

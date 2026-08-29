@@ -74,6 +74,27 @@ data class PlayHistoryEntity(
     val playedAt: Long,
 )
 
+/**
+ * 收藏夹目录快照（M11）。
+ *
+ * 只有**目录**落库（v4），收藏夹**内容**不落库、分页拉取——
+ * 见《架构设计篇》§6.2 落库边界。目录很小，落库换来音乐库页秒开、
+ * 显示上次同步时间、断网时目录仍可见；内容量大且易变，落库要处理
+ * 增量/删除/冲突，收益近零。
+ */
+@Entity(tableName = "favorite_folder", indices = [Index(value = ["mediaId"], unique = true)])
+data class FavoriteFolderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** B 站收藏夹 media_id。 */
+    val mediaId: Long,
+    val title: String,
+    val coverUrl: String,
+    /** 收藏夹内媒体数（展示用）。 */
+    val mediaCount: Int,
+    /** 上次同步时间戳。 */
+    val syncedAt: Long,
+)
+
 /** 搜索历史。首页空状态的主要内容，上限 10 条。 */
 @Entity(tableName = "search_history", indices = [Index(value = ["keyword"], unique = true)])
 data class SearchHistoryEntity(

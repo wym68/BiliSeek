@@ -15,8 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlayHistoryEntity::class,
         SearchHistoryEntity::class,
         DownloadEntity::class,
+        FavoriteFolderEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -25,6 +26,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun favoriteFolderDao(): FavoriteFolderDao
 
     companion object {
         @Volatile
@@ -37,7 +39,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         /**
@@ -85,6 +87,33 @@ abstract class BiliSeekDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_bvid_cid` ON `download` (`bvid`, `cid`)",
+                )
+            }
+        }
+
+        /**
+         * v3 → v4：新增收藏夹目录快照表（M11）。
+         *
+         * 只有目录落库，内容分页拉取（《架构设计篇》§6.2）。
+         * 同步语义是整体替换（拉取 list-all 后 clear + 全量 upsert），
+         * mediaId 唯一索引保证同一收藏夹只占一行。
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `favorite_folder` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `mediaId` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `coverUrl` TEXT NOT NULL,
+                        `mediaCount` INTEGER NOT NULL,
+                        `syncedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_favorite_folder_mediaId` ON `favorite_folder` (`mediaId`)",
                 )
             }
         }

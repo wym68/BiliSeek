@@ -145,5 +145,27 @@ interface SearchHistoryDao {
     suspend fun trim(limit: Int = SEARCH_HISTORY_LIMIT)
 }
 
+/**
+ * 收藏夹目录快照（M11）。
+ *
+ * 同步语义是**整体替换**：目录小（几十行），拉取 list-all 后 clear + 全量 upsert，
+ * 不做增量——增量要处理删除检测与冲突合并，收益配不上复杂度。
+ */
+@Dao
+interface FavoriteFolderDao {
+
+    @Query("SELECT * FROM favorite_folder ORDER BY syncedAt DESC")
+    fun observeAll(): Flow<List<FavoriteFolderEntity>>
+
+    @Query("SELECT * FROM favorite_folder")
+    suspend fun all(): List<FavoriteFolderEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: FavoriteFolderEntity): Long
+
+    @Query("DELETE FROM favorite_folder")
+    suspend fun clear()
+}
+
 /** 首页空状态的搜索历史上限，与 BBPlayer 一致。 */
 const val SEARCH_HISTORY_LIMIT = 10

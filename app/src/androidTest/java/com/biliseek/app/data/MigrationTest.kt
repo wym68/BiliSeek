@@ -126,6 +126,69 @@ class MigrationTest {
             }
     }
 
+    @Test
+    fun migrate3To4_保留既有数据并新增收藏夹目录表() {
+        // 建 v3 库并写入一条下载记录（v3 的典型用户数据）
+        helper.createDatabase(TEST_DB, 3).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO download (id, bvid, cid, title, author, coverUrl, durationSec,
+                    content, location, safTreeUri, audioFile, videoFile, fileSize,
+                    status, error, downloadedAt)
+                VALUES (1, 'BV1xx411c7mD', 100, '测试下载', '测试UP', '', 233,
+                    'AUDIO', 'PRIVATE', '', 'file:///x/1.m4a', '', 12345,
+                    'DONE', '', 1000)
+                """.trimIndent(),
+            )
+        }
+
+        // 执行迁移
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            4,
+            true,
+            BiliSeekDatabase.MIGRATION_3_4,
+        )
+
+        // 旧数据完整保留
+        db.query("SELECT bvid, cid, status FROM download WHERE id = 1")
+            .use { cursor ->
+                assertTrue("迁移后旧数据丢失", cursor.moveToFirst())
+                assertEquals("BV1xx411c7mD", cursor.getString(0))
+                assertEquals(100L, cursor.getLong(1))
+                assertEquals("DONE", cursor.getString(2))
+            }
+
+        // 新表结构正确，且能写入一条目录快照
+        db.execSQL(
+            """
+            INSERT INTO favorite_folder (id, mediaId, title, coverUrl, mediaCount, syncedAt)
+            VALUES (1, 3001, '我的收藏', '//i0.hdslb.com/x.jpg', 42, 1000)
+            """.trimIndent(),
+        )
+        db.query("SELECT mediaId, title, mediaCount, syncedAt FROM favorite_folder WHERE id = 1")
+            .use { cursor ->
+                assertTrue("收藏夹目录写入失败", cursor.moveToFirst())
+                assertEquals(3001L, cursor.getLong(0))
+                assertEquals("我的收藏", cursor.getString(1))
+                assertEquals(42, cursor.getInt(2))
+                assertEquals(1000L, cursor.getLong(3))
+            }
+
+        // 唯一索引生效：同一 mediaId 不能重复
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO favorite_folder (id, mediaId, title, coverUrl, mediaCount, syncedAt)
+            VALUES (2, 3001, '重复', '', 0, 0)
+            """.trimIndent(),
+        )
+        db.query("SELECT COUNT(*) FROM favorite_folder")
+            .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("mediaId 唯一索引未生效", 1L, cursor.getLong(0))
+            }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }
