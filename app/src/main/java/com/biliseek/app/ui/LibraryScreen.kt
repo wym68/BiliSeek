@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -89,6 +90,8 @@ fun LibraryScreen(
 ) {
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
+    // 收藏夹分区折叠态：rememberSaveable 让 tab 切换后仍保持（导航 saveState/restoreState）
+    var favoritesExpanded by rememberSaveable { mutableStateOf(true) }
 
     if (favoriteContent != null) {
         // 系统返回手势应收起内容页，而不是弹走导航栈（tab 内状态，非 nav 目的地）
@@ -131,6 +134,8 @@ fun LibraryScreen(
                 onOpen = onOpenFavorite,
                 onStartLogin = onStartLogin,
                 onCancelLogin = onCancelLogin,
+                expanded = favoritesExpanded,
+                onToggleExpanded = { favoritesExpanded = !favoritesExpanded },
             )
 
             item(key = "playlist-header") {
@@ -333,6 +338,9 @@ private fun LazyListScope.favoriteSection(
     onOpen: (Long, String) -> Unit,
     onStartLogin: () -> Unit,
     onCancelLogin: () -> Unit,
+    /** 折叠态：标题行常驻，目录/引导/空态隐藏（真机反馈：收藏夹多时想收起留出空间）。 */
+    expanded: Boolean = true,
+    onToggleExpanded: () -> Unit = {},
 ) {
     item(key = "favorite-header") {
         Row(
@@ -340,7 +348,16 @@ private fun LazyListScope.favoriteSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("收藏夹", style = MaterialTheme.typography.titleMedium)
+            Row(
+                Modifier.weight(1f).clickable(onClick = onToggleExpanded),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("收藏夹", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (expanded) " ▾" else " ▸",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
             when (sync) {
                 is SyncState.Syncing -> {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -357,6 +374,9 @@ private fun LazyListScope.favoriteSection(
             }
         }
     }
+
+    // 折叠时整个分区内容（登录引导 / 空态 / 目录行）隐藏，标题行常驻
+    if (!expanded) return
 
     if (!session.isLoggedIn) {
         // 登录引导：登录非强制，只有收藏夹/动态这类功能需要账号
