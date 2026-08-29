@@ -73,6 +73,8 @@ dependencies {
 
     // 用户设置（SettingsStore）。会话与风控凭据各有自己的 store，在 :core:network 里
     implementation(libs.androidx.datastore.preferences)
+    // SAF 自定义目录写入（下载「保存位置」三选一）
+    implementation(libs.documentfile)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

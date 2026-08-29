@@ -9,7 +9,7 @@ import com.biliseek.core.player.AudioQuality
 
 /** 一次取流的结果。 */
 internal data class ResolvedMedia(
-    /** 喂给 Media3 的 URI：DASH 走 data: 内联 manifest，回退路径走直链 */
+    /** 喂给 Media3 的 URI：DASH 走 data: 内联 manifest，回退路径走直链，离线命中走 file:// */
     val uri: String,
     val mimeType: String?,
     val durationMs: Long,
@@ -20,6 +20,23 @@ internal data class ResolvedMedia(
     val targetLoudness: Double?,
     /** 这次真的挑中了无损 / 杜比轨。用户选了无损却为 false，就是「不可用」。 */
     val losslessSelected: Boolean = false,
+    /**
+     * 真实轨道直链，**下载用**。
+     *
+     * DASH 音频轨本身就是完整的 M4A/AAC 文件（下载即完整文件，无需转码），
+     * `collectTracks` 已按音质档位排好序，第一条就是目标。MPD 组装只用了
+     * data URI，这两条 URL 此前从未带出来过。
+     */
+    val audioUrl: String = "",
+    /** 视频轨直链。带 codec / 宽高的轨道信息在 DTO 里，mux 时从文件里读即可。 */
+    val videoUrl: String = "",
+    /**
+     * 本地已下载文件命中。
+     *
+     * 播放页据此显示「本地文件」而不是谎报音质档位——
+     * 音质档位对本地文件无意义（M9 E-7 判据）。
+     */
+    val isOffline: Boolean = false,
 )
 
 /**
@@ -36,11 +53,57 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
 
     private val cache = mutableMapOf<String, CacheEntry>()
 
+    /**
+     * 离线命中检查。由外部（app 层）注入：查本地下载库，命中返回本地文件。
+     *
+     * 与 `resumePositionProvider` / `durationRecorder` 同一解耦惯例——
+     * 播放内核不认识数据库。
+     */
+    var offlineLookup: (suspend (String, Long?) -> com.biliseek.core.player.OfflineMedia?)? = null
+
     suspend fun resolve(
         bvid: String,
         cid: Long?,
         quality: AudioQuality = AudioQuality.AUTO,
     ): ResolvedMedia {
+        // 离线拦截点。**必须在 awaitReady() 之前**：飞行模式下播放已下载的歌，
+        // 若先等风控凭据，会卡在网络错误上——离线功能被自己的风控 gate 挡住。
+        offlineLookup?.invoke(bvid, cid)?.let { offline ->
+            Log.d(TAG, "离线命中 $bvid:$cid → ${offline.uri}")
+            return ResolvedMedia(
+                uri = offline.uri,
+                mimeType = offline.mimeType,
+                durationMs = offline.durationMs,
+                hasVideoTrack = offline.hasVideoTrack,
+                measuredLoudness = null,
+                targetLoudness = null,
+                isOffline = true,
+            )
+        }
+        return resolveNetwork(bvid, cid, quality).media
+    }
+
+    /** 下载用的取流结果：真实轨道直链 + 实际解析出的 cid。 */
+    internal data class DownloadResult(
+        val cid: Long,
+        val media: ResolvedMedia,
+    )
+
+    /**
+     * 下载专用取流。与 [resolve] 的唯一区别：**不走离线拦截**——
+     * 已下载过的内容再次下载（换位置 / 重新下载）时，不能命中本地文件。
+     */
+    suspend fun resolveForDownload(
+        bvid: String,
+        cid: Long?,
+        quality: AudioQuality = AudioQuality.AUTO,
+    ): DownloadResult = resolveNetwork(bvid, cid, quality)
+
+    private suspend fun resolveNetwork(
+        bvid: String,
+        cid: Long?,
+        quality: AudioQuality,
+    ): DownloadResult {
         val credentials = network.authGate.awaitReady()
 
         val resolvedCid = cid ?: firstCid(bvid)
@@ -50,7 +113,7 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
         cache[key]?.let { entry ->
             if (System.currentTimeMillis() - entry.fetchedAt < CACHE_TTL_MS) {
                 Log.d(TAG, "playurl 命中缓存 $key")
-                return entry.media
+                return DownloadResult(resolvedCid, entry.media)
             }
         }
 
@@ -73,7 +136,7 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
 
         val media = toMedia(data, quality)
         cache[key] = CacheEntry(media, System.currentTimeMillis())
-        return media
+        return DownloadResult(resolvedCid, media)
     }
 
     private suspend fun firstCid(bvid: String): Long {
@@ -110,6 +173,10 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
                 measuredLoudness = data.volume?.measuredI,
                 targetLoudness = data.volume?.targetI,
                 losslessSelected = tracks.lossless,
+                // 下载用：轨道直链。音频取第一条（已按档位排好序）。
+                // 视频轨可能不存在——只下了音频的 m4a 就是这条路径的产物
+                audioUrl = tracks.audios.first().url(),
+                videoUrl = tracks.videos.firstOrNull()?.url().orEmpty(),
             )
         }
 
@@ -117,6 +184,7 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
         val durl = data.durl?.firstOrNull()?.url
         require(!durl.isNullOrBlank()) { "dash 与 durl 均不可用" }
         Log.w(TAG, "dash 不可用，回退 durl 单文件")
+        // durl 单文件本身音视频都在，音频直链与视频直链指向同一份
         return ResolvedMedia(
             uri = durl,
             mimeType = null,
@@ -125,6 +193,8 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
             measuredLoudness = data.volume?.measuredI,
             targetLoudness = data.volume?.targetI,
             losslessSelected = false,
+            audioUrl = durl,
+            videoUrl = durl,
         )
     }
 

@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
+import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
 import com.biliseek.core.network.SearchException
 import com.biliseek.core.network.SearchIntent
+import com.biliseek.core.network.SearchOrder
 import com.biliseek.core.network.SearchPage
 import com.biliseek.core.network.avToBv
 import com.biliseek.core.network.dto.SearchVideo
@@ -54,6 +56,9 @@ data class SearchUiState(
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: SearchError? = null,
+    /** 搜索筛选（时长 / 排序）。变化时必须重置到第 1 页，否则页码与结果集错位。 */
+    val order: SearchOrder = SearchOrder.COMPREHENSIVE,
+    val duration: SearchDuration = SearchDuration.ANY,
     /** 展开的多 P 列表，非空时显示分 P 选择 */
     val pages: List<PageEntry> = emptyList(),
     val pagesOfBvid: String = "",
@@ -68,9 +73,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val network = BiliNetwork.get(app)
     private val library = LibraryRepository(BiliSeekDatabase.get(app))
     private val settingsStore = SettingsStore(app)
+    private val downloadManager = com.biliseek.app.download.DownloadManager.get(app)
     val connection = PlayerConnection(app)
 
     val settings: StateFlow<AppSettings> = settingsStore.state
+
+    /** 下载任务列表（含进度 / 失败可重试）。 */
+    val downloadTasks: StateFlow<List<com.biliseek.app.download.DownloadTask>> =
+        downloadManager.tasks
 
     val authState = network.authGate.state
     val loginState: StateFlow<LoginState> = network.loginManager.state
@@ -208,6 +218,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         submitSearch()
     }
 
+    /**
+     * 切换搜索筛选（时长 / 排序）。
+     *
+     * **重置到第 1 页**：筛选变了结果集就变了，停留在旧页码会把两页不同的
+     * 结果接在一起。BV/AV/短链直达不走筛选，只有关键词搜索才响应。
+     */
+    fun setSearchFilters(order: SearchOrder, duration: SearchDuration) {
+        val current = _search.value
+        if (current.order == order && current.duration == duration) return
+        _search.value = current.copy(order = order, duration = duration)
+        if (current.keyword.isNotBlank() && parseSearchInput(current.keyword) is SearchIntent.Keyword) {
+            doSearch(current.keyword, page = 1)
+        }
+    }
+
     init {
         network.authGate.start()
         // 续播与位置回写：播放内核不认识数据库，通过回调解耦
@@ -230,6 +255,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 durationSec = r.durationSec,
             )
         }
+        // 离线命中：取流前、风控凭据前查本地下载库（M9 §9.4 的拦截点）
+        connection.offlineLookup = { bvid, cid ->
+            library.lookupOffline(bvid, cid) { uri -> fileExists(uri) }
+        }
+        // 下载取流：与播放共用同一份解析器（同一份缓存与降级链）
+        downloadManager.resolveSource = { bvid, cid, quality ->
+            connection.resolveDownloadSource(bvid, cid, quality)
+        }
+        downloadManager.qualityProvider = { settingsStore.current.audioQuality }
         // 取流时现读，用户改完设置下一首即生效
         connection.preferenceProvider = {
             val s = settingsStore.current
@@ -245,7 +279,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // 登录态续期。会话已加载后再查，不阻塞 UI，失败也不打扰用户
             val outcome = network.cookieRefresher.refreshIfNeeded()
             android.util.Log.d("BiliSeekRefresh", "启动时检查登录态续期：$outcome")
+            // 中断的下载任务捞回队列（续传 / 重试）
+            downloadManager.resumePending()
         }
+    }
+
+    /** content:// 与 file:// 都存在性检查（SAF 走 DocumentsProvider 查询）。 */
+    private fun fileExists(uri: String): Boolean = when {
+        uri.startsWith("file://") -> {
+            val path = android.net.Uri.parse(uri).path.orEmpty()
+            path.isNotBlank() && java.io.File(path).exists()
+        }
+        uri.startsWith("content://") -> runCatching {
+            val resolver = getApplication<Application>().contentResolver
+            resolver.query(android.net.Uri.parse(uri), null, null, null, null)
+                ?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
+        else -> false
     }
 
     // ── 搜索 ────────────────────────────────────────────
@@ -320,6 +370,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun doSearch(keyword: String, page: Int) {
+        val filters = _search.value
         viewModelScope.launch {
             _search.value = _search.value.copy(
                 isLoading = page == 1,
@@ -327,7 +378,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 error = null,
                 pages = if (page == 1) emptyList() else _search.value.pages,
             )
-            network.repository.search(keyword, page)
+            network.repository.search(keyword, page, filters.order, filters.duration)
                 .onSuccess { result -> applyPage(result, keyword, append = page > 1) }
                 .onFailure { e ->
                     _search.value = _search.value.copy(
@@ -484,6 +535,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onEnterBackground() = connection.onEnterBackground()
+
+    // ── 下载 ────────────────────────────────────────────
+
+    /** 入队下载。内容（只音频/视频）与位置在调用前由 UI 弹窗定好。 */
+    fun enqueueDownload(request: com.biliseek.app.download.DownloadRequest) =
+        downloadManager.enqueue(request)
+
+    fun retryDownload(id: Long) = downloadManager.retry(id)
+
+    fun deleteDownload(id: Long) = downloadManager.delete(id)
+
+    /** 播放一条已下载的条目。走普通播放路径——离线拦截点在取流层。 */
+    fun playDownload(task: com.biliseek.app.download.DownloadTask) {
+        play(
+            PlaybackRequest.Bili(
+                bvid = task.bvid,
+                cid = task.cid.takeIf { it > 0 },
+                title = task.title,
+                coverUrl = task.coverUrl,
+                author = task.author,
+            ),
+        )
+    }
+
+    /** 记住下载位置，下次默认带入。 */
+    fun setDownloadLocation(value: String) =
+        viewModelScope.launch { settingsStore.setDownloadLocation(value) }
+
+    fun setDownloadSafTreeUri(value: String) =
+        viewModelScope.launch { settingsStore.setDownloadSafTreeUri(value) }
 
     // ── 设置 ────────────────────────────────────────────
 

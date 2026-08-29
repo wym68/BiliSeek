@@ -29,6 +29,10 @@ data class AppSettings(
     val allowVideoOnMetered: Boolean = false,
     val audioQuality: AudioQuality = AudioQuality.AUTO,
     val loudnessNormalization: Boolean = true,
+    /** 上次下载选的保存位置，下次默认带入（M9）。 */
+    val lastDownloadLocation: String = DownloadLocation.PRIVATE,
+    /** 上次选的 SAF 目录 uri。持久授权后重进 App 不必重选。 */
+    val lastDownloadSafTreeUri: String = "",
 )
 
 private val Context.settingsDataStore by preferencesDataStore(name = "biliseek_settings")
@@ -61,6 +65,9 @@ class SettingsStore(private val context: Context) {
                 ?.let { name -> AudioQuality.entries.firstOrNull { it.name == name } }
                 ?: AudioQuality.AUTO,
             loudnessNormalization = p[KEY_LOUDNESS] ?: true,
+            lastDownloadLocation = p[KEY_DOWNLOAD_LOCATION]
+                ?: DownloadLocation.PRIVATE,
+            lastDownloadSafTreeUri = p[KEY_DOWNLOAD_SAF_TREE] ?: "",
         )
         publish(restored)
     }
@@ -79,6 +86,13 @@ class SettingsStore(private val context: Context) {
     suspend fun setLoudnessNormalization(value: Boolean) =
         update { it.copy(loudnessNormalization = value) }
 
+    /** 记住下载位置，下次默认带入。 */
+    suspend fun setDownloadLocation(value: String) =
+        update { it.copy(lastDownloadLocation = value) }
+
+    suspend fun setDownloadSafTreeUri(value: String) =
+        update { it.copy(lastDownloadSafTreeUri = value) }
+
     private suspend fun update(transform: (AppSettings) -> AppSettings) {
         val next = transform(current)
         publish(next)
@@ -88,6 +102,8 @@ class SettingsStore(private val context: Context) {
             p[KEY_ALLOW_METERED] = next.allowVideoOnMetered
             p[KEY_AUDIO_QUALITY] = next.audioQuality.name
             p[KEY_LOUDNESS] = next.loudnessNormalization
+            p[KEY_DOWNLOAD_LOCATION] = next.lastDownloadLocation
+            p[KEY_DOWNLOAD_SAF_TREE] = next.lastDownloadSafTreeUri
         }
     }
 
@@ -102,5 +118,7 @@ class SettingsStore(private val context: Context) {
         val KEY_ALLOW_METERED = booleanPreferencesKey("allow_video_on_metered")
         val KEY_AUDIO_QUALITY = stringPreferencesKey("audio_quality")
         val KEY_LOUDNESS = booleanPreferencesKey("loudness_normalization")
+        val KEY_DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
+        val KEY_DOWNLOAD_SAF_TREE = stringPreferencesKey("download_saf_tree")
     }
 }

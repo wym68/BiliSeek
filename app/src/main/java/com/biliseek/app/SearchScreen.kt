@@ -38,7 +38,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.CoverThumbnail
+import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
+import com.biliseek.core.network.SearchOrder
 import com.biliseek.core.network.retryable
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.normalizeCoverUrl
@@ -55,6 +57,7 @@ fun SearchScreen(
     onPlayNext: (SearchVideo) -> Unit,
     onCopyLink: (SearchVideo) -> Unit,
     onShowPages: (SearchVideo) -> Unit,
+    onDownload: (SearchVideo) -> Unit = {},
     onLoadMore: () -> Unit,
     onPageClick: (PageEntry) -> Unit,
     onDismissPages: () -> Unit,
@@ -62,6 +65,8 @@ fun SearchScreen(
     onRetry: () -> Unit = {},
     /** 无搜索时展示的首页空状态 */
     emptyContent: @Composable () -> Unit = {},
+    onOrderChange: (SearchOrder) -> Unit = {},
+    onDurationChange: (SearchDuration) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -75,6 +80,7 @@ fun SearchScreen(
             onPlayNext = { actionsFor = null; onPlayNext(video) },
             onCopyLink = { actionsFor = null; onCopyLink(video) },
             onShowPages = { actionsFor = null; onShowPages(video) },
+            onDownload = { actionsFor = null; onDownload(video) },
         )
     }
 
@@ -108,6 +114,14 @@ fun SearchScreen(
             )
             Button(onClick = onSubmit) { Text("搜索") }
         }
+
+        // 搜索筛选：时长 / 排序。切换后页码必须归 1（VM 侧处理）
+        SearchFilterBar(
+            order = state.order,
+            duration = state.duration,
+            onOrderChange = onOrderChange,
+            onDurationChange = onDurationChange,
+        )
 
         // 已有结果时，失败（多为加载下一页）收窄成顶部条，不遮挡已经拿到的内容
         if (state.items.isNotEmpty()) {
@@ -185,6 +199,56 @@ fun SearchScreen(
     }
 }
 
+/**
+ * 搜索筛选条：排序 + 时长。
+ *
+ * 换筛选即整页重搜（页码归 1）。筛选对「听」场景价值极高——
+ * 筛长视频听专辑、筛短视频听单曲，这是视频客户端不会做的差异化。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun SearchFilterBar(
+    order: SearchOrder,
+    duration: SearchDuration,
+    onOrderChange: (SearchOrder) -> Unit,
+    onDurationChange: (SearchDuration) -> Unit,
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ORDER_OPTIONS.forEach { (label, value) ->
+            androidx.compose.material3.FilterChip(
+                selected = order == value,
+                onClick = { onOrderChange(value) },
+                label = { Text(label) },
+            )
+        }
+        DURATION_OPTIONS.forEach { (label, value) ->
+            androidx.compose.material3.FilterChip(
+                selected = duration == value,
+                onClick = { onDurationChange(value) },
+                label = { Text(label) },
+            )
+        }
+    }
+}
+
+private val ORDER_OPTIONS = listOf(
+    "综合" to SearchOrder.COMPREHENSIVE,
+    "最多播放" to SearchOrder.CLICK,
+    "最新" to SearchOrder.PUBDATE,
+    "最多弹幕" to SearchOrder.DM,
+)
+
+private val DURATION_OPTIONS = listOf(
+    "不限时长" to SearchDuration.ANY,
+    "10 分内" to SearchDuration.UNDER_10,
+    "10–30 分" to SearchDuration._10_30,
+    "30–60 分" to SearchDuration._30_60,
+    "60 分+" to SearchDuration.OVER_60,
+)
+
 /** 长按搜索结果弹出的操作菜单。 */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -195,6 +259,7 @@ private fun ResultActionSheet(
     onPlayNext: () -> Unit,
     onCopyLink: () -> Unit,
     onShowPages: () -> Unit,
+    onDownload: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
@@ -210,6 +275,7 @@ private fun ResultActionSheet(
             SheetItem("下一首播放", onPlayNext)
             SheetItem("复制链接", onCopyLink)
             SheetItem("查看分 P", onShowPages)
+            SheetItem("下载", onDownload)
         }
     }
 }

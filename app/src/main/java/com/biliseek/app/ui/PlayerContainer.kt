@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -143,6 +146,12 @@ fun FullscreenPlayerOverlay(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 返回键在 overlay 内部处理：Compose 的 BackHandler 后注册者优先，
+    // 这里比 AppShell 的那个先收到——全屏下按一次即退出（M9 打磨项）。
+    // 早期实现依赖 AppShell 的外层 BackHandler，首次按键被系统栏的
+    // 临时显示逻辑吞掉，表现为要按两次。
+    androidx.activity.compose.BackHandler { onExit() }
+
     // 沉浸由 overlay 自己开关：进入时藏系统栏，退出时恢复。
     // 放在这里而不是 Activity 里，是因为「退出即销毁」保证了恢复一定会执行
     val view = androidx.compose.ui.platform.LocalView.current
@@ -257,7 +266,13 @@ private fun ExpandedPlayer(
     onEnterFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(modifier = modifier.fillMaxSize()) {
+    Surface(
+        modifier = modifier
+            .fillMaxSize()
+            // 展开播放器要避让状态栏（M9 打磨项）。全屏 overlay 保持不吃 insets——
+            // 那是有意的沉浸，别一起改了
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -362,6 +377,11 @@ private fun ExpandedPlayer(
 @Composable
 private fun QualityLine(state: PlaybackState) {
     if (state.mode == com.biliseek.core.player.PlaybackMode.IDLE) return
+    // 本地文件没有音质档位：如实说「本地文件」，不谎报「自动」
+    if (state.isOffline) {
+        Text("音质：本地文件", style = MaterialTheme.typography.labelSmall)
+        return
+    }
     val quality = when (state.audioQuality) {
         AudioQuality.AUTO -> "自动"
         AudioQuality.LOSSLESS -> "无损"

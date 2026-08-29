@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistTrackEntity::class,
         PlayHistoryEntity::class,
         SearchHistoryEntity::class,
+        DownloadEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -23,6 +24,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun historyDao(): HistoryDao
     abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun downloadDao(): DownloadDao
 
     companion object {
         @Volatile
@@ -35,7 +37,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
 
         /**
@@ -48,6 +50,42 @@ abstract class BiliSeekDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE track ADD COLUMN coverUrl TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /**
+         * v2 → v3：新增下载表（M9）。
+         *
+         * 表行记录保存位置与文件引用，离线库据此知道去哪找文件、
+         * 删表行时是否要连文件一起删（删除语义按位置区分）。
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `download` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `bvid` TEXT NOT NULL,
+                        `cid` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `author` TEXT NOT NULL,
+                        `coverUrl` TEXT NOT NULL,
+                        `durationSec` INTEGER NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `location` TEXT NOT NULL,
+                        `safTreeUri` TEXT NOT NULL,
+                        `audioFile` TEXT NOT NULL,
+                        `videoFile` TEXT NOT NULL,
+                        `fileSize` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `error` TEXT NOT NULL,
+                        `downloadedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_bvid_cid` ON `download` (`bvid`, `cid`)",
+                )
             }
         }
     }

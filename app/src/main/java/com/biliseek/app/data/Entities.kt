@@ -81,3 +81,61 @@ data class SearchHistoryEntity(
     val keyword: String,
     val searchedAt: Long,
 )
+
+/**
+ * 下载记录（M9）。一个 bvid+cid 唯一对应一条下载。
+ *
+ * 删除语义按 [location] 区分（M9 §9.5）：
+ * - `PRIVATE`：私有目录，删记录时**连文件一起删**
+ * - `PUBLIC` / `SAF`：用户自己的文件，删记录**不碰文件**
+ */
+@Entity(tableName = "download", indices = [Index(value = ["bvid", "cid"], unique = true)])
+data class DownloadEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bvid: String,
+    val cid: Long,
+    val title: String,
+    val author: String,
+    val coverUrl: String,
+    val durationSec: Long,
+    /** 下载内容：AUDIO / VIDEO */
+    val content: String,
+    /** 保存位置：PRIVATE / PUBLIC / SAF */
+    val location: String,
+    /** SAF 授权树的 uri（[location] 为 SAF 时非空，离线库靠它找文件） */
+    val safTreeUri: String,
+    /** 播放用 URI：私有目录为 file://，公共 / SAF 为 content:// */
+    val audioFile: String,
+    /** 视频文件。只下了音频时为空字符串 */
+    val videoFile: String,
+    val fileSize: Long,
+    /** 状态机：QUEUED / DOWNLOADING / DONE / FAILED */
+    val status: String,
+    /** 失败原因，仅 FAILED 时非空 */
+    val error: String,
+    val downloadedAt: Long,
+)
+
+/** 下载状态常量。存字符串便于 SQL 过滤（status = 'DONE'）。 */
+object DownloadStatus {
+    const val QUEUED = "QUEUED"
+    const val DOWNLOADING = "DOWNLOADING"
+    const val DONE = "DONE"
+    const val FAILED = "FAILED"
+
+    /** 中断 / 失败后可重试的状态。 */
+    val RETRYABLE = setOf(QUEUED, FAILED)
+}
+
+/** 下载内容类型。 */
+object DownloadContent {
+    const val AUDIO = "AUDIO"
+    const val VIDEO = "VIDEO"
+}
+
+/** 保存位置类型。 */
+object DownloadLocation {
+    const val PRIVATE = "PRIVATE"
+    const val PUBLIC = "PUBLIC"
+    const val SAF = "SAF"
+}

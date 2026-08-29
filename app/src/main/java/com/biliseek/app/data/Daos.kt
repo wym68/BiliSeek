@@ -94,6 +94,33 @@ interface HistoryDao {
 data class DayCount(val day: Long, val count: Int)
 
 @Dao
+interface DownloadDao {
+
+    /** 「已下载」分区：只列完成的。 */
+    @Query("SELECT * FROM download WHERE status = 'DONE' ORDER BY downloadedAt DESC")
+    fun observeDone(): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM download WHERE bvid = :bvid AND cid = :cid")
+    suspend fun find(bvid: String, cid: Long): DownloadEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: DownloadEntity): Long
+
+    @Query("DELETE FROM download WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM download")
+    suspend fun clear()
+
+    /** 服务重启后捞回中断的任务（续传 / 重试）。 */
+    @Query("SELECT * FROM download WHERE status = :status")
+    suspend fun byStatus(status: String): List<DownloadEntity>
+
+    @Query("SELECT * FROM download")
+    suspend fun all(): List<DownloadEntity>
+}
+
+@Dao
 interface SearchHistoryDao {
 
     @Query("SELECT * FROM search_history ORDER BY searchedAt DESC LIMIT :limit")

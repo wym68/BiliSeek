@@ -56,6 +56,9 @@ fun LibraryScreen(
     onTrackClick: (PlaylistTrack) -> Unit,
     onTrackRemove: (Long) -> Unit,
     onTrackReorder: (Long, Double?, Double?) -> Unit,
+    /** 已下载任务列表。非空时显示入口——下载中/失败也要能进得去（可见可重试）。 */
+    downloads: List<com.biliseek.app.download.DownloadTask> = emptyList(),
+    onOpenDownloads: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showCreate by remember { mutableStateOf(false) }
@@ -82,6 +85,23 @@ fun LibraryScreen(
         ) {
             Text("本地歌单", style = MaterialTheme.typography.titleMedium)
             Button(onClick = { showCreate = true }) { Text("新建") }
+        }
+
+        // 「已下载」分区：音乐库页现在只有本地歌单，这是离线内容的归处。
+        // 只要有过下载记录就显示入口——失败的任务也得进得去重试，不能藏起来
+        if (downloads.isNotEmpty()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenDownloads)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("已下载", style = MaterialTheme.typography.bodyLarge)
+                Text("${downloads.count { it.isDone }} 个 ›", style = MaterialTheme.typography.labelMedium)
+            }
+            HorizontalDivider()
         }
 
         if (playlists.isEmpty()) {

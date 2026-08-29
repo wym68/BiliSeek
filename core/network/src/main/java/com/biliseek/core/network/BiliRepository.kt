@@ -27,7 +27,12 @@ class BiliRepository(
      * 搜索。失败一律以 [SearchException] 抛出，携带 [SearchError] 分类——
      * UI 据此决定文案与**是否给重试按钮**。
      */
-    suspend fun search(keyword: String, page: Int = 1): Result<SearchPage> = runCatching {
+    suspend fun search(
+        keyword: String,
+        page: Int = 1,
+        order: SearchOrder = SearchOrder.COMPREHENSIVE,
+        duration: SearchDuration = SearchDuration.ANY,
+    ): Result<SearchPage> = runCatching {
         val credentials = try {
             authGate.awaitReady()
         } catch (e: Exception) {
@@ -37,11 +42,11 @@ class BiliRepository(
             )
         }
         val params = WbiSigner.sign(
-            params = mapOf(
-                "search_type" to "video",
-                "keyword" to keyword,
-                "page" to page.toString(),
-                "page_size" to PAGE_SIZE.toString(),
+            params = buildSearchParams(
+                keyword = keyword,
+                page = page,
+                order = order,
+                duration = duration,
             ),
             imgKey = credentials.wbiImgKey,
             subKey = credentials.wbiSubKey,
@@ -103,6 +108,5 @@ class BiliRepository(
 
     private companion object {
         const val TAG = "BiliSeekRepo"
-        const val PAGE_SIZE = 20
     }
 }

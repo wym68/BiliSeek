@@ -153,6 +153,8 @@ data class PlaybackState(
     /** **实际生效**的音质，不是用户请求的那个。两者不一致时 [qualityFallback] 说明原因。 */
     val audioQuality: AudioQuality = AudioQuality.AUTO,
     val qualityFallback: QualityFallback = QualityFallback.NONE,
+    /** 当前在播的是本地已下载文件。音质行显示「本地文件」而不是谎报档位。 */
+    val isOffline: Boolean = false,
 ) {
     /** 定时器是否已设置——两种终止条件任一生效即为真。 */
     val sleepTimerActive: Boolean
@@ -179,3 +181,35 @@ enum class PlayMode {
     /** 随机 */
     SHUFFLE,
 }
+
+/**
+ * 离线命中结果。由 app 层查本地下载库后给出。
+ *
+ * 播放内核不新增播放路径——离线与在线看到的是同一个 [PlaybackRequest] / [ResolvedMedia]，
+ * 只是 `resolve()` 在开头多了一个拦截点（M9 §9.4）。
+ */
+data class OfflineMedia(
+    /** 本地文件 URI：私有目录是 `file://`，公共媒体库 / SAF 是 `content://` */
+    val uri: String,
+    /** 媒体类型：`audio/mp4` 或 `video/mp4`。null 交给播放器自动探测 */
+    val mimeType: String?,
+    val durationMs: Long,
+    /** 是否含视频轨。只下了音频的 m4a 为 false——看模式无画面由结构兜底 */
+    val hasVideoTrack: Boolean,
+)
+
+/**
+ * 下载用取流结果：真实轨道直链。
+ *
+ * 与播放用的 [ResolvedMedia] 不同，下载需要的是真实 URL 而不是 MPD。
+ * 音频轨永远是完整的单文件（DASH 即完整 M4A/AAC），下载即成品；
+ * 视频下载需要 [videoUrl] 与 [audioUrl] 两条轨，再 mux 成 MP4。
+ */
+data class DownloadSource(
+    /** 实际解析出的分 P cid——文件名里要用，null 时由取流层补全 */
+    val cid: Long,
+    val audioUrl: String,
+    /** null = 该内容没有视频轨（只下了音频的 m4a 就是这条路径） */
+    val videoUrl: String?,
+    val durationMs: Long,
+)

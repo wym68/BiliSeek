@@ -137,7 +137,8 @@ Web 扫码拿到的 Cookie 会过期。刷新流程比想象中长：
 
 ```
 PlaybackRequest(bvid, cid, 音质偏好)
-  ↓ 查 UrlCache（TTL 约 2h）
+  ↓ ① 离线拦截（取流前、风控凭据前）——本地命中直接 file://，见 §4.5
+  ↓ miss → 查 UrlCache（TTL 约 2h）
   ↓ miss → playurl 接口
   ↓        fnval=4048  fnver=0  fourk=1  voice_balance=1
   ↓
@@ -145,6 +146,10 @@ PlayUrlResponse
   ├─ dash 存在 → 组装本地 MPD ────┐
   ├─ dash 空、durl 有 → 单文件 MP4 ┤→ MediaItem
   └─ 都失败 → html5 降级路径 ─────┘
+
+下载（M9，独立于播放路径）：
+  resolveForDownload → 音频轨直链 / 视频轨直链
+  → 流式写盘（Range 断点续传）→ 视频两条轨 MediaMuxer 合成 → 私有/公共/SAF
 ```
 
 **降级链**：`dash` → `durl`（老式单文件） → `platform=html5 + high_quality=1`（不需登录也能到 1080p，但无高码率音频，仅作最后兜底）。
@@ -189,6 +194,32 @@ dash.audio[]       普通 AAC 数组 — 按 bandwidth 排序
 2. **FLAC 解码器输入缓冲**：部分设备给 `c2.android.flac.decoder` 只分配 32 KiB，而 B 站 Hi-Res 单帧可能超过，触发 `InsufficientCapacityException`。需自定义 `RenderersFactory` 把 FLAC 的最小输入缓冲抬到 1 MiB（照搬 BiliPai `HiResCompatibleRenderersFactory.kt`）。
 
 回退时向 UI 暴露原因：`不可用 / 倍速不兼容 / 无可播放音频`。
+
+### 4.5 离线取流拦截点 【已定】✅ M9 已落地
+
+**不新增播放路径。** 在 `PlayUrlResolver.resolve()` 开头查本地下载库，命中就直接返回
+`ResolvedMedia(uri = "file://…")`——续播、播放历史、队列、响度均衡、音质显示**全部不用动**，
+它们看到的仍是一个普通的 `ResolvedMedia`。
+
+```
+resolve(bvid, cid, quality)
+  ↓ ① 离线拦截（**必须在 awaitReady() 之前**）
+  │    命中 → ResolvedMedia(file://…)  ← 飞行模式下也能播
+  ↓ ② 风控凭据 awaitReady()
+  ↓ ③ UrlCache → playurl → 本地 MPD / durl 单文件
+```
+
+**拦截点必须在 `awaitReady()` 之前**：写在它后面的话，飞行模式下播放已下载的歌会卡在
+风控凭据上——离线功能被自己的风控 gate 挡住。
+
+离线视频文件走同一条路：`file://` 的 MP4 里音视频轨都在，「切看」照常工作；
+只下了音频的 m4a 只有音轨、看模式无画面——由 `PlaybackMode` 结构兜底，不特判。
+本地文件没有响度数据 → `loudnessGain(null, null)` 天然返回 `1.0f`，不必特判；
+音质档位对本地文件无意义 → 播放页音质行显示「本地文件」而非谎报档位。
+文件被用户在系统里删了 → 播放前校验存在性，缺失则删表行（标失效）并回落在线取流。
+
+实现落点：`PlayerConnection.offlineLookup`（回调解耦，照 `resumePositionProvider` 惯例）→
+`PlayUrlResolver.offlineLookup` → app 层 `LibraryRepository.lookupOffline`（含 `resolveOfflineHit` 纯函数，配单测）。
 
 ---
 

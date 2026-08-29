@@ -143,15 +143,23 @@ class CookieRefresher(
         /**
          * `correspondPath` 用的 RSA 公钥（PEM，SPKI）。
          *
-         * **当前留空，刷新功能因此处于未启用状态**（[RefreshOutcome.NotConfigured]），
-         * 其余链路已完整实现并有单测覆盖。
+         * **来源与验证（2026-08-28）**：B 站 Web 前端 wasm
+         * `https://s1.hdslb.com/bfs/static/jinkela/long/wasm/wasm_rsa_encrypt_bg.wasm`
+         * 中提取（算法逆向见 bilibili-API-collect §cookie_refresh，原始出处已下架）。
+         * 验证方式：解出的模数（去掉前导 0 后）逐字节存在于**当日抓取的线上 wasm** 中，
+         * 且与逆向报告的 JWK `n` 一致——不是「大概是这个」的值。
          *
-         * 留空而不是填一个「大概是这个」的值，是因为填错不会报错——
-         * OAEP 加密照样成功，只是服务端解不开，表现为刷新永远静默失败、
-         * 用户过一阵子莫名其妙掉登录，且极难归因。这类错误比功能缺失更糟。
-         *
-         * 填入后本类无需改动即可生效。
+         * 端到端的「一次真实刷新」仍需真人扫码登录后验证（验不了的部分在验收记录里
+         * 如实标注为未验证）。填错不会报错——OAEP 照样加密成功，只是服务端解不开，
+         * 表现为刷新永远静默失败。本密钥有字节级出处证据，风险已降到最低。
          */
-        const val CORRESPOND_PUBLIC_KEY = ""
+        val CORRESPOND_PUBLIC_KEY = """
+            -----BEGIN PUBLIC KEY-----
+            MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDLgd2OAkcGVtoE3ThUREbio0Eg
+            Uc/prcajMKXvkCKFCWhJYJcLkcM2DKKcSeFpD/j6Boy538YXnR6VhcuUJOhH2x71
+            nzPjfdTcqMz7djHum0qSZA0AyCBDABUqCrfNgCiJ00Ra7GmRj+YCK1NJEuewlb40
+            JNrRuoEUXpabUzGB8QIDAQAB
+            -----END PUBLIC KEY-----
+            """.trimIndent()
     }
 }

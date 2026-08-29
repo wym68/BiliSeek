@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
+import com.biliseek.app.ui.DownloadDialog
+import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
 import com.biliseek.app.ui.MeteredVideoDialog
@@ -36,6 +38,7 @@ import com.biliseek.app.ui.PlaylistPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
 import com.biliseek.app.ui.SettingsScreen
 import com.biliseek.core.network.sharedTextFrom
+import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
@@ -48,6 +51,19 @@ class MainActivity : ComponentActivity() {
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝也不阻断 */ }
+
+    /** API 26–28 写公共媒体库需要运行时权限；29+ 走 MediaStore 不需要。 */
+    private val requestStoragePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            pendingStorageDownload?.let { req ->
+                if (granted) viewModel.enqueueDownload(req)
+                // 拒绝时任务不入队——界面上的失败提示由用户自己决定重试
+            }
+            pendingStorageDownload = null
+        }
+
+    /** 等权限就绪后入队的下载（仅 API 26–28 + 公共媒体库路径）。 */
+    private var pendingStorageDownload: com.biliseek.app.download.DownloadRequest? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -70,8 +86,13 @@ class MainActivity : ComponentActivity() {
                 val pendingAdd by viewModel.pendingAdd.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
+                val downloadTasks by viewModel.downloadTasks.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
+                // 长按 → 下载：先问内容与保存位置
+                var downloadFor by remember { mutableStateOf<SearchVideo?>(null) }
+                // 「已下载」分区展开态
+                var downloadsOpen by remember { mutableStateOf(false) }
 
                 val context = LocalContext.current
                 val surfaceView = remember {
@@ -145,10 +166,13 @@ class MainActivity : ComponentActivity() {
                             onPlayNext = viewModel::enqueueNext,
                             onCopyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
                             onShowPages = viewModel::showPages,
+                            onDownload = { downloadFor = it },
                             onLoadMore = viewModel::loadMore,
                             onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
                             onDismissPages = viewModel::dismissPages,
                             onRetry = viewModel::retrySearch,
+                            onOrderChange = { viewModel.setSearchFilters(it, search.duration) },
+                            onDurationChange = { viewModel.setSearchFilters(search.order, it) },
                             emptyContent = {
                                 if (showEmptyState) {
                                     HomeEmptyState(
@@ -165,19 +189,31 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     libraryContent = {
-                        LibraryScreen(
-                            playlists = playlists,
-                            openedPlaylist = openedPlaylist,
-                            tracks = openedTracks,
-                            onCreate = viewModel::createPlaylist,
-                            onOpen = viewModel::openPlaylist,
-                            onClose = viewModel::closePlaylist,
-                            onDelete = viewModel::deletePlaylist,
-                            onRename = viewModel::renamePlaylist,
-                            onTrackClick = viewModel::playTrack,
-                            onTrackRemove = viewModel::removeFromPlaylist,
-                            onTrackReorder = viewModel::reorderTrack,
-                        )
+                        if (downloadsOpen) {
+                            DownloadsScreen(
+                                tasks = downloadTasks,
+                                onClose = { downloadsOpen = false },
+                                onPlay = viewModel::playDownload,
+                                onRetry = viewModel::retryDownload,
+                                onDelete = viewModel::deleteDownload,
+                            )
+                        } else {
+                            LibraryScreen(
+                                playlists = playlists,
+                                openedPlaylist = openedPlaylist,
+                                tracks = openedTracks,
+                                onCreate = viewModel::createPlaylist,
+                                onOpen = viewModel::openPlaylist,
+                                onClose = viewModel::closePlaylist,
+                                onDelete = viewModel::deletePlaylist,
+                                onRename = viewModel::renamePlaylist,
+                                onTrackClick = viewModel::playTrack,
+                                onTrackRemove = viewModel::removeFromPlaylist,
+                                onTrackReorder = viewModel::reorderTrack,
+                                downloads = downloadTasks,
+                                onOpenDownloads = { downloadsOpen = true },
+                            )
+                        }
                     },
                     settingsContent = {
                         SettingsScreen(
@@ -217,6 +253,29 @@ class MainActivity : ComponentActivity() {
                         onDismiss = viewModel::dismissAddToPlaylist,
                     )
                 }
+
+                // 下载前先确认内容与保存位置
+                downloadFor?.let { video ->
+                    DownloadDialog(
+                        video = video,
+                        settings = settings,
+                        onDismiss = { downloadFor = null },
+                        onConfirm = { request ->
+                            if (request.location == com.biliseek.app.data.DownloadLocation.PUBLIC &&
+                                needsStoragePermission()
+                            ) {
+                                pendingStorageDownload = request
+                                requestStoragePermission.launch(
+                                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                )
+                            } else {
+                                viewModel.enqueueDownload(request)
+                            }
+                        },
+                        onRememberLocation = viewModel::setDownloadLocation,
+                        onRememberSafTree = viewModel::setDownloadSafTreeUri,
+                    )
+                }
             }
         }
     }
@@ -254,8 +313,7 @@ class MainActivity : ComponentActivity() {
      * 不授予不影响**锁屏**媒体控制（那由 MediaSession 驱动），
      * 但通知栏控制会因 `importance=NONE` 而不显示——M0 验收时实测确认过这个区别。
      */
-    private fun ensureNotificationPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    private fun ensureNotificationPermission() {        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val granted = ContextCompat.checkSelfPermission(
             this,
             android.Manifest.permission.POST_NOTIFICATIONS,
@@ -263,6 +321,15 @@ class MainActivity : ComponentActivity() {
         if (!granted) {
             requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    /** API 26–28 且未授予写外部存储时返回 true。 */
+    private fun needsStoragePermission(): Boolean {
+        if (Build.VERSION.SDK_INT < 26 || Build.VERSION.SDK_INT > 28) return false
+        return ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        ) != PackageManager.PERMISSION_GRANTED
     }
 
     private fun enterPip() {
@@ -283,8 +350,7 @@ class MainActivity : ComponentActivity() {
      * 看模式下若支持 PiP 则进 PiP（呈现态仍为可见，**不回落音频**）；
      * 否则回落纯音频，避免解码没人看的画面。
      */
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
+    override fun onUserLeaveHint() {        super.onUserLeaveHint()
         val state = viewModel.connection.state.value
         if (state.presentation != com.biliseek.core.player.PresentationMode.NONE) {
             enterPip()

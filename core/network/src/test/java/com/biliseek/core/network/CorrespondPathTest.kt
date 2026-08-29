@@ -92,6 +92,44 @@ class CorrespondPathTest {
         assertEquals("refresh_7", decrypt(rsaOaepHex("refresh_7", oneLine)))
     }
 
+    // ── 真实 B 站公钥（2026-08-28 提取自线上 wasm）──────────
+
+    /**
+     * 模数（hex，无前导 0）。
+     *
+     * 这是从 B 站线上 wasm `wasm_rsa_encrypt_bg.wasm` 逐字节比对得到的独立真值——
+     * 不依赖本仓库常量，公钥被人改错（或回退成空串）时这条用例会先报警。
+     */
+    private val REAL_MODULUS = java.math.BigInteger(
+        "cb81dd8e02470656da04dd38544446e2a3412051cfe9adc6a330a5ef902285096849" +
+            "60970b91c3360ca29c49e1690ff8fa068cb9dfc6179d1e9585cb9424e847db1ef59" +
+            "f33e37dd4dca8ccfb7631ee9b4a92640d00c8204300152a0ab7cd802889d3445aec" +
+            "69918fe6022b534912e7b095be3424dad1ba81145e969b533181f1",
+        16,
+    )
+
+    @Test
+    fun `真实公钥可解析且模数与线上 wasm 一致`() {
+        val der = java.util.Base64.getDecoder().decode(
+            CookieRefresher.CORRESPOND_PUBLIC_KEY
+                .replace("-----BEGIN PUBLIC KEY-----", "")
+                .replace("-----END PUBLIC KEY-----", "")
+                .replace(Regex("\\s"), ""),
+        )
+        val pub = java.security.KeyFactory.getInstance("RSA")
+            .generatePublic(java.security.spec.X509EncodedKeySpec(der)) as java.security.interfaces.RSAPublicKey
+        assertEquals("模数与线上 wasm 不一致——公钥可能被改错或回退", REAL_MODULUS, pub.modulus)
+        assertEquals(java.math.BigInteger("65537"), pub.publicExponent)
+    }
+
+    @Test
+    fun `真实公钥加密输出为小写 hex 且长度等于模长`() {
+        val hex = rsaOaepHex("refresh_1", CookieRefresher.CORRESPOND_PUBLIC_KEY)
+        // 1024 位密钥 → 128 字节密文 → 256 个 hex 字符
+        assertEquals(256, hex.length)
+        assertTrue(hex.all { it in '0'..'9' || it in 'a'..'f' })
+    }
+
     // ── refresh_csrf 的 HTML 解析 ──────────────────────────
 
     @Test

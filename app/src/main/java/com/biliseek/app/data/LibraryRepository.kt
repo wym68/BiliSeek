@@ -114,6 +114,44 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     suspend fun resumePosition(bvid: String, cid: Long): Long =
         history.find(bvid, cid)?.positionMs ?: 0L
 
+    // ── 下载与离线 ────────────────────────────────────────
+
+    private val downloads = db.downloadDao()
+
+    fun observeDownloads(): Flow<List<DownloadEntity>> = downloads.observeDone()
+
+    /**
+     * 离线命中检查：查本地下载库，命中返回本地文件。
+     *
+     * 文件被用户在系统里删掉时（[OfflineLookupResult.Stale]），删掉表行
+     * 并回落到在线取流——不能只报「播放失败」，也不能每次播放都撞一遍检查。
+     *
+     * [fileExists] 由调用方注入（file:// 走 `File.exists`，content:// 走 ContentResolver）。
+     */
+    suspend fun lookupOffline(
+        bvid: String,
+        cid: Long?,
+        fileExists: (String) -> Boolean,
+    ): com.biliseek.core.player.OfflineMedia? {
+        val row = if (cid != null && cid > 0) {
+            downloads.find(bvid, cid)
+        } else {
+            // cid 未知（外部分享直达）：取该 bvid 最近一条完成的记录
+            downloads.all()
+                .filter { it.bvid == bvid && it.status == DownloadStatus.DONE }
+                .maxByOrNull { it.downloadedAt }
+        } ?: return null
+        return when (val result = resolveOfflineHit(row, fileExists)) {
+            is OfflineLookupResult.Hit -> result.media
+            is OfflineLookupResult.Stale -> {
+                // 记录已失效，标为失败而不是静默消失——用户能看见并删除
+                downloads.upsert(row.copy(status = DownloadStatus.FAILED, error = "文件已被删除"))
+                null
+            }
+            is OfflineLookupResult.Miss -> null
+        }
+    }
+
     // ── 搜索历史 ────────────────────────────────────────
 
     fun observeSearchHistory(): Flow<List<SearchHistoryEntity>> = searches.observeRecent()

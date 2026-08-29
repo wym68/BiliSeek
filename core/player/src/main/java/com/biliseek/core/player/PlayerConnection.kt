@@ -58,6 +58,11 @@ class PlayerConnection(private val context: Context) {
     private var scope: CoroutineScope? = null
     private val resolver = PlayUrlResolver(BiliNetwork.get(context))
 
+    init {
+        // 离线拦截点接在解析器上：取流第一件事就是查本地下载库（M9 §9.4）
+        resolver.offlineLookup = { bvid, cid -> offlineLookup?.invoke(bvid, cid) }
+    }
+
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
@@ -73,6 +78,14 @@ class PlayerConnection(private val context: Context) {
 
     /** 播放位置回写，用于续播与最近播放。 */
     var positionRecorder: (suspend (String, Long, Long) -> Unit)? = null
+
+    /**
+     * 离线命中检查：查本地下载库，命中返回本地文件。
+     *
+     * 在 [play] 的取流路径里被调用（取流前、风控凭据前）——
+     * 飞行模式下播放已下载的歌不能被自己的风控 gate 挡住。
+     */
+    var offlineLookup: (suspend (String, Long?) -> OfflineMedia?)? = null
 
     /**
      * 时长回写：`(bvid, cid, durationSec)`。取流拿到时长后调用一次。
@@ -189,6 +202,7 @@ class PlayerConnection(private val context: Context) {
         val prefs = preferenceProvider?.invoke() ?: PlaybackPreferences()
         val uri: String
         val mimeType: String?
+        var isOffline = false
         var media: com.biliseek.core.player.internal.ResolvedMedia? = null
         try {
             when (request) {
@@ -210,10 +224,15 @@ class PlayerConnection(private val context: Context) {
                     media = resolved
                     uri = resolved.uri
                     mimeType = resolved.mimeType
+                    isOffline = resolved.isOffline
                 }
             }
         } catch (e: Exception) {
-            _state.value = _state.value.copy(isResolving = false, error = e.message ?: "取流失败")
+            _state.value = _state.value.copy(
+                isResolving = false,
+                error = e.message ?: "取流失败",
+                isOffline = false,
+            )
             return
         }
 
@@ -272,8 +291,35 @@ class PlayerConnection(private val context: Context) {
             speed = currentSpeed(),
             losslessSelected = media?.losslessSelected == true,
         )
-        _state.value = _state.value.copy(isResolving = false)
+        _state.value = _state.value.copy(
+            isResolving = false,
+            isOffline = isOffline,
+            // 本地文件没有音质档位：显示「本地文件」而不是谎报「自动」
+            audioQuality = if (isOffline) AudioQuality.AUTO else effective.quality,
+            qualityFallback = if (isOffline) QualityFallback.NONE else effective.fallback,
+        )
         pushState()
+    }
+
+    /**
+     * 下载用取流：真实轨道直链。
+     *
+     * 下载管理器用它拿到 [DownloadSource] 后自行流式写盘。
+     * 不走离线拦截（重新下载已下过的内容时不能命中本地文件）。
+     */
+    suspend fun resolveDownloadSource(
+        bvid: String,
+        cid: Long?,
+        quality: AudioQuality = AudioQuality.AUTO,
+    ): DownloadSource {
+        val (resolvedCid, media) = resolver.resolveForDownload(bvid, cid, quality)
+        require(media.audioUrl.isNotBlank()) { "该内容没有可下载的音频轨" }
+        return DownloadSource(
+            cid = resolvedCid,
+            audioUrl = media.audioUrl,
+            videoUrl = media.videoUrl.takeIf { it.isNotBlank() },
+            durationMs = media.durationMs,
+        )
     }
 
     /**
