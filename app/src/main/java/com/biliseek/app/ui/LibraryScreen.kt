@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -90,6 +91,8 @@ fun LibraryScreen(
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
 
     if (favoriteContent != null) {
+        // 系统返回手势应收起内容页，而不是弹走导航栈（tab 内状态，非 nav 目的地）
+        BackHandler(onBack = onCloseFavorite)
         FavoriteDetail(
             state = favoriteContent,
             onClose = onCloseFavorite,
@@ -101,6 +104,7 @@ fun LibraryScreen(
     }
 
     if (openedPlaylist != null) {
+        BackHandler(onBack = onClose)
         PlaylistDetail(
             openedPlaylist,
             tracks,

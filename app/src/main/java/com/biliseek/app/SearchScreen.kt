@@ -1,5 +1,6 @@
 package com.biliseek.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
@@ -208,6 +209,9 @@ fun SearchScreen(
 
         // 多 P 展开：一个 BV 在结果里只占一条，点入才展开成列表
         if (state.pages.isNotEmpty()) {
+            // 系统返回手势（边缘滑动 / 返回键）应收起面板，而不是弹走导航栈——
+            // 面板是 tab 内状态，不是 nav 目的地（M11 真机：直接退到桌面）
+            BackHandler(onBack = onDismissPages)
             MultiPagePanel(state, onPageClick, onDismissPages)
             return@Column
         }

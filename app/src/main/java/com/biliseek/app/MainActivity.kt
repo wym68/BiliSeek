@@ -13,6 +13,7 @@ import android.util.Rational
 import android.view.SurfaceView
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
@@ -186,6 +187,8 @@ class MainActivity : ComponentActivity() {
                     // UP 空间页（M11-D）：从搜索页点 UP 结果进入
                     searchContent = {
                         if (upSpace.up != null) {
+                            // 系统返回手势应收起空间页，而不是弹走导航栈（tab 内状态）
+                            BackHandler(onBack = viewModel::closeUpSpace)
                             UpSpaceScreen(
                                 state = upSpace,
                                 onClose = viewModel::closeUpSpace,
@@ -240,6 +243,8 @@ class MainActivity : ComponentActivity() {
                     },
                     libraryContent = {
                         if (downloadsOpen) {
+                            // 系统返回手势应收起下载页，而不是弹走导航栈（tab 内状态）
+                            BackHandler(onBack = { downloadsOpen = false })
                             DownloadsScreen(
                                 tasks = downloadTasks,
                                 onClose = { downloadsOpen = false },
