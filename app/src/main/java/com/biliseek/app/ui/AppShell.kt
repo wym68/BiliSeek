@@ -26,7 +26,7 @@ import com.biliseek.core.player.PresentationMode
 enum class Destination(val route: String, val label: String) {
     SEARCH("search", "搜索"),
     DYNAMIC("dynamic", "动态"),
-    LIBRARY("library", "音乐库"),
+    LIBRARY("library", "列表"),
     SETTINGS("settings", "设置"),
 }
 

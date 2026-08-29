@@ -92,6 +92,8 @@ fun LibraryScreen(
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
     // 收藏夹分区折叠态：rememberSaveable 让 tab 切换后仍保持（导航 saveState/restoreState）
     var favoritesExpanded by rememberSaveable { mutableStateOf(true) }
+    // 本地列表分区折叠态，与收藏夹同款交互
+    var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
 
     if (favoriteContent != null) {
         // 系统返回手势应收起内容页，而不是弹走导航栈（tab 内状态，非 nav 目的地）
@@ -121,7 +123,7 @@ fun LibraryScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        // 音乐库首页是**单一 LazyColumn**：收藏夹目录 + 本地歌单 + 已下载入口
+        // 列表首页是**单一 LazyColumn**：收藏夹目录 + 本地列表 + 已下载入口
         // 统一滚动。早期版本收藏夹目录用 forEach 写在外层 Column 里，
         // 目录一多就溢出屏幕且无法滑动（M11 真机实测发现）。
         LazyColumn(Modifier.fillMaxSize()) {
@@ -144,13 +146,22 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("本地歌单", style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        Modifier.weight(1f).clickable { playlistsExpanded = !playlistsExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("本地列表", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (playlistsExpanded) " ▾" else " ▸",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    }
                     Button(onClick = { showCreate = true }) { Text("新建") }
                 }
             }
 
             // 「已下载」分区：只要有过下载记录就显示入口——
-            // 失败的任务也得进得去重试，不能藏起来
+            // 失败的任务也得进得去重试，不能藏起来。独立分区，不随本地列表折叠
             if (downloads.isNotEmpty()) {
                 item(key = "downloads-entry") {
                     Row(
@@ -168,32 +179,34 @@ fun LibraryScreen(
                 }
             }
 
-            if (playlists.isEmpty()) {
-                item(key = "empty-playlist") {
-                    Box(
-                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                        Alignment.Center,
-                    ) {
-                        Text("还没有歌单，新建一个开始收藏", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-            } else {
-                items(playlists, key = { it.id }) { playlist ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpen(playlist) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(playlist.name, style = MaterialTheme.typography.bodyLarge)
-                        Row {
-                            TextButton(onClick = { renaming = playlist }) { Text("改名") }
-                            TextButton(onClick = { onDelete(playlist.id) }) { Text("删除") }
+            if (playlistsExpanded) {
+                if (playlists.isEmpty()) {
+                    item(key = "empty-playlist") {
+                        Box(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            Alignment.Center,
+                        ) {
+                            Text("还没有列表，新建一个开始收藏", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    HorizontalDivider()
+                } else {
+                    items(playlists, key = { it.id }) { playlist ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpen(playlist) }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(playlist.name, style = MaterialTheme.typography.bodyLarge)
+                            Row {
+                                TextButton(onClick = { renaming = playlist }) { Text("改名") }
+                                TextButton(onClick = { onDelete(playlist.id) }) { Text("删除") }
+                            }
+                        }
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -239,7 +252,7 @@ private fun PlaylistDetail(
         }
         if (tracks.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("空歌单。在搜索结果里长按可加入", style = MaterialTheme.typography.bodySmall)
+                Text("空列表。在搜索结果里长按可加入", style = MaterialTheme.typography.bodySmall)
             }
         } else {
             Text(
@@ -352,7 +365,7 @@ private fun LazyListScope.favoriteSection(
                 Modifier.weight(1f).clickable(onClick = onToggleExpanded),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("收藏夹", style = MaterialTheme.typography.titleMedium)
+                Text("Bilibili 收藏夹", style = MaterialTheme.typography.titleMedium)
                 Text(
                     if (expanded) " ▾" else " ▸",
                     style = MaterialTheme.typography.titleSmall,
@@ -411,8 +424,7 @@ private fun LazyListScope.favoriteSection(
                         Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                }
-            }
+                }            }
             HorizontalDivider()
         }
         return
