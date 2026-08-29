@@ -95,6 +95,9 @@ class SearchInputTest {
         assertEquals("https://i0.hdslb.com/a.jpg", normalizeCoverUrl("//i0.hdslb.com/a.jpg"))
         assertEquals("https://x.com/a.jpg", normalizeCoverUrl("https://x.com/a.jpg"))
         assertEquals("", normalizeCoverUrl(""))
+        // 动态接口会给明文 http（M11 真机：Android 9+ 禁明文，不升 https 封面就加载不出来）
+        assertEquals("https://i2.hdslb.com/a.jpg", normalizeCoverUrl("http://i2.hdslb.com/a.jpg"))
+        assertEquals("https://i2.hdslb.com/a.jpg?x=1", normalizeCoverUrl("http://i2.hdslb.com/a.jpg?x=1"))
     }
 
     /**

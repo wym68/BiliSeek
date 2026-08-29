@@ -172,9 +172,16 @@ fun parseDurationText(text: String): Long {
     return total
 }
 
-/** 封面地址返回的是 `//i0.hdslb.com/...`，需补协议。 */
+/**
+ * 封面地址归一化：
+ * - `//i0.hdslb.com/...`（无协议）→ 补 `https:`
+ * - `http://...`（动态接口会给明文 http）→ **升 `https://`**。
+ *   Android 9+ 默认禁止明文流量，动态封面 `http://i2.hdslb.com` 在真机上会被
+ *   系统直接拦掉（M11 真机实测发现：动态页封面不加载）；B 站图片 CDN 均支持 https。
+ */
 fun normalizeCoverUrl(pic: String): String = when {
     pic.isBlank() -> ""
     pic.startsWith("//") -> "https:$pic"
+    pic.startsWith("http://") -> "https:" + pic.removePrefix("http:")
     else -> pic
 }
