@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
@@ -113,49 +114,61 @@ fun LibraryScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        FavoriteSection(
-            folders = favoriteFolders,
-            sync = favoriteSync,
-            loginState = loginState,
-            session = session,
-            onSync = onSyncFavorites,
-            onOpen = onOpenFavorite,
-            onStartLogin = onStartLogin,
-            onCancelLogin = onCancelLogin,
-        )
+        // 音乐库首页是**单一 LazyColumn**：收藏夹目录 + 本地歌单 + 已下载入口
+        // 统一滚动。早期版本收藏夹目录用 forEach 写在外层 Column 里，
+        // 目录一多就溢出屏幕且无法滑动（M11 真机实测发现）。
+        LazyColumn(Modifier.fillMaxSize()) {
+            favoriteSection(
+                folders = favoriteFolders,
+                sync = favoriteSync,
+                loginState = loginState,
+                session = session,
+                onSync = onSyncFavorites,
+                onOpen = onOpenFavorite,
+                onStartLogin = onStartLogin,
+                onCancelLogin = onCancelLogin,
+            )
 
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("本地歌单", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = { showCreate = true }) { Text("新建") }
-        }
-
-        // 「已下载」分区：音乐库页现在只有本地歌单，这是离线内容的归处。
-        // 只要有过下载记录就显示入口——失败的任务也得进得去重试，不能藏起来
-        if (downloads.isNotEmpty()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenDownloads)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("已下载", style = MaterialTheme.typography.bodyLarge)
-                Text("${downloads.count { it.isDone }} 个 ›", style = MaterialTheme.typography.labelMedium)
+            item(key = "playlist-header") {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("本地歌单", style = MaterialTheme.typography.titleMedium)
+                    Button(onClick = { showCreate = true }) { Text("新建") }
+                }
             }
-            HorizontalDivider()
-        }
 
-        if (playlists.isEmpty()) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("还没有歌单，新建一个开始收藏", style = MaterialTheme.typography.bodyMedium)
+            // 「已下载」分区：只要有过下载记录就显示入口——
+            // 失败的任务也得进得去重试，不能藏起来
+            if (downloads.isNotEmpty()) {
+                item(key = "downloads-entry") {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onOpenDownloads)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("已下载", style = MaterialTheme.typography.bodyLarge)
+                        Text("${downloads.count { it.isDone }} 个 ›", style = MaterialTheme.typography.labelMedium)
+                    }
+                    HorizontalDivider()
+                }
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+
+            if (playlists.isEmpty()) {
+                item(key = "empty-playlist") {
+                    Box(
+                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        Alignment.Center,
+                    ) {
+                        Text("还没有歌单，新建一个开始收藏", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            } else {
                 items(playlists, key = { it.id }) { playlist ->
                     Row(
                         Modifier
@@ -300,15 +313,14 @@ private fun PlaylistDetail(
 }
 
 /**
- * 收藏夹分区（M11-B）。
+ * 收藏夹分区（M11-B），以 [LazyListScope] 扩展形式嵌入音乐库首页的单一 LazyColumn。
  *
  * 三种状态，如实呈现，不静默：
  * - 未登录：内嵌 [LoginPanel] 引导扫码（复用设置页同一组件，流程一致）
  * - 已登录但目录空：同步按钮 / 同步失败可重试
  * - 已登录有目录：目录行（封面 + 名称 + 条目数），点入拉内容
  */
-@Composable
-private fun FavoriteSection(
+private fun LazyListScope.favoriteSection(
     folders: List<FavoriteFolderEntity>,
     sync: SyncState,
     loginState: LoginState,
@@ -318,7 +330,7 @@ private fun FavoriteSection(
     onStartLogin: () -> Unit,
     onCancelLogin: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth()) {
+    item(key = "favorite-header") {
         Row(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -340,9 +352,11 @@ private fun FavoriteSection(
                 }
             }
         }
+    }
 
-        if (!session.isLoggedIn) {
-            // 登录引导：登录非强制，只有收藏夹/动态这类功能需要账号
+    if (!session.isLoggedIn) {
+        // 登录引导：登录非强制，只有收藏夹/动态这类功能需要账号
+        item(key = "favorite-login") {
             LoginPanel(
                 loginState = loginState,
                 session = session,
@@ -352,10 +366,12 @@ private fun FavoriteSection(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             HorizontalDivider()
-            return@Column
         }
+        return
+    }
 
-        if (folders.isEmpty()) {
+    if (folders.isEmpty()) {
+        item(key = "favorite-empty") {
             when (sync) {
                 is SyncState.Syncing -> Unit // 标题行已有转圈
                 is SyncState.Error -> {
@@ -374,35 +390,35 @@ private fun FavoriteSection(
                 }
             }
             HorizontalDivider()
-            return@Column
         }
+        return
+    }
 
-        folders.forEach { folder ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpen(folder.mediaId, folder.title) }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CoverThumbnail(folder.coverUrl, width = 56.dp)
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        folder.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-                Text("›", style = MaterialTheme.typography.titleMedium)
+    items(folders, key = { "favorite-${it.mediaId}" }) { folder ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { onOpen(folder.mediaId, folder.title) }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CoverThumbnail(folder.coverUrl, width = 56.dp)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    folder.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
-            HorizontalDivider()
+            Text("›", style = MaterialTheme.typography.titleMedium)
         }
+        HorizontalDivider()
     }
 }
 
