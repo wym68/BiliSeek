@@ -76,9 +76,18 @@ room-testing = { group = "androidx.room", name = "room-testing", version.ref = "
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
+# 封面取色（莫奈取色的「封面」半边，M12-A）。官方小库，正是
+# BBPlayer packages/image-theme-colors 的等价实现；配合设计系统策略层使用
+palette-ktx = { group = "androidx.palette", name = "palette-ktx", version = "1.0.0" }
+
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+
+# Compose UI 测试（M12-B）。ui-test-manifest 给 createComposeRule 的
+# ComponentActivity 提供 manifest 声明；junit4 是测试驱动与断言
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

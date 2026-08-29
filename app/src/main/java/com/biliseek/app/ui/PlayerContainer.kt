@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -52,6 +53,10 @@ import com.biliseek.core.player.AudioQuality
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.core.player.QualityFallback
 import com.biliseek.core.player.formatDuration
+import com.biliseek.designsystem.theme.AccentDecision
+import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
+import com.biliseek.designsystem.theme.CoverPalette
+import androidx.compose.foundation.isSystemInDarkTheme
 
 /**
  * 播放器容器的展开程度。
@@ -104,33 +109,57 @@ fun PlayerContainer(
     onQueueSkipTo: (Int) -> Unit = {},
 ) {
     when (expansion) {
-        PlayerExpansion.COLLAPSED -> MiniPlayer(
-            state = state,
-            onExpand = { onExpansionChange(PlayerExpansion.EXPANDED) },
-            onTogglePlayPause = onTogglePlayPause,
-            modifier = modifier,
-        )
+        PlayerExpansion.COLLAPSED -> {
+            val palette = rememberCoverPalette(state.coverUrl)
+            val accent = rememberAccentDecision(palette)
+            MiniPlayer(
+                state = state,
+                onExpand = { onExpansionChange(PlayerExpansion.EXPANDED) },
+                onTogglePlayPause = onTogglePlayPause,
+                accent = accent,
+                modifier = modifier,
+            )
+        }
         // 全屏时这一份不渲染：SurfaceView 只能有一个父容器，
         // 两处同时挂会抛 "already has a parent"。全屏那份由 AppShell 的 overlay 负责
         PlayerExpansion.FULLSCREEN -> Unit
-        PlayerExpansion.EXPANDED -> ExpandedPlayer(
-            state = state,
-            surfaceView = surfaceView,
-            onCollapse = { onExpansionChange(PlayerExpansion.COLLAPSED) },
-            onTogglePlayPause = onTogglePlayPause,
-            onPresentationChange = onPresentationChange,
-            onEnterPip = onEnterPip,
-            onSkipNext = onSkipNext,
-            onSkipPrevious = onSkipPrevious,
-            onCyclePlayMode = onCyclePlayMode,
-            onSeek = onSeek,
-            onSetSpeed = onSetSpeed,
-            onSetSleepTimer = onSetSleepTimer,
-            onRetryPlayback = onRetryPlayback,
-            onQueueSkipTo = onQueueSkipTo,
-            onEnterFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
-            modifier = modifier,
-        )
+        PlayerExpansion.EXPANDED -> {
+            val palette = rememberCoverPalette(state.coverUrl)
+            val accent = rememberAccentDecision(palette)
+            ExpandedPlayer(
+                state = state,
+                surfaceView = surfaceView,
+                onCollapse = { onExpansionChange(PlayerExpansion.COLLAPSED) },
+                onTogglePlayPause = onTogglePlayPause,
+                onPresentationChange = onPresentationChange,
+                onEnterPip = onEnterPip,
+                onSkipNext = onSkipNext,
+                onSkipPrevious = onSkipPrevious,
+                onCyclePlayMode = onCyclePlayMode,
+                onSeek = onSeek,
+                onSetSpeed = onSetSpeed,
+                onSetSleepTimer = onSetSleepTimer,
+                onRetryPlayback = onRetryPlayback,
+                onQueueSkipTo = onQueueSkipTo,
+                onEnterFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
+                accent = accent,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
+/**
+ * 封面取色决策（Compose 状态）。
+ *
+ * keyed by 主色 + 主题：换歌 / 切亮暗都重算；其余重组直接复用。
+ */
+@Composable
+private fun rememberAccentDecision(palette: CoverPalette): AccentDecision {
+    val darkTheme = isSystemInDarkTheme()
+    val surface = MaterialTheme.colorScheme.surface
+    return remember(palette.dominant, darkTheme, surface) {
+        AdaptiveAccentColorPolicy.resolve(palette.dominant, darkTheme, surface)
     }
 }
 
@@ -185,6 +214,7 @@ private fun MiniPlayer(
     state: PlaybackState,
     onExpand: () -> Unit,
     onTogglePlayPause: () -> Unit,
+    accent: AccentDecision,
     modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
@@ -210,10 +240,12 @@ private fun MiniPlayer(
                 } else {
                     0f
                 }
-                // Mini 上的进度条不可拖：这么细的条子拖不准，拖动入口在展开态
+                // Mini 上的进度条不可拖：这么细的条子拖不准，拖动入口在展开态。
+                // 颜色随封面取色（M12-A），无取色时回落主题 primary
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = accent.accent ?: MaterialTheme.colorScheme.primary,
                 )
                 Row(
                     Modifier
@@ -264,15 +296,24 @@ private fun ExpandedPlayer(
     onRetryPlayback: () -> Unit,
     onQueueSkipTo: (Int) -> Unit,
     onEnterFullscreen: () -> Unit,
+    accent: AccentDecision,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier
+    Box(
+        modifier
             .fillMaxSize()
             // 展开播放器要避让状态栏（M9 打磨项）。全屏 overlay 保持不吃 insets——
             // 那是有意的沉浸，别一起改了
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            // M12-A 莫奈取色：背景为封面主色渐变（无封面时纯表面色，与默认一致）
+            .background(
+                Brush.verticalGradient(listOf(accent.gradientTop, accent.gradientBottom)),
+            ),
     ) {
+        // 对比度不足时叠一层向表面色收敛的 scrim，保住文字可读（M12 A-2 判据）
+        accent.scrim?.let { scrim ->
+            Box(Modifier.fillMaxSize().background(scrim))
+        }
         Column(
             Modifier
                 .fillMaxSize()
