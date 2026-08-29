@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.DownloadDialog
 import com.biliseek.app.ui.DownloadsScreen
+import com.biliseek.app.ui.DynamicScreen
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
 import com.biliseek.app.ui.MeteredVideoDialog
@@ -86,6 +87,7 @@ class MainActivity : ComponentActivity() {
                 val favoriteFolders by viewModel.favoriteFolders.collectAsState()
                 val favoriteSync by viewModel.favoriteSync.collectAsState()
                 val openedFavorite by viewModel.openedFavorite.collectAsState()
+                val dynamic by viewModel.dynamic.collectAsState()
                 val pendingAdd by viewModel.pendingAdd.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
@@ -164,6 +166,21 @@ class MainActivity : ComponentActivity() {
                     onSetSleepTimer = viewModel::setSleepTimer,
                     onRetryPlayback = viewModel::retryPlayback,
                     onQueueSkipTo = viewModel::queueSkipTo,
+                    dynamicContent = {
+                        DynamicScreen(
+                            state = dynamic,
+                            session = session,
+                            loginState = loginState,
+                            onInit = viewModel::initDynamic,
+                            onTypeFilterChange = viewModel::setDynamicTypeFilter,
+                            onSelectUp = viewModel::selectDynamicUp,
+                            onLoadMore = viewModel::loadMoreDynamic,
+                            onRetryInit = viewModel::initDynamic,
+                            onEntryClick = viewModel::playDynamic,
+                            onStartLogin = viewModel::startLogin,
+                            onCancelLogin = viewModel::cancelLogin,
+                        )
+                    },
                     searchContent = {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
                         val showEmptyState = search.items.isEmpty() &&

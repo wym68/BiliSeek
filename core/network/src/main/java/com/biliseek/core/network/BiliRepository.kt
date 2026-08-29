@@ -5,6 +5,8 @@ import com.biliseek.core.network.dto.PageItem
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
+import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.FollowingUp
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
 import java.io.IOException
@@ -155,6 +157,64 @@ class BiliRepository(
     private fun requireLoggedInMid(): Long =
         sessionStore.current.dedeUserId.toLongOrNull()
             ?: throw IllegalStateException("需要登录")
+
+    // ── 动态（M11-C）──────────────────────────────────────
+
+    /** 关注动态流的一页。 */
+    data class DynamicPage(
+        val entries: List<DynamicEntry>,
+        val offset: String,
+        val hasMore: Boolean,
+    )
+
+    /** 关注动态流。必须登录（未登录 -352，不重试）。 */
+    suspend fun dynamicFeed(
+        type: String = DynamicType.ALL,
+        offset: String = "",
+    ): Result<DynamicPage> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.dynamicFeed(type = type, offset = offset)
+        require(response.code == 0) {
+            "动态流失败：code=${response.code} ${response.message}"
+        }
+        response.data.toDynamicPage(offset)
+    }
+
+    /** 单个 UP 的空间动态（UP 筛选）。必须登录。 */
+    suspend fun dynamicSpace(
+        hostMid: Long,
+        offset: String = "",
+    ): Result<DynamicPage> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.dynamicSpace(hostMid = hostMid, offset = offset)
+        require(response.code == 0) {
+            "UP 动态失败：code=${response.code} ${response.message}"
+        }
+        response.data.toDynamicPage(offset)
+    }
+
+    /** 关注列表（UP 筛选 chips）。必须登录，内存缓存由调用方持有。 */
+    suspend fun followings(): Result<List<FollowingUp>> = runCatching {
+        val mid = requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.followings(vmid = mid)
+        require(response.code == 0) {
+            "关注列表失败：code=${response.code} ${response.message}"
+        }
+        response.data?.list.orEmpty().filter { it.mid > 0 && it.uname.isNotBlank() }
+    }
+
+    private fun DynamicFeedData?.toDynamicPage(requestOffset: String): DynamicPage {
+        val data = this ?: throw IllegalStateException("动态响应为空")
+        return DynamicPage(
+            entries = parseDynamicItems(data.items),
+            // 首页（offset 空）时服务端可能不给 offset，用请求值兜底，避免分页断裂
+            offset = data.offset.ifBlank { requestOffset },
+            hasMore = data.hasMore,
+        )
+    }
 
 
     private companion object {

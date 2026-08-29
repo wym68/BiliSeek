@@ -13,6 +13,8 @@ import com.biliseek.core.network.dto.RefreshData
 import com.biliseek.core.network.dto.SearchData
 import com.biliseek.core.network.dto.FavoriteFolderListData
 import com.biliseek.core.network.dto.FavoriteResourceData
+import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.FollowingData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -151,6 +153,34 @@ interface BiliApi {
         @Query("ps") ps: Int = 20,
         @Query("order") order: String = "mtime",
     ): BiliResponse<FavoriteResourceData>
+
+    // ── 动态（M11-C）──────────────────────────────────────
+
+    /**
+     * 关注动态流。`type=all`（含图文/转发）或 `type=video`（仅视频投稿）。
+     * 需登录态 Cookie；分页用返回的 `offset`。
+     */
+    @GET("x/polymer/web-dynamic/v1/feed/all")
+    suspend fun dynamicFeed(
+        @Query("type") type: String = "all",
+        @Query("offset") offset: String = "",
+    ): BiliResponse<DynamicFeedData>
+
+    /** 单个 UP 的空间动态（「按 UP 筛选」与 UP 空间页共用）。未登录必 -352。 */
+    @GET("x/polymer/web-dynamic/v1/feed/space")
+    suspend fun dynamicSpace(
+        @Query("host_mid") hostMid: Long,
+        @Query("offset") offset: String = "",
+    ): BiliResponse<DynamicFeedData>
+
+    /** 关注列表（UP 筛选 chips 的数据源）。`ps ≤ 50`。 */
+    @GET("x/relation/followings")
+    suspend fun followings(
+        @Query("vmid") vmid: Long,
+        @Query("pn") pn: Int = 1,
+        @Query("ps") ps: Int = 50,
+        @Query("order") order: String = "desc",
+    ): BiliResponse<FollowingData>
 
     companion object {
         const val QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"

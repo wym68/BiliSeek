@@ -22,9 +22,10 @@ import androidx.navigation.compose.rememberNavController
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
 
-/** 三个入口。没有第四个——没有推荐页。 */
+/** 四个入口。没有推荐页——动态是「你关注的人」，不是算法推荐。 */
 enum class Destination(val route: String, val label: String) {
     SEARCH("search", "搜索"),
+    DYNAMIC("dynamic", "动态"),
     LIBRARY("library", "音乐库"),
     SETTINGS("settings", "设置"),
 }
@@ -60,6 +61,7 @@ fun AppShell(
     onRetryPlayback: () -> Unit = {},
     onQueueSkipTo: (Int) -> Unit = {},
     searchContent: @Composable () -> Unit,
+    dynamicContent: @Composable () -> Unit,
     libraryContent: @Composable () -> Unit,
     settingsContent: @Composable () -> Unit,
 ) {
@@ -118,6 +120,7 @@ fun AppShell(
                 modifier = Modifier.padding(padding),
             ) {
                 composable(Destination.SEARCH.route) { searchContent() }
+                composable(Destination.DYNAMIC.route) { dynamicContent() }
                 composable(Destination.LIBRARY.route) { libraryContent() }
                 composable(Destination.SETTINGS.route) { settingsContent() }
             }

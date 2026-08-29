@@ -36,6 +36,10 @@ import com.biliseek.app.data.resolveVideoGate
 import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.data.RemoteListState
+import com.biliseek.core.network.DynamicEntry
+import com.biliseek.core.network.DynamicType
+import com.biliseek.core.network.DynamicItemType
+import com.biliseek.core.network.dto.FollowingUp
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -68,6 +72,28 @@ sealed interface SyncState {
     data object NotLoggedIn : SyncState
     data class Error(val message: String) : SyncState
 }
+
+/** 动态 tab 的初始化状态（关注列表拉取）。 */
+sealed interface DynamicInitState {
+    data object Idle : DynamicInitState
+    data object Loading : DynamicInitState
+    data class Error(val message: String) : DynamicInitState
+}
+
+/** 动态 tab 的 UI 状态（M11-C）。 */
+data class DynamicUiState(
+    /** 全部 / 仅视频。默认仅视频（听场景，全可播）。 */
+    val typeFilter: String = DynamicType.VIDEO,
+    /** 按 UP 筛选：null = 关注流（feed/all），非 null = 该 UP 的动态（feed/space）。 */
+    val selectedUpMid: Long? = null,
+    /** 关注列表（UP 筛选 chips）。登录后拉一次，内存缓存。 */
+    val upChips: List<FollowingUp> = emptyList(),
+    val initState: DynamicInitState = DynamicInitState.Idle,
+    /** 当前视图的 feed（关注流或单个 UP）。 */
+    val feed: RemoteListState<DynamicEntry> = RemoteListState.empty(),
+    /** 分页游标（feed/all、feed/space 用 offset 而非页码）。 */
+    val feedOffset: String = "",
+)
 
 data class SearchUiState(
     val keyword: String = "",
@@ -245,29 +271,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * （搜索结果里「先展开再选」是因为用户在看；收藏夹里点播放意图是「听」。）
      */
     fun playFavoriteTrack(item: FavoriteTrack) {
+        playBvid(
+            bvid = item.bvid,
+            title = item.title,
+            coverUrl = item.coverUrl,
+            author = item.author,
+            durationSec = item.durationSec,
+        )
+    }
+
+    /**
+     * 按 bvid 起播：单 P 直接播，多 P 整张作队列从头播。
+     * 收藏夹内容 / 动态视频共用同一条路径（先取分 P 再起播）。
+     */
+    private fun playBvid(
+        bvid: String,
+        title: String,
+        coverUrl: String,
+        author: String,
+        durationSec: Long,
+    ) {
         viewModelScope.launch {
-            network.repository.pages(item.bvid)
+            network.repository.pages(bvid)
                 .onSuccess { pages ->
                     if (pages.size <= 1) {
                         play(
                             PlaybackRequest.Bili(
-                                item.bvid,
+                                bvid,
                                 pages.firstOrNull()?.cid?.takeIf { it > 0 },
-                                item.title,
-                                item.coverUrl,
-                                author = item.author,
-                                durationSec = item.durationSec,
+                                title,
+                                coverUrl,
+                                author = author,
+                                durationSec = durationSec,
                             ),
                         )
                     } else {
                         connection.playQueue(
                             pages.map {
                                 PlaybackRequest.Bili(
-                                    item.bvid,
+                                    bvid,
                                     it.cid,
-                                    it.part.ifBlank { item.title },
-                                    item.coverUrl,
-                                    author = item.author,
+                                    it.part.ifBlank { title },
+                                    coverUrl,
+                                    author = author,
                                     durationSec = it.duration,
                                 )
                             },
@@ -278,6 +324,121 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 .onFailure { /* 失败静默：取流层会有自己的错误呈现 */ }
         }
+    }
+
+    // ── 动态（M11-C）──────────────────────────────────────
+
+    private val _dynamic = MutableStateFlow(DynamicUiState())
+    val dynamic: StateFlow<DynamicUiState> = _dynamic.asStateFlow()
+
+    /** 登录后首次进入动态 tab 时调用：拉关注列表 + 第一页动态。 */
+    fun initDynamic() {
+        if (!session.value.isLoggedIn) return
+        val cur = _dynamic.value
+        if (cur.initState is DynamicInitState.Loading) return
+        if (cur.upChips.isNotEmpty() || cur.feed.items.isNotEmpty()) return
+        viewModelScope.launch {
+            _dynamic.value = cur.copy(initState = DynamicInitState.Loading)
+            network.repository.followings()
+                .onSuccess { ups ->
+                    _dynamic.value = _dynamic.value.copy(
+                        upChips = ups,
+                        initState = DynamicInitState.Idle,
+                    )
+                    loadDynamicPage(offset = "")
+                }
+                .onFailure {
+                    _dynamic.value = _dynamic.value.copy(
+                        initState = DynamicInitState.Error(it.message ?: "加载失败"),
+                    )
+                }
+        }
+    }
+
+    /** 「全部 / 仅视频」切换：变化必须重置游标重拉第 1 页。 */
+    fun setDynamicTypeFilter(type: String) {
+        val cur = _dynamic.value
+        if (cur.typeFilter == type) return
+        _dynamic.value = cur.copy(typeFilter = type, feed = RemoteListState.empty(), feedOffset = "")
+        loadDynamicPage(offset = "")
+    }
+
+    /** 按 UP 筛选：null = 回关注流，非 null = 只看该 UP。切换同样重置游标。 */
+    fun selectDynamicUp(up: FollowingUp?) {
+        val cur = _dynamic.value
+        if (cur.selectedUpMid == up?.mid) return
+        _dynamic.value = cur.copy(
+            selectedUpMid = up?.mid,
+            feed = RemoteListState.empty(),
+            feedOffset = "",
+        )
+        loadDynamicPage(offset = "")
+    }
+
+    /** 加载下一页（继续翻）。 */
+    fun loadMoreDynamic() {
+        val cur = _dynamic.value
+        if (!cur.feed.hasMore) return
+        loadDynamicPage(offset = cur.feedOffset)
+    }
+
+    private fun loadDynamicPage(offset: String) {
+        val cur = _dynamic.value
+        if (cur.feed.isLoading || cur.feed.isLoadingMore) return
+        val loadingMore = offset.isNotBlank()
+        viewModelScope.launch {
+            _dynamic.value = cur.feed.let { feed ->
+                cur.copy(
+                    feed = feed.copy(
+                        isLoading = !loadingMore,
+                        isLoadingMore = loadingMore,
+                        errorMessage = null,
+                    ),
+                )
+            }
+            val result = if (cur.selectedUpMid != null) {
+                network.repository.dynamicSpace(cur.selectedUpMid, offset)
+            } else {
+                network.repository.dynamicFeed(cur.typeFilter, offset)
+            }
+            result
+                .onSuccess { pageData ->
+                    val base = _dynamic.value.feed
+                    _dynamic.value = _dynamic.value.copy(
+                        feed = base.copy(
+                            items = if (loadingMore) base.items + pageData.entries
+                            else pageData.entries,
+                            hasMore = pageData.hasMore,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = null,
+                        ),
+                        feedOffset = pageData.offset,
+                    )
+                }
+                .onFailure {
+                    val base = _dynamic.value.feed
+                    _dynamic.value = _dynamic.value.copy(
+                        feed = base.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = it.message ?: "加载失败",
+                        ),
+                    )
+                }
+        }
+    }
+
+    /** 点动态条目：视频动态直接播（走与收藏夹相同的 playBvid 路径）。 */
+    fun playDynamic(entry: DynamicEntry) {
+        val video = entry.video ?: return
+        playBvid(
+            bvid = video.bvid,
+            title = video.title,
+            coverUrl = video.coverUrl,
+            author = entry.authorName,
+            durationSec = com.biliseek.core.network.parseDurationText(video.durationText),
+        )
     }
 
     private val _openedPlaylist = MutableStateFlow<PlaylistEntity?>(null)

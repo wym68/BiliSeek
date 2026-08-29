@@ -1,0 +1,132 @@
+package com.biliseek.core.network
+
+import com.biliseek.core.network.dto.DynamicItem
+
+/** 动态类型筛选（feed/all 的 type 参数）。 */
+object DynamicType {
+    const val ALL = "all"
+    const val VIDEO = "video"
+}
+
+/** 一条可展示的动态（UI 形状，无网络细节）。 */
+data class DynamicEntry(
+    val idStr: String,
+    val authorName: String,
+    val authorFace: String,
+    val pubTs: Long,
+    val descText: String,
+    /** 原始类型：DYNAMIC_TYPE_AV / FORWARD / DRAW / ARTICLE / OPUS … */
+    val rawType: String,
+    /** 视频投稿（AV 或转发内嵌 AV）。null = 图文类，仅展示不可播。 */
+    val video: DynamicVideo?,
+    /** 封面或首图（normalize 后）。 */
+    val coverUrl: String,
+)
+
+data class DynamicVideo(
+    val bvid: String,
+    val title: String,
+    val coverUrl: String,
+    /** 展示文本（"03:27"），非秒。 */
+    val durationText: String,
+)
+
+/** 动态类型常量（接口返回的 type 枚举值）。 */
+object DynamicItemType {
+    const val AV = "DYNAMIC_TYPE_AV"
+    const val FORWARD = "DYNAMIC_TYPE_FORWARD"
+    const val DRAW = "DYNAMIC_TYPE_DRAW"
+    const val ARTICLE = "DYNAMIC_TYPE_ARTICLE"
+    const val OPUS = "DYNAMIC_TYPE_OPUS"
+}
+
+/**
+ * 把接口返回的 items 解析为展示条目（M11-C）。
+ *
+ * 规则：
+ * - AV：直接取 major.archive 作视频
+ * - FORWARD：取 orig 内嵌的 AV（转发者文案 + 原视频）；orig 是图文则仅展示
+ * - DRAW / ARTICLE / OPUS：图文，仅展示首图，video = null
+ * - 其他类型（live / pgc / ugc_season / music …）：丢弃
+ * - 脏数据（无 idStr / 无 author / 无法识别）丢弃
+ *
+ * 「全部」视图展示图文但不可播；「仅视频」由服务端 type=video 过滤，
+ * 但转发视频动态仍可能出现——解析层不额外过滤，统一按 [video] 是否为空判定可播性。
+ */
+fun parseDynamicItems(items: List<DynamicItem>): List<DynamicEntry> =
+    items.mapNotNull { parseDynamicItem(it) }
+
+fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
+    val author = item.modules?.author ?: return null
+    if (item.idStr.isBlank()) return null
+    val major = item.modules?.dynamic?.major
+    val descText = item.modules?.dynamic?.desc?.text.orEmpty()
+
+    val base = DynamicEntry(
+        idStr = item.idStr,
+        authorName = author.name,
+        authorFace = normalizeCoverUrl(author.face),
+        pubTs = author.pubTs,
+        descText = descText,
+        rawType = item.type,
+        video = null,
+        coverUrl = "",
+    )
+
+    return when (item.type) {
+        DynamicItemType.AV -> {
+            val archive = major?.archive ?: return null
+            val cover = normalizeCoverUrl(archive.cover)
+            base.copy(
+                video = if (archive.bvid.isNotBlank()) {
+                    DynamicVideo(
+                        bvid = archive.bvid,
+                        title = stripHighlight(archive.title),
+                        coverUrl = cover,
+                        durationText = archive.durationText,
+                    )
+                } else null,
+                coverUrl = cover,
+            )
+        }
+
+        DynamicItemType.FORWARD -> {
+            val orig = item.orig
+            val origMajor = orig?.modules?.dynamic?.major
+            val origArchive = origMajor?.archive
+            base.copy(
+                video = if (origArchive != null && origArchive.bvid.isNotBlank()) {
+                    DynamicVideo(
+                        bvid = origArchive.bvid,
+                        title = stripHighlight(origArchive.title),
+                        coverUrl = normalizeCoverUrl(origArchive.cover),
+                        durationText = origArchive.durationText,
+                    )
+                } else null,
+                coverUrl = when {
+                    origArchive != null -> normalizeCoverUrl(origArchive.cover)
+                    else -> origMajor?.draw?.items?.firstOrNull()?.src
+                        ?.let(::normalizeCoverUrl).orEmpty()
+                },
+            )
+        }
+
+        DynamicItemType.DRAW -> base.copy(
+            coverUrl = major?.draw?.items?.firstOrNull()?.src
+                ?.let(::normalizeCoverUrl).orEmpty(),
+        )
+
+        DynamicItemType.ARTICLE -> base.copy(
+            coverUrl = major?.article?.covers?.firstOrNull()
+                ?.let(::normalizeCoverUrl).orEmpty(),
+        )
+
+        DynamicItemType.OPUS -> base.copy(
+            descText = descText.ifBlank { major?.opus?.summary.orEmpty() },
+            coverUrl = major?.opus?.pics?.firstOrNull()
+                ?.let(::normalizeCoverUrl).orEmpty(),
+        )
+
+        else -> null
+    }
+}

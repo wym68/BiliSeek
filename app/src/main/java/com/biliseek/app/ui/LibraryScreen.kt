@@ -395,7 +395,7 @@ private fun FavoriteSection(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}",
+                        "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
@@ -403,18 +403,6 @@ private fun FavoriteSection(
             }
             HorizontalDivider()
         }
-    }
-}
-
-/** 上次同步时间，相对化显示（「刚刚 / N 分钟前 / N 小时前 / 日期」）。 */
-private fun formatRelativeTime(ts: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - ts
-    return when {
-        diff < 60_000 -> "刚刚同步"
-        diff < 3_600_000 -> "${diff / 60_000} 分钟前同步"
-        diff < 86_400_000 -> "${diff / 3_600_000} 小时前同步"
-        else -> "${diff / 86_400_000} 天前同步"
     }
 }
 
