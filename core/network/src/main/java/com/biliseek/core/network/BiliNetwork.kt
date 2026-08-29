@@ -52,7 +52,7 @@ class BiliNetwork private constructor(context: Context) {
 
     val authGate: AuthGate = AuthGate(context.applicationContext, api)
 
-    val repository: BiliRepository = BiliRepository(api, authGate)
+    val repository: BiliRepository = BiliRepository(api, authGate, sessionStore)
 
     val loginManager: LoginManager = LoginManager(api, sessionStore)
 

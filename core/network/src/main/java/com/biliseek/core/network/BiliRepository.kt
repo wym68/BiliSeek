@@ -3,6 +3,8 @@ package com.biliseek.core.network
 import android.util.Log
 import com.biliseek.core.network.dto.PageItem
 import com.biliseek.core.network.dto.SearchVideo
+import com.biliseek.core.network.dto.FavoriteFolderItem
+import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
 import java.io.IOException
@@ -17,10 +19,18 @@ data class SearchPage(
     val hasMore: Boolean get() = page < totalPages
 }
 
+/** 收藏夹内容的一页（M11）。 */
+data class FavoriteResourcePage(
+    val items: List<FavoriteMedia>,
+    val page: Int,
+    val hasMore: Boolean,
+)
+
 /** 业务数据入口。UI 层不直接碰 [BiliApi]。 */
 class BiliRepository(
     private val api: BiliApi,
     private val authGate: AuthGate,
+    private val sessionStore: SessionStore,
 ) {
 
     /**
@@ -105,6 +115,47 @@ class BiliRepository(
         require(response.code == 0) { "pagelist 失败：code=${response.code} ${response.message}" }
         response.data.orEmpty()
     }
+
+    // ── 收藏夹（M11）──────────────────────────────────────
+
+    /**
+     * 收藏夹目录。**必须登录**（list-all 需要 up_mid 与登录态 Cookie）。
+     * 未登录直接返回失败，由 UI 显示登录引导。
+     */
+    suspend fun favoriteFolders(): Result<List<FavoriteFolderItem>> = runCatching {
+        val mid = requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.favoriteFolders(upMid = mid)
+        require(response.code == 0) {
+            "收藏夹目录失败：code=${response.code} ${response.message}"
+        }
+        response.data?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
+    }
+
+    /** 收藏夹内容（分页，`ps ≤ 20`）。必须登录。 */
+    suspend fun favoriteResources(
+        mediaId: Long,
+        page: Int,
+        pageSize: Int = 20,
+    ): Result<FavoriteResourcePage> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.favoriteResources(mediaId, pn = page, ps = pageSize)
+        require(response.code == 0) {
+            "收藏夹内容失败：code=${response.code} ${response.message}"
+        }
+        val data = response.data ?: throw IllegalStateException("收藏夹内容为空")
+        FavoriteResourcePage(
+            items = data.medias.filter { it.bvid.isNotBlank() && it.type == 2 },
+            page = page,
+            hasMore = data.hasMore,
+        )
+    }
+
+    private fun requireLoggedInMid(): Long =
+        sessionStore.current.dedeUserId.toLongOrNull()
+            ?: throw IllegalStateException("需要登录")
+
 
     private companion object {
         const val TAG = "BiliSeekRepo"

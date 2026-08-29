@@ -14,6 +14,8 @@ import com.biliseek.core.network.SearchOrder
 import com.biliseek.core.network.SearchPage
 import com.biliseek.core.network.avToBv
 import com.biliseek.core.network.dto.SearchVideo
+import com.biliseek.core.network.dto.FavoriteFolderItem
+import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
 import com.biliseek.core.player.PlaybackPreferences
@@ -31,6 +33,9 @@ import com.biliseek.app.data.SettingsStore
 import com.biliseek.app.data.TrackEntity
 import com.biliseek.app.data.VideoGate
 import com.biliseek.app.data.resolveVideoGate
+import com.biliseek.app.data.FavoriteFolderEntity
+import com.biliseek.app.data.TrackListId
+import com.biliseek.app.data.RemoteListState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -46,6 +51,23 @@ import kotlinx.coroutines.launch
 
 /** 一个分 P。多 P 视频点入后展开成列表。 */
 data class PageEntry(val cid: Long, val page: Int, val title: String, val durationSec: Long)
+
+/** 收藏夹内容条目（可播放形状）。 */
+data class FavoriteTrack(
+    val bvid: String,
+    val title: String,
+    val coverUrl: String,
+    val durationSec: Long,
+    val author: String,
+)
+
+/** 收藏夹目录同步状态。 */
+sealed interface SyncState {
+    data object Idle : SyncState
+    data object Syncing : SyncState
+    data object NotLoggedIn : SyncState
+    data class Error(val message: String) : SyncState
+}
 
 data class SearchUiState(
     val keyword: String = "",
@@ -113,6 +135,150 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val heatmap = library.observeHeatmap()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ── 收藏夹目录快照（M11-B）──────────────────────────
+
+    /** 收藏夹目录（音乐库「收藏夹」分区）。落库快照，未登录时为空。 */
+    val favoriteFolders: StateFlow<List<FavoriteFolderEntity>> = library.observeFavoriteFolders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 目录同步状态：拉取中 / 错误（可重试）。 */
+    private val _favoriteSync = MutableStateFlow<SyncState>(SyncState.Idle)
+    val favoriteSync: StateFlow<SyncState> = _favoriteSync.asStateFlow()
+
+    /**
+     * 同步收藏夹目录（整体替换快照）。
+     *
+     * 未登录不发起网络请求，直接置 [SyncState.NotLoggedIn]——
+     * 音乐库分区据此显示登录引导。
+     */
+    fun syncFavoriteFolders() {
+        if (_favoriteSync.value is SyncState.Syncing) return
+        if (!session.value.isLoggedIn) {
+            _favoriteSync.value = SyncState.NotLoggedIn
+            return
+        }
+        viewModelScope.launch {
+            _favoriteSync.value = SyncState.Syncing
+            network.repository.favoriteFolders()
+                .onSuccess { folders ->
+                    library.replaceFavoriteFolders(
+                        folders.map { folder ->
+                            FavoriteFolderEntity(
+                                mediaId = folder.id,
+                                title = folder.title,
+                                coverUrl = com.biliseek.core.network.normalizeCoverUrl(folder.cover),
+                                mediaCount = folder.mediaCount,
+                                syncedAt = System.currentTimeMillis(),
+                            )
+                        },
+                    )
+                    _favoriteSync.value = SyncState.Idle
+                }
+                .onFailure {
+                    _favoriteSync.value = SyncState.Error(it.message ?: "同步失败")
+                }
+        }
+    }
+
+    private fun FavoriteMedia.toTrack() = FavoriteTrack(
+        bvid = bvid,
+        title = com.biliseek.core.network.stripHighlight(title),
+        coverUrl = com.biliseek.core.network.normalizeCoverUrl(cover),
+        durationSec = duration,
+        author = upper?.name.orEmpty(),
+    )
+
+    /** 打开收藏夹内容页（分页拉取，不落库）。 */
+    fun openFavorite(mediaId: Long, title: String) {
+        _openedFavorite.value = RemoteListState(
+            id = TrackListId.Favorite(mediaId),
+            title = title,
+        )
+        loadFavoritePage(1)
+    }
+
+    fun closeFavorite() { _openedFavorite.value = null }
+
+    private val _openedFavorite =
+        MutableStateFlow<RemoteListState<FavoriteTrack>?>(null)
+    val openedFavorite: StateFlow<RemoteListState<FavoriteTrack>?> = _openedFavorite.asStateFlow()
+
+    /** 加载收藏夹内容第 [page] 页。翻页时追加，刷新时从第 1 页替换。 */
+    fun loadFavoritePage(page: Int) {
+        val state = _openedFavorite.value ?: return
+        val id = state.id as? TrackListId.Favorite ?: return
+        if (state.isLoading || state.isLoadingMore) return
+        if (page > 1 && !state.hasMore) return
+        viewModelScope.launch {
+            val loadingMore = page > 1
+            _openedFavorite.value = state.copy(
+                isLoading = !loadingMore,
+                isLoadingMore = loadingMore,
+                errorMessage = null,
+            )
+            network.repository.favoriteResources(id.mediaId, page)
+                .onSuccess { result ->
+                    val base = _openedFavorite.value ?: return@onSuccess
+                    _openedFavorite.value = base.copy(
+                        items = if (loadingMore) base.items + result.items.map { it.toTrack() }
+                        else result.items.map { it.toTrack() },
+                        page = result.page,
+                        hasMore = result.hasMore,
+                        isLoading = false,
+                        isLoadingMore = false,
+                    )
+                }
+                .onFailure {
+                    val base = _openedFavorite.value ?: return@onFailure
+                    _openedFavorite.value = base.copy(
+                        isLoading = false,
+                        isLoadingMore = false,
+                        errorMessage = it.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /**
+     * 点收藏夹条目：取分 P，单 P 直接播，多 P 整张作队列从头播。
+     * （搜索结果里「先展开再选」是因为用户在看；收藏夹里点播放意图是「听」。）
+     */
+    fun playFavoriteTrack(item: FavoriteTrack) {
+        viewModelScope.launch {
+            network.repository.pages(item.bvid)
+                .onSuccess { pages ->
+                    if (pages.size <= 1) {
+                        play(
+                            PlaybackRequest.Bili(
+                                item.bvid,
+                                pages.firstOrNull()?.cid?.takeIf { it > 0 },
+                                item.title,
+                                item.coverUrl,
+                                author = item.author,
+                                durationSec = item.durationSec,
+                            ),
+                        )
+                    } else {
+                        connection.playQueue(
+                            pages.map {
+                                PlaybackRequest.Bili(
+                                    item.bvid,
+                                    it.cid,
+                                    it.part.ifBlank { item.title },
+                                    item.coverUrl,
+                                    author = item.author,
+                                    durationSec = it.duration,
+                                )
+                            },
+                            startIndex = 0,
+                        )
+                        _playbackStarted.tryEmit(Unit)
+                    }
+                }
+                .onFailure { /* 失败静默：取流层会有自己的错误呈现 */ }
+        }
+    }
 
     private val _openedPlaylist = MutableStateFlow<PlaylistEntity?>(null)
     val openedPlaylist: StateFlow<PlaylistEntity?> = _openedPlaylist.asStateFlow()

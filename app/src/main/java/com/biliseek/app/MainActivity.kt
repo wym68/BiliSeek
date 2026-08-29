@@ -83,6 +83,9 @@ class MainActivity : ComponentActivity() {
                 val searchHistory by viewModel.searchHistory.collectAsState()
                 val recentPlays by viewModel.recentPlays.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
+                val favoriteFolders by viewModel.favoriteFolders.collectAsState()
+                val favoriteSync by viewModel.favoriteSync.collectAsState()
+                val openedFavorite by viewModel.openedFavorite.collectAsState()
                 val pendingAdd by viewModel.pendingAdd.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
@@ -113,6 +116,16 @@ class MainActivity : ComponentActivity() {
                         if (viewModel.shouldAutoEnterVideo()) {
                             viewModel.requestPresentation(PresentationMode.INLINE, surfaceView)
                         }
+                    }
+                }
+
+                // 已登录且目录从未同步过 → 自动拉一次收藏夹目录（音乐库分区秒开）
+                LaunchedEffect(session.isLoggedIn, favoriteFolders.isEmpty()) {
+                    if (session.isLoggedIn && favoriteFolders.isEmpty() &&
+                        favoriteSync !is com.biliseek.app.SyncState.Syncing &&
+                        favoriteSync !is com.biliseek.app.SyncState.NotLoggedIn
+                    ) {
+                        viewModel.syncFavoriteFolders()
                     }
                 }
 
@@ -212,6 +225,18 @@ class MainActivity : ComponentActivity() {
                                 onTrackReorder = viewModel::reorderTrack,
                                 downloads = downloadTasks,
                                 onOpenDownloads = { downloadsOpen = true },
+                                favoriteFolders = favoriteFolders,
+                                favoriteSync = favoriteSync,
+                                favoriteContent = openedFavorite,
+                                loginState = loginState,
+                                session = session,
+                                onSyncFavorites = viewModel::syncFavoriteFolders,
+                                onOpenFavorite = viewModel::openFavorite,
+                                onCloseFavorite = viewModel::closeFavorite,
+                                onFavoriteTrackClick = viewModel::playFavoriteTrack,
+                                onFavoriteLoadMore = viewModel::loadFavoritePage,
+                                onStartLogin = viewModel::startLogin,
+                                onCancelLogin = viewModel::cancelLogin,
                             )
                         }
                     },

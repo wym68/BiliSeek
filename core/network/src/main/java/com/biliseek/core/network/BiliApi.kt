@@ -11,6 +11,8 @@ import com.biliseek.core.network.dto.QrGenerateData
 import com.biliseek.core.network.dto.QrPollData
 import com.biliseek.core.network.dto.RefreshData
 import com.biliseek.core.network.dto.SearchData
+import com.biliseek.core.network.dto.FavoriteFolderListData
+import com.biliseek.core.network.dto.FavoriteResourceData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -132,6 +134,23 @@ interface BiliApi {
         @Field("csrf") csrf: String,
         @Field("refresh_token") oldRefreshToken: String,
     ): BiliResponse<JsonElement>
+
+    // ── 收藏夹（M11）──────────────────────────────────────
+
+    /** 我创建的收藏夹目录。`up_mid` = 当前登录用户 mid，需登录态 Cookie。 */
+    @GET("x/v3/fav/folder/created/list-all")
+    suspend fun favoriteFolders(
+        @Query("up_mid") upMid: Long,
+    ): BiliResponse<FavoriteFolderListData>
+
+    /** 收藏夹内容（分页）。`ps` 定义域 1–20。 */
+    @GET("x/v3/fav/resource/list")
+    suspend fun favoriteResources(
+        @Query("media_id") mediaId: Long,
+        @Query("pn") pn: Int,
+        @Query("ps") ps: Int = 20,
+        @Query("order") order: String = "mtime",
+    ): BiliResponse<FavoriteResourceData>
 
     companion object {
         const val QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
