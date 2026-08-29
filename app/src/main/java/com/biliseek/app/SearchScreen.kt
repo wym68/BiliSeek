@@ -394,14 +394,13 @@ private fun formatFans(n: Long): String = when {
 }
 
 private val ORDER_OPTIONS = listOf(
-    "综合" to SearchOrder.COMPREHENSIVE,
     "最多播放" to SearchOrder.CLICK,
     "最新" to SearchOrder.PUBDATE,
     "最多弹幕" to SearchOrder.DM,
 )
 
+// 「不限时长」按钮去掉：不选任何档位 = 不限（请求不带 duration 参数，接口默认）
 private val DURATION_OPTIONS = listOf(
-    "不限时长" to SearchDuration.ANY,
     "10 分内" to SearchDuration.UNDER_10,
     "10–30 分" to SearchDuration._10_30,
     "30–60 分" to SearchDuration._30_60,
