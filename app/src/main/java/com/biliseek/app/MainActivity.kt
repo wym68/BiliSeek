@@ -38,6 +38,7 @@ import com.biliseek.app.ui.MeteredVideoDialog
 import com.biliseek.app.ui.PlaylistPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
 import com.biliseek.app.ui.SettingsScreen
+import com.biliseek.app.ui.UpSpaceScreen
 import com.biliseek.core.network.sharedTextFrom
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.player.PresentationMode
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
                 val favoriteSync by viewModel.favoriteSync.collectAsState()
                 val openedFavorite by viewModel.openedFavorite.collectAsState()
                 val dynamic by viewModel.dynamic.collectAsState()
+                val upSpace by viewModel.upSpace.collectAsState()
                 val pendingAdd by viewModel.pendingAdd.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
@@ -181,7 +183,20 @@ class MainActivity : ComponentActivity() {
                             onCancelLogin = viewModel::cancelLogin,
                         )
                     },
+                    // UP 空间页（M11-D）：从搜索页点 UP 结果进入
                     searchContent = {
+                        if (upSpace.up != null) {
+                            UpSpaceScreen(
+                                state = upSpace,
+                                onClose = viewModel::closeUpSpace,
+                                onViewChange = viewModel::setUpSpaceView,
+                                onPostClick = viewModel::playUpPost,
+                                onLoadMorePosts = viewModel::loadMoreUpPosts,
+                                onRetryPosts = { viewModel.loadUpPosts(1) },
+                                onDynamicClick = viewModel::playDynamic,
+                                onLoadMoreDynamic = viewModel::loadMoreUpDynamic,
+                            )
+                        } else {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
                         val showEmptyState = search.items.isEmpty() &&
                             search.keyword.isBlank() &&
@@ -203,6 +218,10 @@ class MainActivity : ComponentActivity() {
                             onRetry = viewModel::retrySearch,
                             onOrderChange = { viewModel.setSearchFilters(it, search.duration) },
                             onDurationChange = { viewModel.setSearchFilters(search.order, it) },
+                            onModeChange = viewModel::setSearchMode,
+                            onUserClick = viewModel::openUpSpace,
+                            onRetryUser = viewModel::retryUserSearch,
+                            onLoadMoreUsers = viewModel::loadMoreUsers,
                             emptyContent = {
                                 if (showEmptyState) {
                                     HomeEmptyState(
@@ -217,6 +236,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                         )
+                        }
                     },
                     libraryContent = {
                         if (downloadsOpen) {

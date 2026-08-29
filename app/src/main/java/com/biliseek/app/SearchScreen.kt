@@ -2,6 +2,7 @@ package com.biliseek.app
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,9 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
@@ -22,6 +25,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,15 +39,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.biliseek.app.ui.CoverThumbnail
+import com.biliseek.app.SearchMode
 import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
 import com.biliseek.core.network.SearchOrder
 import com.biliseek.core.network.retryable
+import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.network.stripHighlight
@@ -67,6 +78,11 @@ fun SearchScreen(
     emptyContent: @Composable () -> Unit = {},
     onOrderChange: (SearchOrder) -> Unit = {},
     onDurationChange: (SearchDuration) -> Unit = {},
+    /** UP 主搜索（M11-D）。 */
+    onModeChange: (SearchMode) -> Unit = {},
+    onUserClick: (SearchUser) -> Unit = {},
+    onRetryUser: () -> Unit = {},
+    onLoadMoreUsers: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -115,13 +131,43 @@ fun SearchScreen(
             Button(onClick = onSubmit) { Text("搜索") }
         }
 
-        // 搜索筛选：时长 / 排序。切换后页码必须归 1（VM 侧处理）
-        SearchFilterBar(
-            order = state.order,
-            duration = state.duration,
-            onOrderChange = onOrderChange,
-            onDurationChange = onDurationChange,
-        )
+        // 搜索目标切换：视频 / UP 主（M11-D）。切换后页码归 1（VM 侧处理）
+        SingleChoiceSegmentedButtonRow(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        ) {
+            SegmentedButton(
+                selected = state.searchMode == SearchMode.VIDEO,
+                onClick = { onModeChange(SearchMode.VIDEO) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("视频") }
+            SegmentedButton(
+                selected = state.searchMode == SearchMode.USER,
+                onClick = { onModeChange(SearchMode.USER) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("UP 主") }
+        }
+
+        if (state.searchMode == SearchMode.VIDEO) {
+            // 搜索筛选：时长 / 排序。切换后页码必须归 1（VM 侧处理）
+            SearchFilterBar(
+                order = state.order,
+                duration = state.duration,
+                onOrderChange = onOrderChange,
+                onDurationChange = onDurationChange,
+            )
+        }
+
+        // ── UP 主结果分支（M11-D）──────────────────
+        if (state.searchMode == SearchMode.USER) {
+            UserResults(
+                state = state,
+                onUserClick = onUserClick,
+                onRetry = onRetryUser,
+                onLoadMore = onLoadMoreUsers,
+                emptyContent = emptyContent,
+            )
+            return@Column
+        }
 
         // 已有结果时，失败（多为加载下一页）收窄成顶部条，不遮挡已经拿到的内容
         if (state.items.isNotEmpty()) {
@@ -232,6 +278,115 @@ private fun SearchFilterBar(
             )
         }
     }
+}
+
+/**
+ * UP 主搜索结果列表（M11-D）。
+ *
+ * 行：头像 + 昵称 + 签名 + 粉丝/视频数。点击进 UP 空间页。
+ * 分页与视频搜索同款：滚动到底自动加载下一页。
+ */
+@Composable
+private fun UserResults(
+    state: SearchUiState,
+    onUserClick: (SearchUser) -> Unit,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
+    emptyContent: @Composable () -> Unit = {},
+) {
+    val listState = rememberLazyListState()
+    val itemCount = state.users.size
+    val shouldLoadMore by remember(itemCount) {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            itemCount > 0 && last >= itemCount - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore, itemCount) { if (shouldLoadMore) onLoadMore() }
+
+    when {
+        state.userLoading && state.users.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        state.users.isEmpty() && state.userError != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+            ErrorPanel(state.userError, onRetry)
+        }
+        state.users.isEmpty() -> if (state.keyword.isBlank()) {
+            // 无关键词：与视频模式一致，展示首页空状态（搜索历史 / 最近播放）
+            Box(Modifier.fillMaxSize()) { emptyContent() }
+        } else {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Text("没有找到相关 UP 主", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        else -> {
+            if (state.userTotalResults > 0) {
+                Text(
+                    "约 ${state.userTotalResults} 个 UP · 第 ${state.userPage}/${state.userTotalPages} 页",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                items(state.users, key = { it.mid }) { user ->
+                    UserRow(user, onClick = { onUserClick(user) })
+                    HorizontalDivider()
+                }
+                if (state.userLoading) {
+                    item {
+                        Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserRow(user: SearchUser, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = normalizeCoverUrl(user.upic),
+            contentDescription = null,
+            modifier = Modifier.size(48.dp).clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                user.uname,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                user.usign,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "粉丝 ${formatFans(user.fans)} · ${user.videos} 个视频",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        Text("›", style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+private fun formatFans(n: Long): String = when {
+    n >= 100_000_000 -> "%.1f 亿".format(n / 100_000_000.0)
+    n >= 10_000 -> "%.1f 万".format(n / 10_000.0)
+    else -> n.toString()
 }
 
 private val ORDER_OPTIONS = listOf(

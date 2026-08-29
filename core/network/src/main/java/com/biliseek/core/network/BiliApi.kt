@@ -15,6 +15,8 @@ import com.biliseek.core.network.dto.FavoriteFolderListData
 import com.biliseek.core.network.dto.FavoriteResourceData
 import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.FollowingData
+import com.biliseek.core.network.dto.UserSearchData
+import com.biliseek.core.network.dto.SpaceArchiveData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -83,6 +85,19 @@ interface BiliApi {
     /** 分类搜索。参数需 WBI 签名。MVP 只用 `search_type=video`。 */
     @GET("x/web-interface/wbi/search/type")
     suspend fun searchType(@QueryMap params: Map<String, String>): BiliResponse<SearchData>
+
+    /** UP 主分类搜索（`search_type=bili_user`，M11-D）。同 URL 不同 DTO。 */
+    @GET("x/web-interface/wbi/search/type")
+    suspend fun searchUsers(@QueryMap params: Map<String, String>): BiliResponse<UserSearchData>
+
+    /**
+     * UP 主空间投稿（M11-D）。
+     *
+     * ⚠️ **必须 WBI 签名**——不加实测返回 -403（chen310/plugin.video.bili#8 同坑），
+     * 参数表整表签名后传入。
+     */
+    @GET("x/space/wbi/arc/search")
+    suspend fun spaceArchives(@QueryMap params: Map<String, String>): BiliResponse<SpaceArchiveData>
 
     /**
      * 展开 b23.tv 短链。OkHttp 默认跟随重定向，最终地址从 `response.raw().request.url` 取。

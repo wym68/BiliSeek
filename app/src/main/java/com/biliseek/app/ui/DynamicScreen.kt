@@ -209,9 +209,10 @@ private fun DynamicFilterBar(
     }
 }
 
-/** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文仅展示）。 */
+/** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文仅展示）。
+ * 动态 tab 与 UP 空间页「动态」视图共用（M11-D）。 */
 @Composable
-private fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
+internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
     val clickable = if (entry.video != null) Modifier.clickable(onClick = onClick) else Modifier
     Column(Modifier.fillMaxWidth().then(clickable).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {

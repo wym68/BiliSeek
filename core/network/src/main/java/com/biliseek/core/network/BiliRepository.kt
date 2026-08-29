@@ -7,6 +7,9 @@ import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.FollowingUp
+import com.biliseek.core.network.dto.SearchUser
+import com.biliseek.core.network.dto.SpaceVideo
+import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
 import java.io.IOException
@@ -204,6 +207,117 @@ class BiliRepository(
             "关注列表失败：code=${response.code} ${response.message}"
         }
         response.data?.list.orEmpty().filter { it.mid > 0 && it.uname.isNotBlank() }
+    }
+
+    // ── UP 主搜索与空间投稿（M11-D）────────────────────────
+
+    /** UP 主搜索结果的一页。 */
+    data class UserSearchPage(
+        val items: List<SearchUser>,
+        val page: Int,
+        val totalPages: Int,
+        val totalResults: Int,
+    )
+
+    /** UP 主搜索（`search_type=bili_user`）。不需登录。 */
+    suspend fun searchUsers(keyword: String, page: Int = 1): Result<UserSearchPage> {
+        val data = wbiRequest(
+            params = buildMap {
+                put("search_type", "bili_user")
+                put("keyword", keyword)
+                put("page", page.toString())
+                put("page_size", "20")
+            },
+        ) { api.searchUsers(it) }
+        return data.map { d ->
+            UserSearchPage(
+                items = d.result.filter { it.mid > 0 && it.uname.isNotBlank() },
+                page = d.page.takeIf { it > 0 } ?: page,
+                totalPages = d.numPages,
+                totalResults = d.numResults,
+            )
+        }
+    }
+
+    /** UP 空间投稿的一页。 */
+    data class SpaceArchivePage(
+        val items: List<SpaceVideo>,
+        val page: Int,
+        val hasMore: Boolean,
+        val total: Int,
+    )
+
+    /** UP 主空间投稿列表。不需登录；**必须 WBI 签名**（不加实测 -403）。 */
+    suspend fun spaceArchives(
+        mid: Long,
+        page: Int = 1,
+        pageSize: Int = 30,
+    ): Result<SpaceArchivePage> {
+        val data = wbiRequest(
+            params = buildMap {
+                put("mid", mid.toString())
+                put("pn", page.toString())
+                put("ps", pageSize.toString())
+                put("order", "pubdate")
+            },
+        ) { api.spaceArchives(it) }
+        return data.map { d ->
+            val list = d.list?.vlist.orEmpty()
+            SpaceArchivePage(
+                items = list.filter { it.bvid.isNotBlank() },
+                page = d.page?.pn?.takeIf { it > 0 } ?: page,
+                hasMore = list.size >= pageSize,
+                total = d.page?.count ?: 0,
+            )
+        }
+    }
+
+    /**
+     * 带 WBI 签名 + 统一风控错误处理的 GET 请求（M11-D 起的新接口共用）。
+     * 既有 [search] 保持原样不重构——那是已验收路径，避免回归。
+     */
+    private suspend fun <T> wbiRequest(
+        params: Map<String, String>,
+        block: suspend (Map<String, String>) -> BiliResponse<T>,
+    ): Result<T> = runCatching {
+        val credentials = try {
+            authGate.awaitReady()
+        } catch (e: Exception) {
+            throw SearchException(
+                SearchError.Network(e.message.orEmpty()),
+                e.message ?: "风控凭据不可用",
+            )
+        }
+        val signed = WbiSigner.sign(
+            params = params,
+            imgKey = credentials.wbiImgKey,
+            subKey = credentials.wbiSubKey,
+        )
+        val response = try {
+            block(signed)
+        } catch (e: IOException) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        }
+        when (resolveRetryAction(response.code)) {
+            RetryAction.BACKOFF_NO_RETRY ->
+                throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            RetryAction.RESEED_CREDENTIALS -> {
+                authGate.invalidate()
+                throw SearchException(
+                    SearchError.CredentialsInvalid,
+                    "请求被拦截（-412），已重置设备凭据",
+                )
+            }
+            else -> Unit
+        }
+        if (response.code != 0) {
+            throw SearchException(
+                SearchError.Unknown("code=${response.code} ${response.message}"),
+                "请求失败：code=${response.code} ${response.message}",
+            )
+        }
+        response.data
+            ?: throw SearchException(SearchError.NotActivated, "响应为空，设备凭据可能未激活")
     }
 
     private fun DynamicFeedData?.toDynamicPage(requestOffset: String): DynamicPage {
