@@ -9,6 +9,7 @@ import android.media.MediaExtractor
 import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
@@ -181,16 +182,17 @@ class DownloadManager private constructor(private val app: Application) {
     }
 
     /**
-     * 删除一条下载记录。**按位置区分语义**（M9 §9.5）：
-     * - 私有目录：删文件 + 删表行
-     * - 公共 / SAF：只清记录，**不碰用户文件**——用户自己导出到别处的文件，
-     *   删「下载记录」不该顺手删掉
+     * 删除一条下载记录。**按位置区分语义**（M9 §9.5 修订）：
+     * - 私有目录：删文件 + 删表行（用户删记录就是不要这个文件了）
+     * - 公共 / SAF：由 UI 弹窗让用户选——[deleteFile] 为 false 只清记录
+     *   （用户自己导出到别处的文件不碰）；为 true 连源文件一起删
+     *   （MediaStore 条目 / SAF 文档一并移除）
      */
-    fun delete(id: Long) {
+    fun delete(id: Long, deleteFile: Boolean = false) {
         scope.launch {
             queueMutex.withLock {
                 val row = dao.all().firstOrNull { it.id == id } ?: return@withLock
-                if (row.location == DownloadLocation.PRIVATE) deleteFiles(row)
+                if (row.location == DownloadLocation.PRIVATE || deleteFile) deleteFiles(row)
                 dao.deleteById(id)
                 refreshTasks()
             }
@@ -575,16 +577,23 @@ class DownloadManager private constructor(private val app: Application) {
         when (uri.scheme) {
             "file" -> runCatching { File(uri.path.orEmpty()).delete() }
             "content" -> runCatching {
-                app.contentResolver.delete(uri, null, null)
+                // SAF 文档 URI 走 DocumentsProvider 的 deleteDocument；
+                // MediaStore 条目直接 contentResolver.delete（系统顺带删文件）
+                if (DocumentsContract.isDocumentUri(app, uri)) {
+                    DocumentsContract.deleteDocument(app.contentResolver, uri)
+                } else {
+                    app.contentResolver.delete(uri, null, null)
+                }
             }
         }
     }
 
+    /** 删掉一条记录关联的所有源文件（file:// 与 content:// 都支持）。 */
     private fun deleteFiles(row: DownloadEntity) {
         listOf(row.audioFile, row.videoFile)
-            .filter { it.startsWith("file://") }
-            .forEach { uri ->
-                runCatching { File(Uri.parse(uri).path ?: return@runCatching).delete() }
+            .filter { it.isNotBlank() }
+            .forEach { uriString ->
+                deleteFileByUri(Uri.parse(uriString))
             }
     }
 

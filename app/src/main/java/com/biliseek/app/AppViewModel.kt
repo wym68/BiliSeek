@@ -544,7 +544,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun retryDownload(id: Long) = downloadManager.retry(id)
 
-    fun deleteDownload(id: Long) = downloadManager.delete(id)
+    /**
+     * 删除下载。公共 / SAF 时由 UI 弹窗决定是否连源文件一起删，
+     * 见 [com.biliseek.app.download.DownloadManager.delete]。
+     */
+    fun deleteDownload(id: Long, deleteFile: Boolean = false) = downloadManager.delete(id, deleteFile)
 
     /** 播放一条已下载的条目。走普通播放路径——离线拦截点在取流层。 */
     fun playDownload(task: com.biliseek.app.download.DownloadTask) {

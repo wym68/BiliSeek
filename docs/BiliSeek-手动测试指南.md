@@ -20,7 +20,17 @@
 
 - 应用包名 `**com.biliseek.debug**`（debug 变体带 `.debug` 后缀）
 - 启动 Activity `**com.biliseek.app.MainActivity**`
-- 项目目录 `~/Documents/biliseek`
+
+> **发版前用 release 包验（M10 起）**：debug 通过不算数——R8 裁错只在 release 里现形。
+>
+> ```bash
+> ./gradlew :app:archiveReleaseArtifacts
+> adb install -r releases/0.2.0/app-release.apk   # release 包名 com.biliseek（无 .debug）
+> adb shell am start -n com.biliseek/.app.MainActivity
+> ```
+>
+> 回归范围与判据见 `docs/验收记录/M10-2026-08-29.md`；发版流程见 `docs/发版清单.md`。
+- 项目目录 `/home/minifive/own_work/BiliSeek`
 
 ---
 
@@ -31,7 +41,7 @@
 ## A1. 启动模拟器
 
 ```bash
-cd ~/Documents/biliseek
+cd /home/minifive/own_work/BiliSeek
 emulator -avd BiliSeek_API35 &
 ```
 
@@ -602,12 +612,14 @@ adb logcat -s BiliSeekDownload:V | tail -20
 
 > 位置会记住上次选择，下次默认带入。
 
-### 步骤 27 — 删除语义与文件缺失回落（M9 新增）
+### 步骤 27 — 删除语义与文件缺失回落（M9 新增，M10 修订）
 
 | 检查点 | 期望 |
 | ---- | ---- |
-| 删「应用内」的下载 | 文件与记录**一起消失** |
-| 删「公共/自定义」的下载 | **只清记录，文件仍在**（用户自己的文件不碰） |
+| 删「应用内」的下载 | 直接删、无弹窗：文件与记录**一起消失** |
+| 删「公共/自定义」的下载 | **弹选择框**：仅清记录 / 记录和源文件一起删 |
+| 选「仅清记录」 | 记录消失，系统音乐/相册里文件仍在、可播 |
+| 选「记录和源文件一起删」 | 记录消失，系统音乐/相册里也**找不到该文件** |
 | 手动删掉文件后再点播放 | 不报「播放失败」——**回落在线取流**，且该条在列表里变红（文件已被删除） |
 
 ## A5. 模拟器特有场景
@@ -739,7 +751,7 @@ sudo apt install -y android-sdk-platform-tools-common
 ## B3. 安装
 
 ```bash
-cd ~/Documents/biliseek
+cd /home/minifive/own_work/BiliSeek
 ./gradlew installDebug
 ```
 
@@ -799,7 +811,7 @@ adb logcat -c && adb logcat -s BiliSeekAuth:V BiliSeekPlayUrl:V BiliSeekPlayer:V
 | 24  | **下载（内容二选一）**   | 长按 → 下载；只音频得 `.m4a`、视频得 `.mp4`（能出声出画）；通知有进度；杀进程重开可续传/重试 |
 | 25  | **离线播放（飞行模式）** | 飞行模式下播已下载的条目：能播、不卡风控；音质行显示「本地文件」；进历史可续播 |
 | 26  | **保存位置三选一**     | 应用内 / 公共媒体库（系统音乐/相册可见可播）/ SAF 自定义目录（杀进程重开不必重选） |
-| 27  | **删除语义与文件缺失回落** | 删「应用内」连文件一起删；删公共/SAF 只清记录；文件被手动删掉后播放**回落在线取流** |
+| 27  | **删除语义与文件缺失回落** | 删「应用内」连文件一起删（无弹窗）；删公共/SAF 弹选择：仅清记录 / 连源文件一起删；文件被手动删掉后播放**回落在线取流** |
 
 
 每步的详细期望见 [Part A 的对应步骤](#a4-界面功能测试)。
@@ -959,7 +971,7 @@ adb devices
 ## C3. 安装
 
 ```bash
-cd ~/Documents/biliseek
+cd /home/minifive/own_work/BiliSeek
 ./gradlew installDebug
 adb shell pm clear com.biliseek.debug
 ```

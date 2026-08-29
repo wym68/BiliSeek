@@ -1,8 +1,30 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+// ===== M10 发版签名 =====
+// 密钥与口令不进仓库：从 local.properties（已被 .gitignore 忽略）或环境变量读取。
+// 四键齐全才给 release 配置签名；缺键时 release 仍可构建 unsigned 包，
+// 但 installRelease 会因签名缺失快速失败——这是刻意的快速失败信号。
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingValue(key: String): String? =
+    localProps.getProperty(key)?.takeIf { it.isNotBlank() }
+        ?: System.getenv("BILISEEK_" + key.uppercase().replace('.', '_'))
+
+val signingKeyPath = signingValue("signing.keyPath")
+val signingKeyAlias = signingValue("signing.keyAlias")
+val signingKeyStorePassword = signingValue("signing.keyStorePassword")
+val signingKeyPassword = signingValue("signing.keyPassword")
+val hasReleaseSigning =
+    listOf(signingKeyPath, signingKeyAlias, signingKeyStorePassword, signingKeyPassword)
+        .all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.biliseek.app"
@@ -12,9 +34,22 @@ android {
         applicationId = "com.biliseek"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        // M10 版本策略：versionName 与里程碑对齐（M9 完成 → 0.2.0）；
+        // versionCode 每次发版 +1（MVP=1 → M10=2），只在发版提交上动。
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(signingKeyPath!!)
+                storePassword = signingKeyStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -22,7 +57,18 @@ android {
             applicationIdSuffix = ".debug"
         }
         release {
-            isMinifyEnabled = false
+            // M10：开 R8 + 资源收缩。
+            // ⚠️ 裁错不会编译报错，只会运行时崩或接口静默解析失败——
+            // release 包必须整轮跑 Part A 回归（见 docs/验收记录/M10）。
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -39,6 +85,40 @@ android {
 android.sourceSets.getByName("androidTest") {
     // 迁移测试需要读取导出的 schema
     assets.srcDir(projectDir.resolve("schemas"))
+}
+
+// ===== M10-D 发版归档 =====
+// 每次 release 构建后运行：把 APK 与 mapping.txt 按版本归档到 releases/<versionName>/。
+// **没有 mapping.txt 就不算一次发版**——用户报的崩溃堆栈没有它无从还原。
+// releases/ 不进仓库（APK 已被 .gitignore 忽略），mapping 走本地/私有存储。
+tasks.register("archiveReleaseArtifacts") {
+    group = "release"
+    description = "把 release APK 与 mapping.txt 归档到 releases/<versionName>/"
+    dependsOn("assembleRelease")
+
+    // 配置期把路径全部求值成局部变量——任务闭包不能引用脚本对象（配置缓存要求）
+    val versionName = android.defaultConfig.versionName ?: "unknown"
+    val outDir = rootProject.projectDir.resolve("releases").resolve(versionName)
+    val apkFile = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
+    val mappingFile = layout.buildDirectory.file("outputs/mapping/release/mapping.txt").get().asFile
+
+    doLast {
+        outDir.mkdirs()
+        var archived = 0
+        if (apkFile.exists()) {
+            apkFile.copyTo(outDir.resolve(apkFile.name), overwrite = true)
+            archived++
+        } else {
+            logger.warn("release APK 不存在：${apkFile.path}")
+        }
+        if (mappingFile.exists()) {
+            mappingFile.copyTo(outDir.resolve("mapping.txt"), overwrite = true)
+            archived++
+        } else {
+            logger.warn("mapping.txt 不存在：${mappingFile.path} —— 本次发版无法还原崩溃堆栈")
+        }
+        logger.lifecycle("归档完成：${outDir.path}（${archived} 个文件）")
+    }
 }
 
 // Room schema 导出目录，迁移测试依赖它

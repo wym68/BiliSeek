@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -17,6 +18,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,9 +45,12 @@ fun DownloadsScreen(
     onClose: () -> Unit,
     onPlay: (DownloadTask) -> Unit,
     onRetry: (Long) -> Unit,
-    onDelete: (Long) -> Unit,
+    onDelete: (Long, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // 公共 / SAF 的删除要先问用户：仅清记录，还是源文件一起删
+    var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
+
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
@@ -63,10 +71,31 @@ fun DownloadsScreen(
         }
         LazyColumn(Modifier.fillMaxSize()) {
             items(tasks, key = { it.id }) { task ->
-                DownloadRow(task, onPlay, onRetry, onDelete)
+                DownloadRow(
+                    task = task,
+                    onPlay = onPlay,
+                    onRetry = onRetry,
+                    onDelete = onDelete,
+                    onAskDelete = { pendingDelete = it },
+                )
                 HorizontalDivider()
             }
         }
+    }
+
+    pendingDelete?.let { task ->
+        DeleteSourceDialog(
+            task = task,
+            onDismiss = { pendingDelete = null },
+            onDeleteRecord = {
+                onDelete(task.id, false)
+                pendingDelete = null
+            },
+            onDeleteRecordAndFile = {
+                onDelete(task.id, true)
+                pendingDelete = null
+            },
+        )
     }
 }
 
@@ -75,7 +104,8 @@ private fun DownloadRow(
     task: DownloadTask,
     onPlay: (DownloadTask) -> Unit,
     onRetry: (Long) -> Unit,
-    onDelete: (Long) -> Unit,
+    onDelete: (Long, Boolean) -> Unit,
+    onAskDelete: (DownloadTask) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(
@@ -110,19 +140,71 @@ private fun DownloadRow(
             when {
                 task.isDone -> {
                     TextButton(onClick = { onPlay(task) }) { Text("播放") }
-                    TextButton(onClick = { onDelete(task.id) }) { Text("删除") }
+                    TextButton(onClick = {
+                        if (task.location == DownloadLocation.PRIVATE) {
+                            // 应用内：删记录就是不要文件了，直接删，不弹窗
+                            onDelete(task.id, true)
+                        } else {
+                            onAskDelete(task)
+                        }
+                    }) { Text("删除") }
                 }
                 task.isFailed -> {
                     TextButton(onClick = { onRetry(task.id) }) { Text("重试") }
-                    TextButton(onClick = { onDelete(task.id) }) { Text("删除") }
+                    TextButton(onClick = { onDelete(task.id, false) }) { Text("删除") }
                 }
                 task.status == DownloadStatus.QUEUED -> {
                     Text("排队中", style = MaterialTheme.typography.labelSmall)
-                    TextButton(onClick = { onDelete(task.id) }) { Text("取消") }
+                    TextButton(onClick = { onDelete(task.id, false) }) { Text("取消") }
                 }
             }
         }
     }
+}
+
+/**
+ * 公共媒体库 / SAF 的删除确认：源文件在系统里，删之前问一句。
+ *
+ * 两个选项直接可点（同歌单选择框的交互）；「仅清记录」不碰用户文件，
+ * 「记录和源文件一起删」会把 MediaStore 条目 / SAF 文档一并移除。
+ */
+@Composable
+private fun DeleteSourceDialog(
+    task: DownloadTask,
+    onDismiss: () -> Unit,
+    onDeleteRecord: () -> Unit,
+    onDeleteRecordAndFile: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("删除下载") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    task.title.ifBlank { "未命名" },
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "文件在${locationLabel(task.location)}，删除时怎么处理源文件？",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(
+                    "仅清记录",
+                    Modifier.fillMaxWidth().clickable { onDeleteRecord() }.padding(vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    "记录和源文件一起删",
+                    Modifier.fillMaxWidth().clickable { onDeleteRecordAndFile() }.padding(vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable

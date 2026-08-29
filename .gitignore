@@ -25,6 +25,9 @@ bin/
 gen/
 out/
 
+# ===== 发版归档（M10：APK 与 mapping.txt 均不入库，走本地/私有存储）=====
+releases/
+
 # ===== NDK / 原生构建 =====
 .cxx/
 .externalNativeBuild/
@@ -38,9 +41,11 @@ lint/generated/
 lint/outputs/
 lint/tmp/
 
-# ===== 密钥文件（按需取消注释，避免泄露签名密钥）=====
-# *.jks
-# *.keystore
+# ===== 密钥文件（M10 起强制忽略：签名密钥与口令绝不入库）=====
+*.jks
+*.keystore
+*.pass
+!keystore.properties
 
 # ===== 日志 =====
 *.log
