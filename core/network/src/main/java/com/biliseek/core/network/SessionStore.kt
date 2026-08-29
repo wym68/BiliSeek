@@ -15,6 +15,10 @@ data class BiliSession(
     val biliJct: String,
     val dedeUserId: String,
     val refreshToken: String,
+    /** B 站用户名（标题栏显示）。登录成功后从 nav 接口补拉。 */
+    val uname: String = "",
+    /** 头像 URL（标题栏头像圆圈）。`//i0.hdslb.com/...` 需补协议。 */
+    val face: String = "",
 ) {
     val isLoggedIn: Boolean get() = sessData.isNotBlank()
 
@@ -48,6 +52,8 @@ class SessionStore(private val context: Context) {
             biliJct = p[KEY_JCT].orEmpty(),
             dedeUserId = p[KEY_UID].orEmpty(),
             refreshToken = p[KEY_REFRESH].orEmpty(),
+            uname = p[KEY_UNAME].orEmpty(),
+            face = p[KEY_FACE].orEmpty(),
         )
         current = restored
         _session.value = restored
@@ -61,6 +67,8 @@ class SessionStore(private val context: Context) {
             p[KEY_JCT] = session.biliJct
             p[KEY_UID] = session.dedeUserId
             p[KEY_REFRESH] = session.refreshToken
+            p[KEY_UNAME] = session.uname
+            p[KEY_FACE] = session.face
         }
     }
 
@@ -75,5 +83,7 @@ class SessionStore(private val context: Context) {
         val KEY_JCT = stringPreferencesKey("bili_jct")
         val KEY_UID = stringPreferencesKey("dede_user_id")
         val KEY_REFRESH = stringPreferencesKey("refresh_token")
+        val KEY_UNAME = stringPreferencesKey("uname")
+        val KEY_FACE = stringPreferencesKey("face")
     }
 }

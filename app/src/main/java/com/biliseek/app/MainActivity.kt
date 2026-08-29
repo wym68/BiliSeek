@@ -229,6 +229,7 @@ class MainActivity : ComponentActivity() {
                             onHistoryClick = viewModel::searchKeyword,
                             onDeleteHistory = viewModel::deleteSearchKeyword,
                             onClearHistory = viewModel::clearSearchHistory,
+                            session = session,
                             emptyContent = {
                                 if (showEmptyState) {
                                     HomeEmptyState(

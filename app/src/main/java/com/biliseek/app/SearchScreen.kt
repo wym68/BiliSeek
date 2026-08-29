@@ -56,6 +56,7 @@ import com.biliseek.app.SearchMode
 import com.biliseek.app.data.SearchHistoryEntity
 import com.biliseek.app.ui.CoverThumbnail
 import com.biliseek.app.ui.SearchHistorySection
+import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
 import com.biliseek.core.network.SearchOrder
@@ -96,6 +97,8 @@ fun SearchScreen(
     onHistoryClick: (String) -> Unit = {},
     onDeleteHistory: (String) -> Unit = {},
     onClearHistory: () -> Unit = {},
+    /** 登录态（标题栏显示账号名与头像，BBPlayer 主页风格）。 */
+    session: BiliSession = BiliSession.EMPTY,
 ) {
     val listState = rememberLazyListState()
     // 搜索框聚焦态：无关键词且聚焦时弹出搜索历史参考，未聚焦显示首页空状态
@@ -129,6 +132,31 @@ fun SearchScreen(
     LaunchedEffect(shouldLoadMore, itemCount) { if (shouldLoadMore) onLoadMore() }
 
     Column(modifier = modifier.fillMaxSize()) {
+        // 标题栏（BBPlayer 主页风格）：软件名 + B 站账号名，右侧头像圆圈。
+        // 头像的「更多功能」入口暂不做（M11 真机反馈预留）。
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("BiliSeek", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    if (session.isLoggedIn) session.uname.ifBlank { "已登录" } else "未登录",
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            AsyncImage(
+                model = if (session.isLoggedIn) normalizeCoverUrl(session.face) else null,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentScale = ContentScale.Crop,
+            )
+        }
+
         // 无「搜索」按钮：输入后按输入法回车键即可搜索（IME Search action）
         OutlinedTextField(
             value = state.keyword,

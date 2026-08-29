@@ -629,6 +629,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             settingsStore.load()
             network.sessionStore.load()
+            // 老登录态（升级前登录的）没有用户名/头像，启动时补拉一次（失败不打扰）
+            network.loginManager.refreshProfileIfNeeded()
             connection.connect()
             // 登录态续期。会话已加载后再查，不阻塞 UI，失败也不打扰用户
             val outcome = network.cookieRefresher.refreshIfNeeded()

@@ -67,7 +67,9 @@ class LoginManager(
                     val cookies = raw.headers().values("Set-Cookie")
                     val session = parseSessionFromCookies(cookies, data.refreshToken)
                     if (session.isLoggedIn) {
-                        sessionStore.save(session)
+                        // 登录成功后拉 nav 补用户名与头像（搜索页标题栏要显示）。
+                        // 失败不阻塞登录成功——下次启动还会补拉。
+                        sessionStore.save(profileOf(session))
                         _state.value = LoginState.Success
                         Log.d(TAG, "登录成功 uid=${session.dedeUserId}")
                     } else {
@@ -92,6 +94,28 @@ class LoginManager(
         // 只清账号，保留 buvid / ticket —— 那是设备身份，重种反而更像异常
         sessionStore.clear()
         _state.value = LoginState.Idle
+    }
+
+    /**
+     * 用 nav 接口补全用户名与头像。登录成功时与启动补拉共用。
+     * 失败/未登录时原样返回（不阻塞登录流程）。
+     */
+    suspend fun profileOf(session: BiliSession): BiliSession {
+        if (!session.isLoggedIn || session.uname.isNotBlank()) return session
+        return runCatching { api.getNav() }
+            .getOrNull()
+            ?.takeIf { it.code == 0 }
+            ?.data
+            ?.takeIf { it.uname.isNotBlank() }
+            ?.let { session.copy(uname = it.uname, face = it.face) }
+            ?: session
+    }
+
+    /** 启动时补拉：老登录态（升级前登录的）没有用户名/头像。 */
+    suspend fun refreshProfileIfNeeded() {
+        val session = sessionStore.current
+        if (!session.isLoggedIn || session.uname.isNotBlank()) return
+        sessionStore.save(profileOf(session))
     }
 
     fun reset() {

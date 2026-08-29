@@ -36,11 +36,15 @@ data class TicketNav(
     val sub: String = "",
 )
 
-/** `x/web-interface/nav` —— WBI 密钥的备用来源。 */
+/** `x/web-interface/nav` —— WBI 密钥的备用来源，登录后也含用户名与头像。 */
 @Serializable
 data class NavData(
     @SerialName("isLogin") val isLogin: Boolean = false,
     @SerialName("wbi_img") val wbiImg: WbiImg? = null,
+    /** 登录态下才有：B 站用户名（标题栏显示）。 */
+    val uname: String = "",
+    /** 登录态下才有：头像 URL，`//i0.hdslb.com/...` 需补协议。 */
+    val face: String = "",
 )
 
 @Serializable
