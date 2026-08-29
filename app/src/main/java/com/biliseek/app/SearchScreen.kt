@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -41,14 +44,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import com.biliseek.app.ui.CoverThumbnail
 import com.biliseek.app.SearchMode
+import com.biliseek.app.data.SearchHistoryEntity
+import com.biliseek.app.ui.CoverThumbnail
+import com.biliseek.app.ui.SearchHistorySection
 import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
 import com.biliseek.core.network.SearchOrder
@@ -84,8 +91,15 @@ fun SearchScreen(
     onUserClick: (SearchUser) -> Unit = {},
     onRetryUser: () -> Unit = {},
     onLoadMoreUsers: () -> Unit = {},
+    /** 搜索历史（聚焦搜索框时弹出参考，M11 真机反馈）。 */
+    searchHistory: List<SearchHistoryEntity> = emptyList(),
+    onHistoryClick: (String) -> Unit = {},
+    onDeleteHistory: (String) -> Unit = {},
+    onClearHistory: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
+    // 搜索框聚焦态：无关键词且聚焦时弹出搜索历史参考，未聚焦显示首页空状态
+    var searchFocused by remember { mutableStateOf(false) }
 
     // 长按不再是「直接加歌单」这一个动作，而是打开一组动作
     var actionsFor by remember { mutableStateOf<SearchVideo?>(null) }
@@ -121,7 +135,10 @@ fun SearchScreen(
             onValueChange = onKeywordChange,
             label = { Text("搜索全 B 站，或粘贴 BV 号 / 链接") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .onFocusChanged { searchFocused = it.isFocused },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
             trailingIcon = {
@@ -140,6 +157,46 @@ fun SearchScreen(
             },
         )
 
+        // ── 无关键词：聚焦弹搜索历史参考；未聚焦显示首页空状态 ──
+        if (state.keyword.isBlank()) {
+            if (searchFocused) {
+                // 点空白处收起历史（并收键盘）：背景 Box 拦截点击，子 chips 点击优先消费
+                val keyboard = LocalSoftwareKeyboardController.current
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            searchFocused = false
+                            keyboard?.hide()
+                        },
+                ) {
+                    if (searchHistory.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text("暂无搜索历史", style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else {
+                        Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        ) {
+                            SearchHistorySection(
+                                searchHistory = searchHistory,
+                                onKeywordClick = onHistoryClick,
+                                onDeleteKeyword = onDeleteHistory,
+                                onClearHistory = onClearHistory,
+                            )
+                        }
+                    }
+                }
+            } else {
+                Box(Modifier.fillMaxSize()) { emptyContent() }
+            }
+            return@Column
+        }
+
+        // ── 有关键词（已搜索）：筛选区才出现，位于结果上方（M11 真机反馈）──
         // 搜索目标切换：视频 / UP 主（M11-D）。切换后页码归 1（VM 侧处理）
         SingleChoiceSegmentedButtonRow(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),

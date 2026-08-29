@@ -33,6 +33,9 @@ import com.biliseek.core.player.formatDuration
  *
  * 「没有推荐」不等于「空屏」——展示的全是**用户自己的行为数据**：
  * 搜索历史、最近播放、播放热力图。无算法、无个性化推荐，不破坏产品身份。
+ *
+ * [showSearchHistory]：搜索历史改为「聚焦搜索框时才弹出」（M11 真机反馈），
+ * 未聚焦时首页不直接显示历史，避免占版面。
  */
 @Composable
 fun HomeEmptyState(
@@ -44,6 +47,7 @@ fun HomeEmptyState(
     onClearHistory: () -> Unit,
     onRecentClick: (PlayHistoryEntity) -> Unit,
     modifier: Modifier = Modifier,
+    showSearchHistory: Boolean = true,
 ) {
     Column(
         modifier
@@ -52,7 +56,10 @@ fun HomeEmptyState(
             .padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        if (searchHistory.isEmpty() && recentPlays.isEmpty()) {
+        // 「当前实际要显示的内容是否为空」：历史被隐藏时也算空（显示 slogan）
+        val showSlogan = recentPlays.isEmpty() &&
+            (searchHistory.isEmpty() || !showSearchHistory)
+        if (showSlogan) {
             Column(Modifier.fillMaxWidth().padding(32.dp)) {
                 Text("Seek and you shall find.", style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -63,30 +70,13 @@ fun HomeEmptyState(
             return@Column
         }
 
-        if (searchHistory.isNotEmpty()) {
-            Section(
-                title = "搜索历史",
-                action = { TextButton(onClick = onClearHistory) { Text("清空") } },
-            ) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                ) {
-                    items(searchHistory, key = { it.id }) { entry ->
-                        AssistChip(
-                            onClick = { onKeywordClick(entry.keyword) },
-                            label = { Text(entry.keyword) },
-                            trailingIcon = {
-                                Text(
-                                    "✕",
-                                    modifier = Modifier.clickable { onDeleteKeyword(entry.keyword) },
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            },
-                        )
-                    }
-                }
-            }
+        if (showSearchHistory && searchHistory.isNotEmpty()) {
+            SearchHistorySection(
+                searchHistory = searchHistory,
+                onKeywordClick = onKeywordClick,
+                onDeleteKeyword = onDeleteKeyword,
+                onClearHistory = onClearHistory,
+            )
         }
 
         if (recentPlays.isNotEmpty()) {
@@ -123,6 +113,44 @@ fun HomeEmptyState(
 
         if (heatmap.isNotEmpty()) {
             Section(title = "播放热力") { Heatmap(heatmap) }
+        }
+    }
+}
+
+/**
+ * 搜索历史参考列表。
+ *
+ * 首页空状态与「聚焦搜索框时弹出」两处共用（M11 真机反馈：历史不直接占版面，
+ * 聚焦时才弹出用以参考）。
+ */
+@Composable
+fun SearchHistorySection(
+    searchHistory: List<SearchHistoryEntity>,
+    onKeywordClick: (String) -> Unit,
+    onDeleteKeyword: (String) -> Unit,
+    onClearHistory: () -> Unit,
+) {
+    Section(
+        title = "搜索历史",
+        action = { TextButton(onClick = onClearHistory) { Text("清空") } },
+    ) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
+        ) {
+            items(searchHistory, key = { it.id }) { entry ->
+                AssistChip(
+                    onClick = { onKeywordClick(entry.keyword) },
+                    label = { Text(entry.keyword) },
+                    trailingIcon = {
+                        Text(
+                            "✕",
+                            modifier = Modifier.clickable { onDeleteKeyword(entry.keyword) },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    },
+                )
+            }
         }
     }
 }

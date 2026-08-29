@@ -225,6 +225,10 @@ class MainActivity : ComponentActivity() {
                             onUserClick = viewModel::openUpSpace,
                             onRetryUser = viewModel::retryUserSearch,
                             onLoadMoreUsers = viewModel::loadMoreUsers,
+                            searchHistory = searchHistory,
+                            onHistoryClick = viewModel::searchKeyword,
+                            onDeleteHistory = viewModel::deleteSearchKeyword,
+                            onClearHistory = viewModel::clearSearchHistory,
                             emptyContent = {
                                 if (showEmptyState) {
                                     HomeEmptyState(
@@ -235,6 +239,8 @@ class MainActivity : ComponentActivity() {
                                         onDeleteKeyword = viewModel::deleteSearchKeyword,
                                         onClearHistory = viewModel::clearSearchHistory,
                                         onRecentClick = viewModel::playHistoryEntry,
+                                        // 搜索历史改为聚焦时才弹出，未聚焦首页不直接显示
+                                        showSearchHistory = false,
                                     )
                                 }
                             },
