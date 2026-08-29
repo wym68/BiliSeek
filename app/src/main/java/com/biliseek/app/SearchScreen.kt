@@ -115,22 +115,30 @@ fun SearchScreen(
     LaunchedEffect(shouldLoadMore, itemCount) { if (shouldLoadMore) onLoadMore() }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = state.keyword,
-                onValueChange = onKeywordChange,
-                label = { Text("搜索全 B 站，或粘贴 BV 号 / 链接") },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-            )
-            Button(onClick = onSubmit) { Text("搜索") }
-        }
+        // 无「搜索」按钮：输入后按输入法回车键即可搜索（IME Search action）
+        OutlinedTextField(
+            value = state.keyword,
+            onValueChange = onKeywordChange,
+            label = { Text("搜索全 B 站，或粘贴 BV 号 / 链接") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+            trailingIcon = {
+                // 圆叉：点击快速清空。仅有关键词时显示
+                if (state.keyword.isNotEmpty()) {
+                    Text(
+                        "✕",
+                        Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onKeywordChange("") }
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            },
+        )
 
         // 搜索目标切换：视频 / UP 主（M11-D）。切换后页码归 1（VM 侧处理）
         SingleChoiceSegmentedButtonRow(
