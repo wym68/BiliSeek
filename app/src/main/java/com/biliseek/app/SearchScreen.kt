@@ -328,22 +328,29 @@ private fun SearchFilterBar(
     onOrderChange: (SearchOrder) -> Unit,
     onDurationChange: (SearchDuration) -> Unit,
 ) {
+    // 排序与时长拆成两行：时长四个按钮独占一行（M11 真机反馈：
+    // 默认 labelLarge + 混排会让时长四个按钮换行）
     androidx.compose.foundation.layout.FlowRow(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         ORDER_OPTIONS.forEach { (label, value) ->
             androidx.compose.material3.FilterChip(
                 selected = order == value,
                 onClick = { onOrderChange(value) },
-                label = { Text(label) },
+                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
             )
         }
+    }
+    androidx.compose.foundation.layout.FlowRow(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         DURATION_OPTIONS.forEach { (label, value) ->
             androidx.compose.material3.FilterChip(
                 selected = duration == value,
                 onClick = { onDurationChange(value) },
-                label = { Text(label) },
+                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
             )
         }
     }
