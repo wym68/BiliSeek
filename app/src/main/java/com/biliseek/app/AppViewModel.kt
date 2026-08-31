@@ -200,8 +200,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** JPEG 压缩质量。锁屏场景不需要原图质量，85 几乎看不出差别，文件减半。 */
     private val COVER_ART_JPEG_QUALITY = 85
 
-    /** 首页热力图天数：近三个月 ≈ 91 天。 */
-    private val HEATMAP_DAYS = 91
+    /** 首页热力图天数：过去一年 ≈ 365 天。窗口可横向滚动，初始滑到右端（今天）。 */
+    private val HEATMAP_DAYS = 365
 
     // ── 本地库 ──────────────────────────────────────────
 

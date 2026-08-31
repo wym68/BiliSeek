@@ -821,6 +821,7 @@ M11 是「登录后内容」的第一批：收藏夹、关注动态、UP 主搜�
 | 13.10 | 首页中段重构（热力图柱状格 + 快捷入口） | ✅ 已实现（真机待网络恢复验证） |
 | 13.11 | 移除首页「最近播放」 | ✅ 已实现 + 真机验证 |
 | 13.12 | 真机验证说明（风控 -111 环境问题） | 📝 记录 |
+| 13.13 | 热力图对齐 BBPlayer（窗口一年 + 格子放大 + 英文简写 + 文字裁剪修复） | ✅ 已实现 + 真机验证 |
 
 ### 13.2 用 B 站 App 一键登录
 
@@ -981,3 +982,33 @@ M11 是「登录后内容」的第一批：收藏夹、关注动态、UP 主搜�
 
 **排查建议**：等 30 分钟~几小时（临时风控过期）；切 WiFi ↔ 移动数据（换 IP）；冷启动一次（`AuthGate.invalidate()` 清旧凭据重种）；换设备排除设备指纹标记。
 
+
+### 13.13 热力图对齐 BBPlayer（窗口一年 + 格子放大 + 英文简写 + 文字裁剪修复）
+
+**需求**：搜索页播放热力图横纵没有标月份和星期几。参考 BBPlayer（com.roitium.bbplayer）主页热力图设置。
+
+**BBPlayer 主页参考**（截图 + 源码）：
+
+- `WeeklyHeatMap` 默认配置：`isHeaderVisible=true` 月份表头（`headerTextFormat='MMM'` → 英文「Jun/Jul/Aug」）、`isSidebarVisible=true` 星期侧边栏（`sidebarTextFormat='ddd'` → 英文「Sun/Mon/.../Sat」）、`weekStartsOn=0` 周日开头、首页传 `initialScrollEnd=true` 滚到右端、窗口默认 `subtract(1, 'year')`
+- 格子 `cellSize=18, cellGap=4, cellRadius=4`
+
+**实现**（`app/.../ui/HomeScreen.kt` `WeeklyHeatGrid` + `app/.../AppViewModel.kt`）：
+
+| 项 | 改前 | 改后 |
+| --- | --- | --- |
+| 格子 | 14dp / 间距 3dp / 圆角 3dp | **18dp / 间距 4dp / 圆角 4dp**（BBPlayer 主页参数） |
+| 星期侧边栏 | 中文「日/一/二/三/四/五/六」 | **英文「Sun/Mon/Tue/Wed/Thu/Fri/Sat」**（labelSmall 英文 ddd 简写，无句点） |
+| 月份表头 | 中文「6月/7月」 | **英文「Jun/Jul/Aug/Sep」**（`DateTimeFormatter.ofPattern("MMM", Locale.ENGLISH)`，无句点） |
+| 初始滚动 | 左侧 | **滚到右端**（`rememberLazyListState` + `LaunchedEffect { scrollToItem(weeks-1) }`，同步无动画） |
+| 窗口 | 13 周（近 3 个月） | **53 周（近一年）**，可横向滚动看更早历史 |
+
+**设计要点**：
+
+- **月份 formatter 用 `Locale.ENGLISH`**：dayjs 的 `MMM` 在不同 locale 下输出不同（zh-cn 输出「1月/2月」），Compose 的 `DateTimeFormatter` 同样。锁定 `Locale.ENGLISH` 才能保证输出「Jan/Feb/.../Dec」英文简写。`remember` 缓存避免 recomposition 重建。
+- **月份无句点**：与 BBPlayer `MMM` 输出一致（「Aug」而非「Aug.」）。早期加过句点，用户反馈偏离 BBPlayer 标准简写，已去。
+- **星期/月份文字不设宽度约束**（真机反馈修复）：侧边栏 `Column` 原 `width(10.dp)` 把「Sun」裁成「S」；月份表头原 `width(18.dp)` 同理可能裁「Aug」。改为只约束 `height(18.dp)`（与格子行高对齐），宽度自适应文字——「Sun」约 68px、「Wed」约 84px@4x，文字 100% 完整显示。月份「Aug」窄于格子 18dp，不会掉宽列；文字向左对齐后向右溢出到后续空表头列（BBPlayer SVG 表头同款跨列效果）。
+- **窗口一年**：`HEATMAP_DAYS = 91 → 365`，`weeks` 默认 13 → 53。数据源 `observeHistorySince(cutoffMs)` 拉一年 play_history 按 `LocalDate` 本地日期聚合（数据量 ~2000 行，无压力）。
+
+**验证**：真机像素扫描确认格子 68px@4x≈17dp（圆角切 1dp），列节距 88px=22dp，行节距 88px。星期侧边栏 7 个标签宽度 46-84px（多字母完整），「Sun」S-u-n 三字母像素清晰可辨。月份 Jun/Jul/Aug/Sep（无句点）uiautomator 确认。点击今天格子（8/30）→ 日历史页 22 条记录。`./gradlew :app:testDebugUnitTest` 全过，编译装机成功。
+
+**过程中的反复（记录为准）**：先按用户「窗口保持近 3 个月」实现 13 周；随后用户反馈「不能向右滚动查看更久历史」→ 扩到 53 周一年；简写格式经历「中文单字 → 英文+句点(Aug.) → 英文无句点(Aug)」三次迭代，最终与 BBPlayer `MMM`/`ddd` 完全一致。

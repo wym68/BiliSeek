@@ -9,10 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -21,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.SearchHistoryEntity
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * 首页空状态。
@@ -213,59 +221,125 @@ private fun Section(
 /**
  * 近三个月播放热力图（柱状格，仿 BBPlayer WeeklyHeatMap）。
  *
- * 7 行（周一到周日）× N 周列，每格一个本地日期：
- * - 无记录：surfaceVariant 底色
- * - 有记录：主题色按次数分 4 级透明度（0.2 / 0.4 / 0.6 / 1.0）
- * - 今天：主色描边
+ * 布局与 BBPlayer 主页对齐：
+ * - **月份表头**：每列跨入新月份时在该列上方标「Aug/Sep/...」英文 MMM 简写
+ * - **星期侧边栏**：左侧固定「Sun/Mon/.../Sat」英文 ddd 简写，不随列滚动
+ * - **周日开头**（BBPlayer `weekStartsOn=0`）：列内 7 行从周日排到周六
+ * - **格子 18dp / 间距 4dp / 圆角 4dp**（BBPlayer 主页参数 `cellSize=18, cellGap=4, cellRadius=4`）
+ * - 未来格子渲染为底色（列高对齐，BBPlayer 同款），仍可点（打开空日页）
+ * - 今天：主色描边；有记录：4 级色阶透明度
  *
- * 横向 LazyRow 滚动到最右（今天），与 BBPlayer `initialScrollEnd` 一致。
+ * 横向滚动到今天（BBPlayer `initialScrollEnd`，同步无动画版本 `scrollToItem`）。
  */
 @Composable
 private fun WeeklyHeatGrid(
     counts: Map<LocalDate, Int>,
     onDayClick: (LocalDate) -> Unit,
-    weeks: Int = 13,
+    weeks: Int = 53,
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val base = MaterialTheme.colorScheme.surfaceVariant
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val today = LocalDate.now()
-    // 本周一作为右边界（今天必然在本周内）
-    val weekEnd = today.with(DayOfWeek.MONDAY)
+    // 今天所在周的周日作为右边界（对齐 BBPlayer weekStartsOn=0）
+    val weekEnd = today.with(DayOfWeek.SUNDAY)
     val weekStart = weekEnd.minusWeeks((weeks - 1).toLong())
 
-    // 周一是首列，列内 7 行按 周一..周日
-    val rows = DayOfWeek.entries // MONDAY..SUNDAY
+    // 行序：周日 → 周六（BBPlayer 同款）
+    val rows = listOf(
+        DayOfWeek.SUNDAY, DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+        DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY,
+    )
+    // 星期侧边栏标签：英文 ddd 简写（对齐 BBPlayer `sidebarTextFormat='ddd'`）
+    val weekdayLabels = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    // 月份表头格式：英文 MMM 简写（对齐 BBPlayer `headerTextFormat='MMM'`）。Locale.ENGLISH
+    // 是关键：dayjs/zh-cn 的 MMM 是「1月」中文，这里要英文「Jan」。
+    val monthFormatter = remember { DateTimeFormatter.ofPattern("MMM", Locale.ENGLISH) }
 
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.padding(horizontal = 16.dp),
-    ) {
-        items(weeks) { weekOffset ->
-            val weekStartDate = weekStart.plusWeeks(weekOffset.toLong())
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                rows.forEach { dow ->
-                    val date = weekStartDate.with(dow)
-                    // 未来日期（本周的周二..周日，若今天是周一）不渲染格子
-                    if (date > today) return@forEach
-                    val count = counts[date] ?: 0
-                    val alpha = heatmapLevelAlpha(count)
-                    Box(
-                        Modifier
-                            .size(14.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(if (alpha > 0f) primary.copy(alpha = alpha) else base)
-                            .then(
-                                if (date == today) {
-                                    Modifier.border(1.dp, primary, RoundedCornerShape(3.dp))
-                                } else Modifier,
-                            )
-                            .clickable { onDayClick(date) },
+    Row(Modifier.padding(horizontal = 16.dp)) {
+        // 固定星期侧边栏（不随列滚动）。不设宽度约束——让文字自然宽，
+        // 避免「Sun」被裁成「S」（M13 真机反馈：Column.width 会把英文文字裁剪）
+        Column(
+            Modifier.padding(end = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            // 与格子列的表头行对齐
+            Spacer(Modifier.height(HEADER_ROW_DP.dp))
+            weekdayLabels.forEach { label ->
+                Box(
+                    Modifier.height(18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = labelColor,
                     )
+                }
+            }
+        }
+
+        // 横向滚动状态：初始滚到右端（今天列在右）。BBPlayer `initialScrollEnd={true}`
+        // 对应 ScrollView.scrollToEnd({animated: false})——同步无动画
+        val listState = rememberLazyListState()
+        LaunchedEffect(Unit) {
+            listState.scrollToItem(weeks - 1)
+        }
+
+        LazyRow(
+            state = listState,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(weeks) { weekOffset ->
+                val weekStartDate = weekStart.plusWeeks(weekOffset.toLong())
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // 月份表头：跨入新月份才显示（BBPlayer renderHeader 同逻辑）。
+                    // 不设宽度约束让文字自然宽（"Aug" 窄于格子 18dp，不会掉宽列），
+                    // 避免「Aug」被裁成「A」。文字向左对齐后向右溢出到后续空表头列——
+                    // 与 BBPlayer 的 SVG 跨列表头效果一致（相邻两周不可能都跨月，无重叠冲突）
+                    val month = weekStartDate.monthValue
+                    val prevMonth = weekStartDate.minusWeeks(1).monthValue
+                    val showMonthLabel = weekOffset == 0 || month != prevMonth
+                    Box(
+                        Modifier.height(HEADER_ROW_DP.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (showMonthLabel) {
+                            // 月份 3 字母简写（与 BBPlayer dayjs `MMM` 一致，无句点）：
+                            // Jan / Feb / ... / Aug / Sep / Oct...
+                            Text(
+                                weekStartDate.format(monthFormatter),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = labelColor,
+                            )
+                        }
+                    }
+
+                    rows.forEach { dow ->
+                        val date = weekStartDate.with(dow)
+                        val count = counts[date] ?: 0
+                        val alpha = heatmapLevelAlpha(count)
+                        Box(
+                            Modifier
+                                .size(18.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (alpha > 0f) primary.copy(alpha = alpha) else base)
+                                .then(
+                                    if (date == today) {
+                                        Modifier.border(1.dp, primary, RoundedCornerShape(4.dp))
+                                    } else Modifier,
+                                )
+                                .clickable { onDayClick(date) },
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+/** 热力图表头行高（与格子列顶部对齐）。 */
+private val HEADER_ROW_DP = 18
 
 /**
  * 热力图色阶：播放次数 → 主题色透明度。0 = 底（不涂色）。
