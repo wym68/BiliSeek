@@ -10,6 +10,10 @@ import com.biliseek.core.network.dto.FollowingUp
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.dto.WatchLaterItem
+import com.biliseek.core.network.dto.SeriesItem
+import com.biliseek.core.network.dto.SeriesArchivesData
+import com.biliseek.core.network.dto.SeriesArchive
+import com.biliseek.core.network.dto.SeriesPage
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
@@ -28,6 +32,13 @@ data class SearchPage(
 /** 收藏夹内容的一页（M11）。 */
 data class FavoriteResourcePage(
     val items: List<FavoriteMedia>,
+    val page: Int,
+    val hasMore: Boolean,
+)
+
+/** 合集内容的一页（M13-N）。 */
+data class SeriesArchivesPage(
+    val items: List<SeriesArchive>,
     val page: Int,
     val hasMore: Boolean,
 )
@@ -172,6 +183,39 @@ class BiliRepository(
         }
         response.data?.medias?.firstOrNull()?.cover?.takeIf { it.isNotBlank() }
     }.getOrNull()
+
+    // ── 合集（M13-N）──────────────────────────────────
+
+    /** 合集列表。必须登录。 */
+    suspend fun seriesList(mid: Long): Result<List<SeriesItem>> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.seriesList(mid)
+        require(response.code == 0) {
+            "合集列表失败：code=${response.code} ${response.message}"
+        }
+        response.data?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
+    }
+
+    /** 合集内容（分页，`ps ≤ 20`）。必须登录。 */
+    suspend fun seriesArchives(
+        seriesId: Long,
+        page: Int,
+        pageSize: Int = 20,
+    ): Result<SeriesArchivesPage> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.seriesArchives(seriesId, pn = page, ps = pageSize)
+        require(response.code == 0) {
+            "合集内容失败：code=${response.code} ${response.message}"
+        }
+        val data = response.data ?: throw IllegalStateException("合集内容为空")
+        SeriesArchivesPage(
+            items = data.list.filter { it.bvid.isNotBlank() },
+            page = page,
+            hasMore = data.list.size >= pageSize,
+        )
+    }
 
     private fun requireLoggedInMid(): Long =
         sessionStore.current.dedeUserId.toLongOrNull()

@@ -86,9 +86,13 @@ fun AppShell(
      * 与 [playbackStarted] 同理：AppShell 拥有 navController，响应这里。
      */
     tabSwitchRequests: SharedFlow<Destination> = MutableSharedFlow(),
+    /** 当前列表 tab 选中的页。 */
+    selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
+    /** 列表 tab 切换回调。 */
+    onTabSelected: (LibraryTab) -> Unit = {},
     searchContent: @Composable () -> Unit,
     dynamicContent: @Composable () -> Unit,
-    libraryContent: @Composable () -> Unit,
+    libraryContent: @Composable (LibraryTab, (LibraryTab) -> Unit) -> Unit,
     settingsContent: @Composable () -> Unit,
 ) {
     val navController = rememberNavController()
@@ -181,7 +185,7 @@ fun AppShell(
             ) {
                 composable(Destination.SEARCH.route) { searchContent() }
                 composable(Destination.DYNAMIC.route) { dynamicContent() }
-                composable(Destination.LIBRARY.route) { libraryContent() }
+                composable(Destination.LIBRARY.route) { libraryContent(selectedTab, onTabSelected) }
                 composable(Destination.SETTINGS.route) { settingsContent() }
                 composable(Destination.PLAYER.route) {
                     // 只有进入 player route 才计算取色，避免每个 tab 都跳调色

@@ -1012,3 +1012,37 @@ M11 是「登录后内容」的第一批：收藏夹、关注动态、UP 主搜�
 **验证**：真机像素扫描确认格子 68px@4x≈17dp（圆角切 1dp），列节距 88px=22dp，行节距 88px。星期侧边栏 7 个标签宽度 46-84px（多字母完整），「Sun」S-u-n 三字母像素清晰可辨。月份 Jun/Jul/Aug/Sep（无句点）uiautomator 确认。点击今天格子（8/30）→ 日历史页 22 条记录。`./gradlew :app:testDebugUnitTest` 全过，编译装机成功。
 
 **过程中的反复（记录为准）**：先按用户「窗口保持近 3 个月」实现 13 周；随后用户反馈「不能向右滚动查看更久历史」→ 扩到 53 周一年；简写格式经历「中文单字 → 英文+句点(Aug.) → 英文无句点(Aug)」三次迭代，最终与 BBPlayer `MMM`/`ddd` 完全一致。
+
+### 13.14 音乐库三 Tab + 标题栏下载入口
+
+**需求**：音乐库页面添加「播放列表 / 收藏夹 / 合集」三个 Tab，标题栏显示下载入口（活跃任务数）。
+
+**实现**（`app/.../ui/LibraryTab.kt`、`LibraryScreen.kt`、`SeriesListScreen.kt`、`SeriesScreen.kt`、`AppShell.kt`、`MainActivity.kt`）：
+
+| 项 | 改前 | 改后 |
+| --- | --- | --- |
+| 列表页结构 | 单一页面，无 tab 切换 | `ScrollableTabRow` 三 tab：播放列表 / 收藏夹 / 合集 |
+| 标题栏 | 无下载入口 | 右侧显示活跃下载任务数（`isActive = DOWNLOADING + QUEUED`），可点进入下载页 |
+| 收藏夹 | 首页内折叠分区 | 独立「收藏夹」Tab，显示完整目录列表 |
+| 合集 | 不存在 | 独立「合集」Tab，显示订阅合集列表（封面 + 标题 + 描述） |
+| 合集内容页 | 不存在 | `SeriesScreen`（参考 `FavoriteDetail`），分页拉取，滚动到底自动加载下一页 |
+| 下载计数 | `downloads.count { it.isDone }`（仅完成） | `downloads.count { it.isActive }`（下载中 + 排队中） |
+
+**文件清单**：
+
+- `LibraryTab.kt`：`LibraryTab` 枚举（`PLAYLISTS` / `FAVORITES` / `SERIES`）
+- `LibraryScreen.kt`：重构为 Tab 布局，添加 `selectedTab`/`onTabSelected` 参数，合集详情页走 `SeriesScreen`
+- `SeriesListScreen.kt`：合集列表页独立 composable（登录引导 / 空态 / 列表）
+- `SeriesScreen.kt`：合集内容页 composable（参考 `FavoriteDetail` 结构）
+- `SeriesArchivesPage`：已在 `core/network` 中定义，合集分页结果封装
+- `AppShell.kt`：`libraryContent` lambda 接收 `LibraryTab`/`onTabSelected` 参数
+- `MainActivity.kt`：管理 `selectedTab` 状态，传入 `AppShell` 和 `LibraryScreen`
+
+**架构要点**：
+
+- 合集内容不落库，与收藏夹一致（架构设计篇 §6.2）
+- `TrackListId.Series(seriesId)` 标识合集来源，复用 `RemoteListState<SeriesArchive>` 状态形状
+- `SeriesArchive` 字段：`bvid` / `cid` / `title` / `cover` / `duration` / `author`
+- 点合集条目走 `playBvid` 路径（单 P 直接播，多 P 整张作队列从头播）
+
+**验证**：编译通过。

@@ -230,3 +230,45 @@ data class WatchLaterOwner(
     val mid: Long = 0,
     val name: String = "",
 )
+
+// ── 合集（M13-N）───────────────────────────────────
+
+/** `x/series/series` —— 我订阅的合集列表。需登录。 */
+@Serializable
+data class SeriesListData(
+    val count: Int = 0,
+    val list: List<SeriesItem> = emptyList(),
+)
+
+@Serializable
+data class SeriesItem(
+    val id: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val description: String = "",
+)
+
+/** `x/series/archives` —— 合集内容（分页）。需登录。 */
+@Serializable
+data class SeriesArchivesData(
+    val count: Int = 0,
+    val list: List<SeriesArchive> = emptyList(),
+    val page: SeriesPage = SeriesPage(),
+)
+
+@Serializable
+data class SeriesArchive(
+    val bvid: String = "",
+    val cid: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val duration: Long = 0,
+    val author: String = "",
+)
+
+@Serializable
+data class SeriesPage(
+    val pn: Int = 1,
+    val ps: Int = 20,
+    val count: Int = 0,
+)

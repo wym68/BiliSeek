@@ -16,6 +16,9 @@ sealed interface TrackListId {
 
     /** 稍后再看（M12）：远程列表，一次性拉取（无分页）。 */
     data object WatchLater : TrackListId
+
+    /** 合集（M13-N）：订阅合集分页拉取。 */
+    data class Series(val seriesId: Long) : TrackListId
 }
 
 /**

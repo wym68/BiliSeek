@@ -24,6 +24,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,8 +34,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,7 +56,11 @@ import com.biliseek.app.FavoriteTrack
 import com.biliseek.app.LoginPanel
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
+import com.biliseek.core.network.dto.SeriesArchive
+import com.biliseek.core.network.dto.SeriesItem
+import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.player.formatDuration
+import com.biliseek.app.download.DownloadTask
 import kotlin.math.roundToInt
 
 @Composable
@@ -71,7 +77,7 @@ fun LibraryScreen(
     onTrackRemove: (Long) -> Unit,
     onTrackReorder: (Long, Double?, Double?) -> Unit,
     /** 已下载任务列表。非空时显示入口——下载中/失败也要能进得去（可见可重试）。 */
-    downloads: List<com.biliseek.app.download.DownloadTask> = emptyList(),
+    downloads: List<DownloadTask> = emptyList(),
     onOpenDownloads: () -> Unit = {},
     // ── 收藏夹（M11-B）──────────────────────────────
     favoriteFolders: List<FavoriteFolderEntity> = emptyList(),
@@ -86,17 +92,23 @@ fun LibraryScreen(
     onFavoriteLoadMore: (Int) -> Unit = {},
     onStartLogin: () -> Unit = {},
     onCancelLogin: () -> Unit = {},
+    // ── 合集（M13-N）──────────────────────────────
+    selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
+    onTabSelected: (LibraryTab) -> Unit = {},
+    openedSeries: RemoteListState<SeriesArchive>? = null,
+    onCloseSeries: () -> Unit = {},
+    seriesList: List<SeriesItem> = emptyList(),
+    onOpenSeries: (Long, String) -> Unit = { _, _ -> },
+    onSeriesLoadMore: (Int) -> Unit = {},
+    onPlaySeriesArchive: (SeriesArchive) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
-    // 收藏夹分区折叠态：rememberSaveable 让 tab 切换后仍保持（导航 saveState/restoreState）
     var favoritesExpanded by rememberSaveable { mutableStateOf(true) }
-    // 本地列表分区折叠态，与收藏夹同款交互
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
 
     if (favoriteContent != null) {
-        // 系统返回手势应收起内容页，而不是弹走导航栈（tab 内状态，非 nav 目的地）
         BackHandler(onBack = onCloseFavorite)
         FavoriteDetail(
             state = favoriteContent,
@@ -122,90 +134,259 @@ fun LibraryScreen(
         return
     }
 
-    Column(modifier.fillMaxSize()) {
-        // 列表首页是**单一 LazyColumn**：收藏夹目录 + 本地列表 + 已下载入口
-        // 统一滚动。早期版本收藏夹目录用 forEach 写在外层 Column 里，
-        // 目录一多就溢出屏幕且无法滑动（M11 真机实测发现）。
-        LazyColumn(Modifier.fillMaxSize()) {
-            favoriteSection(
-                folders = favoriteFolders,
-                sync = favoriteSync,
-                loginState = loginState,
-                session = session,
-                onSync = onSyncFavorites,
-                onOpen = onOpenFavorite,
-                onStartLogin = onStartLogin,
-                onCancelLogin = onCancelLogin,
-                expanded = favoritesExpanded,
-                onToggleExpanded = { favoritesExpanded = !favoritesExpanded },
-            )
+    if (openedSeries != null) {
+        BackHandler(onBack = onCloseSeries)
+        SeriesScreen(
+            state = openedSeries,
+            onClose = onCloseSeries,
+            onItemClick = onPlaySeriesArchive,
+            onLoadMore = onSeriesLoadMore,
+            modifier = modifier,
+        )
+        return
+    }
 
-            item(key = "playlist-header") {
+    Column(modifier.fillMaxSize()) {
+        // 顶部栏：标题 + 下载入口
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                when (selectedTab) {
+                    LibraryTab.PLAYLISTS -> "音乐库"
+                    LibraryTab.FAVORITES -> "收藏夹"
+                    LibraryTab.SERIES -> "合集"
+                },
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (downloads.any { it.isActive }) {
                 Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    Modifier.clickable(onClick = onOpenDownloads),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        Modifier.weight(1f).clickable { playlistsExpanded = !playlistsExpanded },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("本地列表", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            if (playlistsExpanded) " ▾" else " ▸",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                    }
-                    Button(onClick = { showCreate = true }) { Text("新建") }
+                    Text(
+                        "${downloads.count { it.isActive }} 个",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Text("›", style = MaterialTheme.typography.titleMedium)
                 }
             }
+        }
 
-            // 「已下载」分区：只要有过下载记录就显示入口——
-            // 失败的任务也得进得去重试，不能藏起来。独立分区，不随本地列表折叠
-            if (downloads.isNotEmpty()) {
-                item(key = "downloads-entry") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onOpenDownloads)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("已下载", style = MaterialTheme.typography.bodyLarge)
-                        Text("${downloads.count { it.isDone }} 个 ›", style = MaterialTheme.typography.labelMedium)
-                    }
-                    HorizontalDivider()
-                }
+        // Tab 行
+        PrimaryScrollableTabRow(
+            selectedTabIndex = selectedTab.ordinal,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        ) {
+            LibraryTab.entries.forEach { tab ->
+                Tab(
+                    selected = selectedTab == tab,
+                    onClick = { onTabSelected(tab) },
+                    text = { Text(tab.label) },
+                )
             }
+        }
 
-            if (playlistsExpanded) {
-                if (playlists.isEmpty()) {
-                    item(key = "empty-playlist") {
-                        Box(
-                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                            Alignment.Center,
-                        ) {
-                            Text("还没有列表，新建一个开始收藏", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                } else {
-                    items(playlists, key = { it.id }) { playlist ->
+        // Tab 内容
+        when (selectedTab) {
+            LibraryTab.PLAYLISTS -> {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    favoriteSection(
+                        folders = favoriteFolders,
+                        sync = favoriteSync,
+                        loginState = loginState,
+                        session = session,
+                        onSync = onSyncFavorites,
+                        onOpen = onOpenFavorite,
+                        onStartLogin = onStartLogin,
+                        onCancelLogin = onCancelLogin,
+                        expanded = favoritesExpanded,
+                        onToggleExpanded = { favoritesExpanded = !favoritesExpanded },
+                    )
+
+                    item(key = "playlist-header") {
                         Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpen(playlist) }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(playlist.name, style = MaterialTheme.typography.bodyLarge)
-                            Row {
-                                TextButton(onClick = { renaming = playlist }) { Text("改名") }
-                                TextButton(onClick = { onDelete(playlist.id) }) { Text("删除") }
+                            Row(
+                                Modifier.weight(1f).clickable { playlistsExpanded = !playlistsExpanded },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("本地列表", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    if (playlistsExpanded) " ▾" else " ▸",
+                                    style = MaterialTheme.typography.titleSmall,
+                                )
+                            }
+                            Button(onClick = { showCreate = true }) { Text("新建") }
+                        }
+                    }
+
+                    if (downloads.isNotEmpty()) {
+                        item(key = "downloads-entry") {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable(onClick = onOpenDownloads)
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text("已下载", style = MaterialTheme.typography.bodyLarge)
+                                Text("${downloads.count { it.isDone }} 个 ›", style = MaterialTheme.typography.labelMedium)
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+
+                    if (playlistsExpanded) {
+                        if (playlists.isEmpty()) {
+                            item(key = "empty-playlist") {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                    Alignment.Center,
+                                ) {
+                                    Text("还没有列表，新建一个开始收藏", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        } else {
+                            items(playlists, key = { it.id }) { playlist ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpen(playlist) }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(playlist.name, style = MaterialTheme.typography.bodyLarge)
+                                    Row {
+                                        TextButton(onClick = { renaming = playlist }) { Text("改名") }
+                                        TextButton(onClick = { onDelete(playlist.id) }) { Text("删除") }
+                                    }
+                                }
+                                HorizontalDivider()
                             }
                         }
-                        HorizontalDivider()
+                    }
+                }
+            }
+
+            LibraryTab.FAVORITES -> {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    if (!session.isLoggedIn) {
+                        item(key = "favorite-login") {
+                            LoginPanel(
+                                loginState = loginState,
+                                session = session,
+                                onStart = onStartLogin,
+                                onCancel = onCancelLogin,
+                                onLogout = {},
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                            HorizontalDivider()
+                        }
+                    } else if (favoriteFolders.isEmpty()) {
+                        item(key = "favorite-empty") {
+                            when (favoriteSync) {
+                                is SyncState.Syncing -> Unit
+                                is SyncState.Error -> {
+                                    Text(
+                                        "同步失败：${favoriteSync.message}",
+                                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                else -> {
+                                    Text(
+                                        "还没有收藏夹，点右上角「同步」从 B 站拉取",
+                                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                            HorizontalDivider()
+                        }
+                    } else {
+                        items(favoriteFolders, key = { "favorite-${it.mediaId}" }) { folder ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenFavorite(folder.mediaId, folder.title) }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CoverThumbnail(folder.coverUrl, width = 56.dp)
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        folder.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                                Text("›", style = MaterialTheme.typography.titleMedium)
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+
+            LibraryTab.SERIES -> {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    if (seriesList.isEmpty()) {
+                        item(key = "series-empty") {
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                Alignment.Center,
+                            ) {
+                                Text("还没有订阅合集", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    } else {
+                        items(seriesList, key = { it.id }) { item ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenSeries(item.id, item.title) }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CoverThumbnail(normalizeCoverUrl(item.cover), width = 96.dp)
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        item.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    item.description.takeIf(String::isNotBlank)?.let { desc ->
+                                        Text(
+                                            desc,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                            HorizontalDivider()
+                        }
                     }
                 }
             }

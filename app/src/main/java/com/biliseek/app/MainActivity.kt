@@ -34,16 +34,17 @@ import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.DayHistoryScreen
 import com.biliseek.app.ui.Destination
 import com.biliseek.app.ui.DownloadDialog
-import com.biliseek.app.ui.WatchLaterScreen
 import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.DynamicScreen
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
+import com.biliseek.app.ui.LibraryTab
 import com.biliseek.app.ui.MeteredVideoDialog
 import com.biliseek.app.ui.PlaylistPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
 import com.biliseek.app.ui.SettingsScreen
 import com.biliseek.app.ui.UpSpaceScreen
+import com.biliseek.app.ui.WatchLaterScreen
 import com.biliseek.core.network.sharedTextFrom
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.player.PresentationMode
@@ -109,6 +110,8 @@ class MainActivity : ComponentActivity() {
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
+                // 列表 tab 选中的页
+                var selectedTab by remember { mutableStateOf(LibraryTab.PLAYLISTS) }
 
                 val context = LocalContext.current
                 val surfaceView = remember {
@@ -147,6 +150,8 @@ class MainActivity : ComponentActivity() {
                     expansion = expansion,
                     playbackStarted = viewModel.playbackStarted,
                     tabSwitchRequests = tabSwitchRequests,
+                    selectedTab = selectedTab,
+                    onTabSelected = { selectedTab = it },
                     surfaceView = surfaceView,
                     onExpansionChange = { next ->
                         val leavingFullscreen = expansion == PlayerExpansion.FULLSCREEN
@@ -282,7 +287,7 @@ class MainActivity : ComponentActivity() {
                         )
                         }
                     },
-                    libraryContent = {
+                    libraryContent = { tab, onTab ->
                         if (downloadsOpen) {
                             // 系统返回手势应收起下载页，而不是弹走导航栈（tab 内状态）
                             BackHandler(onBack = { downloadsOpen = false })
@@ -320,6 +325,14 @@ class MainActivity : ComponentActivity() {
                                 onFavoriteLoadMore = viewModel::loadFavoritePage,
                                 onStartLogin = viewModel::startLogin,
                                 onCancelLogin = viewModel::cancelLogin,
+                                selectedTab = tab,
+                                onTabSelected = onTab,
+                                openedSeries = viewModel.openedSeries.value,
+                                onCloseSeries = viewModel::closeSeries,
+                                seriesList = viewModel.seriesList.value,
+                                onOpenSeries = viewModel::openSeries,
+                                onSeriesLoadMore = viewModel::loadSeriesPage,
+                                onPlaySeriesArchive = viewModel::playSeriesArchive,
                             )
                         }
                     },

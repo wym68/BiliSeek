@@ -18,6 +18,11 @@ import com.biliseek.core.network.dto.FollowingData
 import com.biliseek.core.network.dto.UserSearchData
 import com.biliseek.core.network.dto.SpaceArchiveData
 import com.biliseek.core.network.dto.WatchLaterData
+import com.biliseek.core.network.dto.SeriesArchivesData
+import com.biliseek.core.network.dto.SeriesArchive
+import com.biliseek.core.network.dto.SeriesItem
+import com.biliseek.core.network.dto.SeriesListData
+import com.biliseek.core.network.dto.SeriesPage
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -197,6 +202,20 @@ interface BiliApi {
         @Query("ps") ps: Int = 50,
         @Query("order") order: String = "desc",
     ): BiliResponse<FollowingData>
+
+    // ── 合集（M13-N）───────────────────────────────────
+
+    /** 我订阅的合集列表。必须登录。 */
+    @GET("x/series/series")
+    suspend fun seriesList(@Query("mid") mid: Long): BiliResponse<SeriesListData>
+
+    /** 合集内容（分页）。 */
+    @GET("x/series/archives")
+    suspend fun seriesArchives(
+        @Query("series_id") seriesId: Long,
+        @Query("pn") pn: Int,
+        @Query("ps") ps: Int = 20,
+    ): BiliResponse<SeriesArchivesData>
 
     // ── 稍后再看 ────────────────────────────────────────
 

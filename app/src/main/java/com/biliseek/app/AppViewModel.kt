@@ -18,6 +18,10 @@ import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
+import com.biliseek.core.network.dto.WatchLaterItem
+import com.biliseek.core.network.dto.SeriesItem
+import com.biliseek.core.network.dto.SeriesArchive
+import com.biliseek.core.network.SeriesArchivesPage
 import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
 import android.graphics.Bitmap
@@ -390,6 +394,82 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             coverUrl = com.biliseek.core.network.normalizeCoverUrl(item.pic),
             author = item.owner?.name.orEmpty(),
             durationSec = item.duration,
+        )
+    }
+
+    // ── 合集（M13-N）────────────────────────────────
+
+    /** 订阅合集列表。 */
+    private val _seriesList = MutableStateFlow<List<SeriesItem>>(emptyList())
+    val seriesList: StateFlow<List<SeriesItem>> = _seriesList.asStateFlow()
+
+    /** 当前打开的合集内容页（分页拉取，不落库）。 */
+    private val _openedSeries = MutableStateFlow<RemoteListState<SeriesArchive>?>(null)
+    val openedSeries: StateFlow<RemoteListState<SeriesArchive>?> = _openedSeries.asStateFlow()
+
+    /** 加载订阅合集列表。 */
+    fun loadSeriesList() {
+        viewModelScope.launch {
+            network.repository.seriesList(session.value.dedeUserId.toLong())
+                .onSuccess { _seriesList.value = it }
+                .onFailure { /* 静默降级 */ }
+        }
+    }
+
+    /** 打开合集内容页。 */
+    fun openSeries(seriesId: Long, title: String) {
+        _openedSeries.value = RemoteListState(
+            id = TrackListId.Series(seriesId),
+            title = title,
+        )
+        loadSeriesPage(1)
+    }
+
+    fun closeSeries() { _openedSeries.value = null }
+
+    /** 加载合集内容第 [page] 页。 */
+    fun loadSeriesPage(page: Int) {
+        val state = _openedSeries.value ?: return
+        val seriesId = (state.id as? TrackListId.Series)?.seriesId ?: return
+        if (state.isLoading || state.isLoadingMore) return
+        if (page > 1 && !state.hasMore) return
+        viewModelScope.launch {
+            val loadingMore = page > 1
+            _openedSeries.value = state.copy(
+                isLoading = !loadingMore,
+                isLoadingMore = loadingMore,
+                errorMessage = null,
+            )
+            network.repository.seriesArchives(seriesId, page)
+                .onSuccess { result ->
+                    val base = _openedSeries.value ?: return@onSuccess
+                    _openedSeries.value = base.copy(
+                        items = if (loadingMore) base.items + result.items else result.items,
+                        page = result.page,
+                        hasMore = result.hasMore,
+                        isLoading = false,
+                        isLoadingMore = false,
+                    )
+                }
+                .onFailure {
+                    val base = _openedSeries.value ?: return@onFailure
+                    _openedSeries.value = base.copy(
+                        isLoading = false,
+                        isLoadingMore = false,
+                        errorMessage = it.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /** 点合集条目：走与收藏夹相同的 playBvid 路径。 */
+    fun playSeriesArchive(archive: SeriesArchive) {
+        playBvid(
+            bvid = archive.bvid,
+            title = archive.title,
+            coverUrl = com.biliseek.core.network.normalizeCoverUrl(archive.cover),
+            author = archive.author,
+            durationSec = archive.duration,
         )
     }
 
