@@ -17,6 +17,7 @@ import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.FollowingData
 import com.biliseek.core.network.dto.UserSearchData
 import com.biliseek.core.network.dto.SpaceArchiveData
+import com.biliseek.core.network.dto.WatchLaterData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -196,6 +197,12 @@ interface BiliApi {
         @Query("ps") ps: Int = 50,
         @Query("order") order: String = "desc",
     ): BiliResponse<FollowingData>
+
+    // ── 稍后再看 ────────────────────────────────────────
+
+    /** 稍后再看列表。需登录 Cookie（未登录返回 -101）。 */
+    @GET("x/v2/history/toview")
+    suspend fun watchLater(): BiliResponse<WatchLaterData>
 
     companion object {
         const val QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"

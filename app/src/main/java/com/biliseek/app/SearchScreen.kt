@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,10 +48,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.Calendar
+import kotlinx.coroutines.delay
 import coil3.compose.AsyncImage
 import com.biliseek.app.SearchMode
 import com.biliseek.app.data.SearchHistoryEntity
@@ -140,9 +144,27 @@ fun SearchScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("BiliSeek", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    if (session.isLoggedIn) session.uname.ifBlank { "已登录" } else "未登录",
+                    "BiliSeek",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                )
+                // 当前小时（每分钟 tick 一次，保证跨午 / 跨晚自然切换）
+                val hour by produceState(initialValue = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+                    while (true) {
+                        delay(60_000)
+                        value = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                    }
+                }
+                val greeting = greetingForHour(hour)
+                Text(
+                    text = if (greeting != null) {
+                        val name = if (session.isLoggedIn) session.uname.ifBlank { "已登录" } else "未登录"
+                        "$greeting，$name"
+                    } else {
+                        if (session.isLoggedIn) session.uname.ifBlank { "已登录" } else "未登录"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -668,4 +690,23 @@ private fun MultiPagePanel(
             }
         }
     }
+}
+
+/**
+ * 把一天的小时映射为问候语。
+ *
+ * 时间分段按中文日常习惯：
+ * - 上午 5–11 点
+ * - 中午 12–13 点
+ * - 下午 14–17 点
+ * - 晚上 18–次日 4 点（用户没列这档，但留空字符串会让问候断档，故补「晚上好」）
+ *
+ * 返回 `null` 表示当前时间不显示问候（理论不会触发，留作扩展）。
+ */
+private fun greetingForHour(hour: Int): String? = when (hour) {
+    in 5..11 -> "上午好"
+    in 12..13 -> "中午好"
+    in 14..17 -> "下午好"
+    in 18..23, in 0..4 -> "晚上好"
+    else -> null
 }

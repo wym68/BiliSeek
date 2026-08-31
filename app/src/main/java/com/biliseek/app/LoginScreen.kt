@@ -1,5 +1,10 @@
 package com.biliseek.app
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,9 +20,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
+
+/**
+ * 哔哩哔哩官方 App 的 Android 包名。
+ *
+ * Play 版与官网版在不同渠道可能换包名（如 `com.bilibili.app.in`），
+ * 但国内主渠道是 `tv.danmaku.bili`，且 Manifest 已声明 `<queries>` 给该包。
+ */
+private const val BILIBILI_PACKAGE = "tv.danmaku.bili"
 
 @Composable
 fun LoginPanel(
@@ -28,6 +42,7 @@ fun LoginPanel(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
             Modifier.padding(16.dp).fillMaxWidth(),
@@ -52,6 +67,11 @@ fun LoginPanel(
                 is LoginState.QrReady -> {
                     QrImage(loginState.url)
                     Text("请用 B 站 App 扫码", style = MaterialTheme.typography.bodySmall)
+                    // 一键唤起官方 App：把同一个 QR URL 直接转交给 B 站 App 的 WebView，
+                    // 用户在 B 站 App 里点确认即完成登录。我们继续轮询，2s 内拿到结果。
+                    Button(onClick = { openInBiliApp(context, loginState.url) }) {
+                        Text("用 B 站 App 一键登录")
+                    }
                     OutlinedButton(onClick = onCancel) { Text("取消") }
                 }
 
@@ -83,5 +103,28 @@ private fun QrImage(url: String) {
         Image(bitmap = bitmap, contentDescription = "登录二维码", modifier = Modifier.size(200.dp))
     } else {
         Text("二维码渲染失败", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
+ * 把扫码登录 URL 交给哔哩哔哩官方 App。
+ *
+ * B 站生成的 QR URL（如 `https://account.bilibili.com/h5/account-h5/auth/scan-web?qrcode_key=...`）
+ * 由官方 App 的 `IntentHandlerActivity` 处理，会打开 App 内 WebView 弹出登录确认页——
+ * 用户已在 B 站 App 登录的情况下直接点确认即完成授权；不在则要先登录 B 站 App。
+ *
+ * Manifest 已声明 `<queries>` 允许查询该包名；setPackage 同时避免浏览器抢走选择框。
+ */
+private fun openInBiliApp(context: Context, url: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+        setPackage(BILIBILI_PACKAGE)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "未找到哔哩哔哩 App，请先安装", Toast.LENGTH_SHORT).show()
+    } catch (_: SecurityException) {
+        Toast.makeText(context, "无法打开哔哩哔哩 App，请手动扫码", Toast.LENGTH_SHORT).show()
     }
 }

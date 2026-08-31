@@ -112,6 +112,19 @@ class PlayerConnection(private val context: Context) {
      */
     var preferenceProvider: (() -> PlaybackPreferences)? = null
 
+    /**
+     * 封面图字节获取回调（**用于系统锁屏 / 通知栏**）。
+     *
+     * MediaSession 元数据里塞 bitmap bytes，系统就不必再拉——
+     * 拉也拉不到，B 站 CDN（`i0.hdslb.com`）有 Referer 防盗链，系统进程不带 Referer 会 403。
+     *
+     * 返回 null 时跳过（与现状一致：显示默认音符图标）。**绝不应阻塞起播**：
+     * 拿不到图就拿不到图，title + artist 已经够锁屏识别曲目。
+     *
+     * 在 [play] 里取流完成、构造 MediaItem 之前调用一次。有超时保护，不会拖慢起播。
+     */
+    var coverArtProvider: (suspend (String) -> ByteArray?)? = null
+
     /** 睡眠定时器。归本类持有：用户设完就会锁屏走开，状态不能绑 UI 生命周期。 */
     private var sleepTimer: SleepTimerSpec? = null
 
@@ -236,12 +249,36 @@ class PlayerConnection(private val context: Context) {
             return
         }
 
+        // 锁屏 / 通知栏封面。拿不到就拿不到，**绝不阻塞起播**：
+        // - 超时保护 3s（正常 ~200ms）
+        // - 拿不到 byte 数组 → 跳过 setArtworkData，系统会显示默认音符图标（与现状一致）
+        val biliCover = (request as? PlaybackRequest.Bili)?.coverUrl.orEmpty()
+        val coverBytes: ByteArray? = if (biliCover.isNotBlank() && coverArtProvider != null) {
+            runCatching {
+                kotlinx.coroutines.withTimeoutOrNull(COVER_FETCH_TIMEOUT_MS) {
+                    coverArtProvider!!.invoke(biliCover)
+                }
+            }.getOrNull()
+        } else null
+
+        val biliAuthor = (request as? PlaybackRequest.Bili)?.author.orEmpty()
         val item = MediaItem.Builder()
             .setUri(uri)
             .apply { if (mimeType != null) setMimeType(mimeType) }
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(request.title.ifBlank { "BiliSeek" })
+                    // author 为空时不设 setArtist——让 BiliSeek 作为默认值，
+                    // 避免锁屏 / 通知栏出现"未知 UP 主"这种隐去品牌名的结果
+                    .apply { if (biliAuthor.isNotBlank()) setArtist(biliAuthor) }
+                    .apply {
+                        if (coverBytes != null) {
+                            setArtworkData(
+                                coverBytes,
+                                androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER,
+                            )
+                        }
+                    }
                     .build(),
             )
             .build()
@@ -638,5 +675,12 @@ class PlayerConnection(private val context: Context) {
         const val POSITION_POLL_MS = 250L
         const val POSITION_RECORD_INTERVAL_MS = 5_000L
         const val TAG_LOUDNESS = "BiliSeekLoudness"
+
+        /**
+         * 锁屏封面拉取超时。正常 ~200ms，3s 已是极宽松裕度。
+         *
+         * 设长一点是为「冷启动第一次拉大图」留余量——主流程起播不能被拖住。
+         */
+        const val COVER_FETCH_TIMEOUT_MS = 3_000L
     }
 }

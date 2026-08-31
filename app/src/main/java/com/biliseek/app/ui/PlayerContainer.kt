@@ -107,6 +107,12 @@ fun PlayerContainer(
     onSetSleepTimer: (Long) -> Unit = {},
     onRetryPlayback: () -> Unit = {},
     onQueueSkipTo: (Int) -> Unit = {},
+    /**
+     * 点 MiniPlayer 跳到 player route。由 AppShell 提供（调 navController.navigate）。
+     * 不在此处设 onExpansionChange(EXPANDED)：M12-A 之后 EXPANDED 不再是 UI 状态，
+     * 设了反而会让 AppShell 误判 MiniPlayer 不该渲染。
+     */
+    onExpand: () -> Unit = {},
 ) {
     when (expansion) {
         PlayerExpansion.COLLAPSED -> {
@@ -114,7 +120,7 @@ fun PlayerContainer(
             val accent = rememberAccentDecision(palette)
             MiniPlayer(
                 state = state,
-                onExpand = { onExpansionChange(PlayerExpansion.EXPANDED) },
+                onExpand = onExpand,
                 onTogglePlayPause = onTogglePlayPause,
                 accent = accent,
                 modifier = modifier,
@@ -126,7 +132,9 @@ fun PlayerContainer(
         PlayerExpansion.EXPANDED -> {
             val palette = rememberCoverPalette(state.coverUrl)
             val accent = rememberAccentDecision(palette)
-            ExpandedPlayer(
+            // EXPANDED 是临时 alias，仅为兼容旧的本地调用点。
+            // AppShell 的 PLAYER destination 改用 [PlayerScreen] 顶层函数。
+            PlayerScreen(
                 state = state,
                 surfaceView = surfaceView,
                 onCollapse = { onExpansionChange(PlayerExpansion.COLLAPSED) },
@@ -280,7 +288,17 @@ private fun MiniPlayer(
 }
 
 @Composable
-private fun ExpandedPlayer(
+/**
+ * 展开态播放器。
+ *
+ * 顶层可独立 compose 的函数：M12-A 重构后它被 NavHost 的 PLAYER destination 直接调用，
+ * 不再嵌在 [PlayerContainer] 内部。MiniPlayer（COLLAPSED）仍走 [PlayerContainer]，
+ * 但 EXPANDED 已经成为 nav 栈的一等公民——back 由 NavController 接管。
+ *
+ * 为什么拆出来：[PlayerContainer] 同时承担 MiniPlayer / Fullscreen overlay 的渲染，
+ * 把 EXPANDED 抽走后三者解耦，单元测试与状态 hoisting 都更干净。
+ */
+fun PlayerScreen(
     state: PlaybackState,
     surfaceView: SurfaceView,
     onCollapse: () -> Unit,

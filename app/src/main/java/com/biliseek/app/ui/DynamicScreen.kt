@@ -263,16 +263,19 @@ internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
                         contentScale = ContentScale.Crop,
                     )
                     if (video.durationText.isNotBlank()) {
+                        // 深底白字。不能用主题里的 onSurface / onScrim：
+                        // 亮色主题下 onSurface 接近黑，与 scrim 同色，文本不可见。
+                        // 跨主题保持黑底白字与 B 站 / 抖音 / 微信平台惯例一致。
                         Surface(
                             modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp),
-                            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.7f),
+                            color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
                             shape = RoundedCornerShape(3.dp),
                         ) {
                             Text(
                                 video.durationText,
                                 Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = androidx.compose.ui.graphics.Color.White,
                             )
                         }
                     }
@@ -284,6 +287,22 @@ internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // 播放量 · 弹幕。任一字段缺失就不渲染该子项，整行全空才不画
+                    // —— B 站部分老 UP 关闭了统计，需要静默降级
+                    val hasPlay = video.playText.isNotBlank()
+                    val hasDanmaku = video.danmakuText.isNotBlank()
+                    if (hasPlay || hasDanmaku) {
+                        val parts = buildList {
+                            if (hasPlay) add("${video.playText}播放")
+                            if (hasDanmaku) add("${video.danmakuText}弹幕")
+                        }
+                        Text(
+                            parts.joinToString(" · "),
+                            Modifier.padding(top = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (entry.rawType == "DYNAMIC_TYPE_FORWARD") {
                         Text(
                             "转发动态",
@@ -303,5 +322,60 @@ internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
             )
         }
+
+        // 底部互动操作栏。stat 整体缺失时不渲染——B 站历史接口 / 部分
+        // UP 关闭统计都会拿到 null，不要猜个 0 渲染三个「0」。
+        val stat = entry.stat
+        if (stat != null) {
+            HorizontalDivider(
+                Modifier.padding(top = 12.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                DynamicActionText(
+                    count = stat.forward.count,
+                    label = "转发",
+                    enabled = !stat.forward.forbidden,
+                )
+                DynamicActionText(
+                    count = stat.comment.count,
+                    label = "评论",
+                )
+                DynamicActionText(
+                    count = stat.like.count,
+                    label = "点赞",
+                    active = stat.like.status,
+                )
+            }
+        }
     }
+}
+
+/**
+ * 动态卡底部的「数字 + 标签」按钮。**只展示，不可点击**——转发 / 评论 / 点赞
+ * 的真实接口（M11-C 暂未实现）需要登录态 Cookie 与风控码校验，独立 M12 任务。
+ *
+ * 用文本而非图标：app 模块未引 material-icons-extended，全量加一个仅用 4 个图标
+ * 的库不值。纯文本与 B 站 Web 关注流风格一致，可访问性也更好。
+ */
+@Composable
+private fun DynamicActionText(
+    count: Int,
+    label: String,
+    active: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        active -> MaterialTheme.colorScheme.primary  // 已点赞用主题色高亮
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Text(
+        text = "$count $label",
+        style = MaterialTheme.typography.labelMedium,
+        color = tint,
+    )
 }

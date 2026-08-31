@@ -89,6 +89,26 @@ interface HistoryDao {
         """,
     )
     fun observeHeatmap(days: Int = 90): Flow<List<DayCount>>
+
+    /**
+     * 拉取 [cutoffMs] 之后的全部播放记录，供 UI 按**本地日期**聚合热力图。
+     *
+     * 为什么不用 SQL 直接 GROUP BY：`playedAt / 86400000` 是 UTC 天数，中国用户
+     * （UTC+8）凌晨 0–7 点的播放会被归到前一天。改在 Kotlin 层用 `java.time`
+     * 按设备时区分组，时区正确且空天可补 0。
+     */
+    @Query("SELECT * FROM play_history WHERE playedAt >= :cutoffMs ORDER BY playedAt")
+    fun observeSince(cutoffMs: Long): Flow<List<PlayHistoryEntity>>
+
+    /** 某天的播放记录（日历史页用）。本地日 [dayStartMs] → [dayStartMs] + 24h。 */
+    @Query(
+        """
+        SELECT * FROM play_history
+        WHERE playedAt >= :dayStartMs AND playedAt < :dayEndMs
+        ORDER BY playedAt DESC
+        """,
+    )
+    fun observeDay(dayStartMs: Long, dayEndMs: Long): Flow<List<PlayHistoryEntity>>
 }
 
 data class DayCount(val day: Long, val count: Int)

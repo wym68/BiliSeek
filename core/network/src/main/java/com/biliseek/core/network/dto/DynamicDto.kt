@@ -32,6 +32,8 @@ data class DynamicItem(
 data class DynamicModules(
     @SerialName("module_author") val author: DynamicAuthor? = null,
     @SerialName("module_dynamic") val dynamic: DynamicContent? = null,
+    /** 互动数据：转发 / 评论 / 点赞。转发动态里是转发者自己的，与 orig 不同。 */
+    @SerialName("module_stat") val stat: DynamicStatModule? = null,
 )
 
 @Serializable
@@ -69,6 +71,18 @@ data class DynamicArchive(
     val title: String = "",
     val cover: String = "",
     @SerialName("duration_text") val durationText: String = "",
+    /**
+     * 视频统计。[stat.play] 已是 B 站格式化后的字符串（"1.2万"），UI 直接展示，不要再加工。
+     * 字段缺失时不报错——展示层据此判断是否渲染 stat 行。
+     */
+    val stat: DynamicArchiveStat? = null,
+)
+
+/** `modules.module_dynamic.major.archive.stat` —— 视频的播放量与弹幕数。 */
+@Serializable
+data class DynamicArchiveStat(
+    val play: String = "0",
+    val danmaku: String = "0",
 )
 
 /** 图文动态（DYNAMIC_TYPE_DRAW）。 */
@@ -111,4 +125,31 @@ data class FollowingUp(
     val mid: Long = 0,
     val uname: String = "",
     val face: String = "",
+)
+
+/**
+ * `modules.module_stat.{comment,forward,like}` —— 互动计数与状态。
+ *
+ * 三种类型共享同一形状：
+ * - `count` 总是 int（B 站已带"万"格式化的字符串不在这里，在 archive.stat.play）
+ * - `status`：转发为 0/1（被禁用），点赞为 0/1（已赞 / 未赞），评论无意义但 B 站也带
+ *   **B 站部分端点返回 bool（false/true），必须用 [FlexibleBooleanSerializer] 吃下两种**
+ * - `forbidden`：转发用，部分用户被禁转时为 true；其他一般缺省 false
+ *
+ * 字段默认 0 / false，**接口漏字段不崩**。
+ */
+@Serializable
+data class DynamicStatItem(
+    val count: Int = 0,
+    @Serializable(with = FlexibleBooleanSerializer::class)
+    val status: Boolean = false,
+    val forbidden: Boolean = false,
+)
+
+/** `modules.module_stat` —— 一条动态的转发 / 评论 / 点赞。 */
+@Serializable
+data class DynamicStatModule(
+    val comment: DynamicStatItem = DynamicStatItem(),
+    val forward: DynamicStatItem = DynamicStatItem(),
+    val like: DynamicStatItem = DynamicStatItem(),
 )

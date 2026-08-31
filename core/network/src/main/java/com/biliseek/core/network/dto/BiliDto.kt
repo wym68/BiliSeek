@@ -201,3 +201,32 @@ data class RefreshData(
     val message: String = "",
     @SerialName("refresh_token") val refreshToken: String = "",
 )
+
+// ── 稍后再看 ──────────────────────────────────────────
+
+/** `x/v2/history/toview` —— 稍后再看列表。需登录 Cookie。 */
+@Serializable
+data class WatchLaterData(
+    val count: Int = 0,
+    val list: List<WatchLaterItem> = emptyList(),
+)
+
+@Serializable
+data class WatchLaterItem(
+    val aid: Long = 0,
+    val bvid: String = "",
+    val cid: Long = 0,
+    val title: String = "",
+    val pic: String = "",
+    /** 秒。 */
+    val duration: Long = 0,
+    /** 已播进度（秒），-1 = 未开播。 */
+    val progress: Long = -1,
+    val owner: WatchLaterOwner? = null,
+)
+
+@Serializable
+data class WatchLaterOwner(
+    val mid: Long = 0,
+    val name: String = "",
+)

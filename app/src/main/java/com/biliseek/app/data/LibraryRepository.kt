@@ -60,6 +60,14 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
 
     fun observeHeatmap(days: Int = 90): Flow<List<DayCount>> = history.observeHeatmap(days)
 
+    /** 本地日期聚合热力图的原始数据源：拉 [cutoffMs] 之后的所有播放记录。 */
+    fun observeHistorySince(cutoffMs: Long): Flow<List<PlayHistoryEntity>> =
+        history.observeSince(cutoffMs)
+
+    /** 某天的播放记录（日历史页）。 */
+    fun observeDayHistory(dayStartMs: Long, dayEndMs: Long): Flow<List<PlayHistoryEntity>> =
+        history.observeDay(dayStartMs, dayEndMs)
+
     /**
      * 记录一次播放。
      *

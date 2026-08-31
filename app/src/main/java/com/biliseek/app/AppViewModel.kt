@@ -20,6 +20,12 @@ import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
+import android.graphics.Bitmap
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
 import com.biliseek.core.player.PlaybackPreferences
 import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlayerConnection
@@ -53,7 +59,15 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import java.io.ByteArrayOutputStream
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 /** 一个分 P。多 P 视频点入后展开成列表。 */
 data class PageEntry(val cid: Long, val page: Int, val title: String, val durationSec: Long)
@@ -175,6 +189,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private var pollJob: Job? = null
 
+    // ── 锁屏封面常量 ─────────────────────────────────
+
+    /**
+     * 封面最长边的像素上限。锁屏卡片约 256dp（@xxxhdpi 下 768px），
+     * 512px 留余量，JPEG 压缩后 < 30KB，足以覆盖所有设备 / 系统版本。
+     */
+    private val COVER_ART_MAX_DIM = 512
+
+    /** JPEG 压缩质量。锁屏场景不需要原图质量，85 几乎看不出差别，文件减半。 */
+    private val COVER_ART_JPEG_QUALITY = 85
+
+    /** 首页热力图天数：近三个月 ≈ 91 天。 */
+    private val HEATMAP_DAYS = 91
+
     // ── 本地库 ──────────────────────────────────────────
 
     val playlists = library.observePlaylists()
@@ -186,8 +214,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val recentPlays = library.observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val heatmap = library.observeHeatmap()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /**
+     * 近 [HEATMAP_DAYS] 天播放热力图，**本地日期**聚合（`java.time` 设备时区）。
+     *
+     * 旧实现用 SQL `playedAt / 86400000`（UTC 天数）——中国用户凌晨 0–7 点的
+     * 播放会归到前一天。这里拉原始记录在 Kotlin 层按 `LocalDate` 分组。
+     */
+    val heatmap: StateFlow<Map<LocalDate, Int>> = library.observeHistorySince(
+        System.currentTimeMillis() - HEATMAP_DAYS * 24 * 3600 * 1000L,
+    )
+        .map { list ->
+            val zone = ZoneId.systemDefault()
+            list.groupingBy { Instant.ofEpochMilli(it.playedAt).atZone(zone).toLocalDate() }
+                .eachCount()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // ── 收藏夹目录快照（M11-B）──────────────────────────
 
@@ -204,6 +245,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *
      * 未登录不发起网络请求，直接置 [SyncState.NotLoggedIn]——
      * 音乐库分区据此显示登录引导。
+     *
+     * 封面策略：B 站 list-all 接口常返回空封面（用户从未给文件夹设置封面），
+     * 此时拉一次首页内容，取首条 media 的 cover 作不上去——避免列表里全是占位色块。
+     * 每个空封面目录串行打一次「收藏夹内容」接口，N 个文件夹多 N 次请求，
+     * 平时几个夹子的话几秒内能完成。
      */
     fun syncFavoriteFolders() {
         if (_favoriteSync.value is SyncState.Syncing) return
@@ -215,17 +261,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _favoriteSync.value = SyncState.Syncing
             network.repository.favoriteFolders()
                 .onSuccess { folders ->
-                    library.replaceFavoriteFolders(
-                        folders.map { folder ->
-                            FavoriteFolderEntity(
-                                mediaId = folder.id,
-                                title = folder.title,
-                                coverUrl = com.biliseek.core.network.normalizeCoverUrl(folder.cover),
-                                mediaCount = folder.mediaCount,
-                                syncedAt = System.currentTimeMillis(),
-                            )
-                        },
-                    )
+                    val now = System.currentTimeMillis()
+                    val entities = folders.map { folder ->
+                        val cover = folder.cover.ifBlank {
+                            // 串行：N 个空封面就 N 次额外请求。
+                            // 并发会马上被 B 站限流，不如让用户感觉到一点进度。
+                            network.repository.firstMediaCover(folder.id).orEmpty()
+                        }
+                        FavoriteFolderEntity(
+                            mediaId = folder.id,
+                            title = folder.title,
+                            coverUrl = com.biliseek.core.network.normalizeCoverUrl(cover),
+                            mediaCount = folder.mediaCount,
+                            syncedAt = now,
+                        )
+                    }
+                    library.replaceFavoriteFolders(entities)
                     _favoriteSync.value = SyncState.Idle
                 }
                 .onFailure {
@@ -256,6 +307,91 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _openedFavorite =
         MutableStateFlow<RemoteListState<FavoriteTrack>?>(null)
     val openedFavorite: StateFlow<RemoteListState<FavoriteTrack>?> = _openedFavorite.asStateFlow()
+
+    // ── 日历史页（M12）────────────────────────────────────
+
+    /** 当前打开的日历史页日期。null = 未打开。 */
+    private val _dayHistoryDate = MutableStateFlow<LocalDate?>(null)
+    val dayHistoryDate: StateFlow<LocalDate?> = _dayHistoryDate.asStateFlow()
+
+    /** 日历史页的播放记录（某天的本地日期范围）。 */
+    val dayHistory: StateFlow<List<PlayHistoryEntity>> = _dayHistoryDate
+        .flatMapLatest { date ->
+            if (date == null) flowOf(emptyList())
+            else {
+                val zone = ZoneId.systemDefault()
+                val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
+                library.observeDayHistory(start, start + 24 * 3600 * 1000L)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun openDayHistory(date: LocalDate) { _dayHistoryDate.value = date }
+    fun closeDayHistory() { _dayHistoryDate.value = null }
+
+    /** 日历史页点条目：与「最近播放」同一条播放路径。 */
+    fun playDayHistoryEntry(entry: PlayHistoryEntity) = playHistoryEntry(entry)
+
+    // ── 稍后再看（M12）───────────────────────────────────
+
+    /** 稍后再看列表状态。 */
+    private val _watchLater = MutableStateFlow<RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>?>(null)
+    val watchLater: StateFlow<RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>?> = _watchLater.asStateFlow()
+
+    /** 打开稍后再看页：未登录置空（UI 显示登录引导）。 */
+    fun openWatchLater() {
+        if (!session.value.isLoggedIn) {
+            _watchLater.value = RemoteListState(
+                id = TrackListId.WatchLater,
+                title = "稍后再看",
+            )
+            return
+        }
+        // 不预置 isLoading：loadWatchLater 自己会设，预置反而被开头
+        // `if (state.isLoading) return` 挡掉——请求永远发不出去（M12 bug）。
+        _watchLater.value = RemoteListState(
+            id = TrackListId.WatchLater,
+            title = "稍后再看",
+        )
+        loadWatchLater()
+    }
+
+    fun closeWatchLater() { _watchLater.value = null }
+
+    fun retryWatchLater() = loadWatchLater()
+
+    private fun loadWatchLater() {
+        val state = _watchLater.value ?: return
+        if (state.isLoading) return
+        viewModelScope.launch {
+            _watchLater.value = state.copy(isLoading = true, errorMessage = null)
+            network.repository.watchLater()
+                .onSuccess { items ->
+                    _watchLater.value = _watchLater.value?.copy(
+                        items = items,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                }
+                .onFailure {
+                    _watchLater.value = _watchLater.value?.copy(
+                        isLoading = false,
+                        errorMessage = it.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /** 点稍后再看条目：走与收藏夹相同的 playBvid 路径。 */
+    fun playWatchLaterItem(item: com.biliseek.core.network.dto.WatchLaterItem) {
+        playBvid(
+            bvid = item.bvid,
+            title = item.title,
+            coverUrl = com.biliseek.core.network.normalizeCoverUrl(item.pic),
+            author = item.owner?.name.orEmpty(),
+            durationSec = item.duration,
+        )
+    }
 
     /** 加载收藏夹内容第 [page] 页。翻页时追加，刷新时从第 1 页替换。 */
     fun loadFavoritePage(page: Int) {
@@ -626,6 +762,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 loudnessNormalization = s.loudnessNormalization,
             )
         }
+        // 锁屏 / 通知栏封面。拉图 + 压缩 + 缩放到锁屏合适大小 (512px 长边)：
+        // - 拉图必须走我们自己的 ImageLoader（Referer 注入）
+        // - allowHardware(false)：MediaMetadata 需要软件位图才能序列化跨进程传递
+        // - 失败返回 null——锁屏会显示默认音符，与改动前一致
+        // - 内部已在 IO 调度器，且 [PlayerConnection] 侧还有 3s 超时兜底
+        connection.coverArtProvider = { url -> fetchCoverArtBytes(url) }
         viewModelScope.launch {
             settingsStore.load()
             network.sessionStore.load()
@@ -652,6 +794,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 ?.use { it.moveToFirst() } == true
         }.getOrDefault(false)
         else -> false
+    }
+
+    /**
+     * 拉取封面图并压缩为 JPEG 字节，供 MediaSession 元数据嵌入锁屏 / 通知栏。
+     *
+     * 为什么必须发生在我们自己的进程：
+     * - B 站 CDN（`i0.hdslb.com`）有 Referer 防盗链。系统 SystemUI 进程拉图时不会带 Referer，会 403。
+     * - Coil 全局 ImageLoader 已经注入 Referer + UA，可以拿到图。
+     *
+     * 为什么必须用软件位图（`allowHardware(false)`）：
+     * - MediaMetadata 的 artworkData 要**序列化**给系统进程，必须是软件 Bitmap。
+     * - 否则部分设备会回退成默认图标，甚至 ANR。
+     *
+     * 返回 null 表示拿不到——**锁屏会显示默认音符**，与改动前一致。起播不依赖该返回值。
+     */
+    private suspend fun fetchCoverArtBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
+        if (url.isBlank()) return@withContext null
+        runCatching {
+            val request = ImageRequest.Builder(getApplication<Application>())
+                .data(url)
+                .allowHardware(false)
+                .build()
+            val result = getApplication<Application>().imageLoader.execute(request)
+                as? SuccessResult ?: return@runCatching null
+            val bitmap = result.image.toBitmap()
+            val maxDim = COVER_ART_MAX_DIM
+            val longest = maxOf(bitmap.width, bitmap.height)
+            val scaled = if (longest > maxDim) {
+                val ratio = maxDim.toFloat() / longest
+                Bitmap.createScaledBitmap(
+                    bitmap,
+                    (bitmap.width * ratio).toInt().coerceAtLeast(1),
+                    (bitmap.height * ratio).toInt().coerceAtLeast(1),
+                    true,
+                )
+            } else bitmap
+            val baos = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, COVER_ART_JPEG_QUALITY, baos)
+            baos.toByteArray().takeIf { it.isNotEmpty() }
+        }.getOrNull()
     }
 
     // ── 搜索 ────────────────────────────────────────────

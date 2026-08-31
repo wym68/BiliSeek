@@ -27,10 +27,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.MutableSharedFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
+import com.biliseek.app.ui.DayHistoryScreen
+import com.biliseek.app.ui.Destination
 import com.biliseek.app.ui.DownloadDialog
+import com.biliseek.app.ui.WatchLaterScreen
 import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.DynamicScreen
 import com.biliseek.app.ui.HomeEmptyState
@@ -84,13 +88,15 @@ class MainActivity : ComponentActivity() {
                 val openedPlaylist by viewModel.openedPlaylist.collectAsState()
                 val openedTracks by viewModel.openedTracks.collectAsState()
                 val searchHistory by viewModel.searchHistory.collectAsState()
-                val recentPlays by viewModel.recentPlays.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
                 val favoriteFolders by viewModel.favoriteFolders.collectAsState()
                 val favoriteSync by viewModel.favoriteSync.collectAsState()
                 val openedFavorite by viewModel.openedFavorite.collectAsState()
                 val dynamic by viewModel.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.collectAsState()
+                val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
+                val dayHistory by viewModel.dayHistory.collectAsState()
+                val watchLater by viewModel.watchLater.collectAsState()
                 val pendingAdd by viewModel.pendingAdd.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
@@ -99,6 +105,8 @@ class MainActivity : ComponentActivity() {
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置
                 var downloadFor by remember { mutableStateOf<SearchVideo?>(null) }
+                // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
+                val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
 
@@ -112,12 +120,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 起播即展开播放器，让用户看到当前在放什么
+                // 起播即展开播放器，让用户看到当前在放什么。
+                // 跳转本身由 AppShell 负责（player 是 nav destination），
+                // 这里只做看模式的「记住上次」默认开启。
                 LaunchedEffect(Unit) {
                     viewModel.playbackStarted.collect {
-                        expansion = PlayerExpansion.EXPANDED
-                        // 「记住上次」：自动进看模式也要过流量策略这一关，
-                        // 否则设置里关掉的移动网络看视频会从这条路溜进去
                         if (viewModel.shouldAutoEnterVideo()) {
                             viewModel.requestPresentation(PresentationMode.INLINE, surfaceView)
                         }
@@ -138,6 +145,8 @@ class MainActivity : ComponentActivity() {
                     onEnterPip = { enterPip() },
                     playback = playback,
                     expansion = expansion,
+                    playbackStarted = viewModel.playbackStarted,
+                    tabSwitchRequests = tabSwitchRequests,
                     surfaceView = surfaceView,
                     onExpansionChange = { next ->
                         val leavingFullscreen = expansion == PlayerExpansion.FULLSCREEN
@@ -186,7 +195,30 @@ class MainActivity : ComponentActivity() {
                     },
                     // UP 空间页（M11-D）：从搜索页点 UP 结果进入
                     searchContent = {
-                        if (upSpace.up != null) {
+                        val dayDate = dayHistoryDate
+                        if (dayDate != null) {
+                            // 日历史页（M12）：从首页热力图点入，返回手势收起到首页
+                            BackHandler(onBack = viewModel::closeDayHistory)
+                            DayHistoryScreen(
+                                date = dayDate,
+                                entries = dayHistory,
+                                onClose = viewModel::closeDayHistory,
+                                onEntryClick = viewModel::playDayHistoryEntry,
+                            )
+                        } else if (watchLater != null) {
+                            // 稍后再看页（M12）：从首页快捷入口进入
+                            BackHandler(onBack = viewModel::closeWatchLater)
+                            WatchLaterScreen(
+                                state = watchLater!!,
+                                session = session,
+                                loginState = loginState,
+                                onClose = viewModel::closeWatchLater,
+                                onRetry = viewModel::retryWatchLater,
+                                onItemClick = viewModel::playWatchLaterItem,
+                                onStartLogin = viewModel::startLogin,
+                                onCancelLogin = viewModel::cancelLogin,
+                            )
+                        } else if (upSpace.up != null) {
                             // 系统返回手势应收起空间页，而不是弹走导航栈（tab 内状态）
                             BackHandler(onBack = viewModel::closeUpSpace)
                             UpSpaceScreen(
@@ -234,12 +266,14 @@ class MainActivity : ComponentActivity() {
                                 if (showEmptyState) {
                                     HomeEmptyState(
                                         searchHistory = searchHistory,
-                                        recentPlays = recentPlays,
                                         heatmap = heatmap,
                                         onKeywordClick = viewModel::searchKeyword,
                                         onDeleteKeyword = viewModel::deleteSearchKeyword,
                                         onClearHistory = viewModel::clearSearchHistory,
-                                        onRecentClick = viewModel::playHistoryEntry,
+                                        onDayClick = { date -> viewModel.openDayHistory(date) },
+                                        onOpenWatchLater = viewModel::openWatchLater,
+                                        onOpenRecentPlaylists = { tabSwitchRequests.tryEmit(Destination.LIBRARY) },
+                                        isLoggedIn = session.isLoggedIn,
                                         // 搜索历史改为聚焦时才弹出，未聚焦首页不直接显示
                                         showSearchHistory = false,
                                     )

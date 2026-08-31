@@ -9,6 +9,7 @@ import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.FollowingUp
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
+import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
@@ -157,6 +158,21 @@ class BiliRepository(
         )
     }
 
+    /**
+     * 取收藏夹内首条内容的封面，用于目录列表封面缺失时兜底。
+     *
+     * 与 [favoriteResources] 的可播放过滤不同：只取封面图，任何 type（视频 / 音频 / 相簿）
+     * 都有 cover；空收藏夹或请求失败返回 null。失败不抛——封面是装饰，主流程不能被它阻塞。
+     */
+    suspend fun firstMediaCover(mediaId: Long): String? = runCatching {
+        authGate.awaitReady()
+        val response = api.favoriteResources(mediaId, pn = 1, ps = 20)
+        require(response.code == 0) {
+            "收藏夹内容失败：code=${response.code} ${response.message}"
+        }
+        response.data?.medias?.firstOrNull()?.cover?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
     private fun requireLoggedInMid(): Long =
         sessionStore.current.dedeUserId.toLongOrNull()
             ?: throw IllegalStateException("需要登录")
@@ -207,6 +223,23 @@ class BiliRepository(
             "关注列表失败：code=${response.code} ${response.message}"
         }
         response.data?.list.orEmpty().filter { it.mid > 0 && it.uname.isNotBlank() }
+    }
+
+    // ── 稍后再看 ────────────────────────────────────────
+
+    /**
+     * 稍后再看列表。必须登录（未登录 -101，不重试）。
+     *
+     * 只取视频型条目（bvid 非空）；进度字段保留，UI 可展示「播到哪了」。
+     */
+    suspend fun watchLater(): Result<List<WatchLaterItem>> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.watchLater()
+        require(response.code == 0) {
+            "稍后再看失败：code=${response.code} ${response.message}"
+        }
+        response.data?.list.orEmpty().filter { it.bvid.isNotBlank() }
     }
 
     // ── UP 主搜索与空间投稿（M11-D）────────────────────────

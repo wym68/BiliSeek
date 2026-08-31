@@ -1,13 +1,16 @@
 # BiliSeek 项目开发文档 · 功能优化篇（M5–M9）
 
-> 版本：v1.4（2026-08-29 修订 M12：莫奈取色 + Compose UI 测试）  
-> 日期：2026-08-25 / 2026-08-26 / 2026-08-28 / 2026-08-29  
+> 版本：v1.5（2026-08-30 修订：新增 §11 M11、§12 M12 正式章节；§13 逐条优化记录）  
+> 日期：2026-08-25 / 2026-08-26 / 2026-08-28 / 2026-08-29 / 2026-08-30  
 > 前置文档：《功能选型篇》v0.2、《架构设计篇》v0.2、《MVP 收尾总结》  
 > 范围：MVP（M0–M4）之后的功能优化阶段，拆为 M5 / M6 / M7 / M8 / M9 五个里程碑。
 > **M5–M9 已完成并验收**（M5–M7 含 Android 16 真机实跑，M8 为模拟器验收，M9 为模拟器验收 +
-> 实机级 UI 驱动）；**M10+ 为下一阶段规划**（发版准备），其中 **M12 已完成并验收**（莫奈取色 + Compose UI 测试）。  
+> 实机级 UI 驱动）；**M10+ 为下一阶段规划**（发版准备），其中 **M11 已完成**（收藏夹 + 动态 + UP 主搜索）、
+> **M12 已完成并验收**（莫奈取色 + Compose UI 测试），正式记录见 §11 / §12；
+> **M12 之后的逐条优化见 §13**（0.3.x 阶段，持续追加）。  
 > 用途：本文回答「MVP 之后先做什么、为什么是它、怎么验」。判据部分与《验收清单》同格式，完成时逐条勾选。
 > **§10 是所有欠账的唯一总账**——缺口散在四份文档里，单看任何一份都看不全。
+> **§11 / §12 是已完成里程碑的正式记录，§13 是逐条优化流水账**——§10 里已完成事项最多留一行索引，不重复正文。
 
 ---
 
@@ -656,14 +659,12 @@ M9 只保证「文件可播 + 文件名可读」。
 
 ### 10.3 M12 建议：登录态下的遗留验证 + 打磨
 
-> **M11 已完成**（2026-08-29，见 [M11 验收记录](验收记录/M11-2026-08-29.md)）：
+> **M11 已完成**，正式记录见 [§11](#11-m11--收藏夹--动态--up-主搜索)，验收见 [M11 验收记录](验收记录/M11-2026-08-29.md)：
 > 收藏夹同步（只读，目录快照 v4 落库 + 内容分页）、关注动态（底部第 4 tab，全部/仅视频 + 按 UP 筛选）、
 > UP 主搜索 + UP 空间页（投稿/动态双视图）。
 
-> **0.3.0 已发布**（2026-08-29，`releases/0.3.0/`）：M11 全量 + 真机反馈驱动的打磨——
-> 动态封面 http→https（Android 9+ 禁明文）、列表页单一 LazyColumn 滚动、四处状态页 BackHandler 返回手势、
-> 收藏夹/本地列表分区折叠、改名（列表 / Bilibili 收藏夹 / 本地列表）、搜索页交互改造
-> （无搜索按钮 / 圆叉清空 / 聚焦弹历史 / 筛选区结果上方 / 时长按钮一行）、标题栏（软件名+账号+头像）。
+> **M12 已完成并验收**，正式记录见 [§12](#12-m12--莫奈取色--compose-ui-测试)，验收见 [M12 验收记录](验收记录/M12-2026-08-29.md)：
+> 莫奈取色（封面主色驱动播放器）+ Compose UI 测试（36 例）。
 
 **M11 遗留（需要真人账号，无法在模拟器闭合）：**
 
@@ -677,13 +678,11 @@ M9 只保证「文件可播 + 文件名可读」。
 
 **M12 候选（按建议顺序）：**
 
-> ✅ **M12 已完成并验收**（2026-08-29，模拟器 API 35）：莫奈取色 + Compose UI 测试，见 [M12 验收记录](验收记录/M12-2026-08-29.md)。
-
 | # | 项 | 为什么排这个位置 |
 | --- | --- | --- |
 | 1 | **真机收尾与打磨余项** | 真机 B6（有线/蓝牙/焦点/内存/流量）与登录态三处遗留验证；拖拽重排动画、切换无缝自检卡片（`lastSwitch` 数据一直在产出，只差一个 Composable） |
-| 2 | ~~**莫奈取色**~~ ✅ | design-system 层的活，与播放链路无耦合，随时可插；选型篇 P1 最后一项。**M12 完成**：系统莫奈（动态取色）管全局不变，封面主色驱动播放器背景渐变与点缀，暗色+亮封面自动压暗保可读，无封面回落默认 |
-| 3 | ~~**Compose UI 测试**~~ ✅ | M11 加了收藏夹/动态/UP 三块 UI，手动回归成本陡增，时机已到。**M12 完成**：主链路「起播→切看→换内容回到听」端到端（全离线）+ 播放器/搜索/设置/对话框纯状态测试，共 36 例仪器化全绿 |
+| 2 | ~~**莫奈取色**~~ ✅ | design-system 层的活，与播放链路无耦合，随时可插；选型篇 P1 最后一项。**M12 完成**（详见 §12）：系统莫奈（动态取色）管全局不变，封面主色驱动播放器背景渐变与点缀，暗色+亮封面自动压暗保可读，无封面回落默认 |
+| 3 | ~~**Compose UI 测试**~~ ✅ | M11 加了收藏夹/动态/UP 三块 UI，手动回归成本陡增，时机已到。**M12 完成**（详见 §12）：主链路「起播→切看→换内容回到听」端到端（全离线）+ 播放器/搜索/设置/对话框纯状态测试，共 36 例仪器化全绿 |
 | 4 | **歌词** | P2 且最不确定：B 站没有官方逐字歌词接口，要么外部匹配要么只做字幕。**动手前先把数据来源与授权问清楚**，别先写 UI |
 | 5 | 外部歌单导入、弹幕（看模式）、桌面歌词 | P2 队尾。桌面歌词还卡着 `io/github/proify/lyricon/**` 的授权回溯（合规清单里挂着） |
 
@@ -696,3 +695,289 @@ M9 只保证「文件可播 + 文件名可读」。
 | 端到端回归 | 主链路已自动化（离线注入不依赖真实网络，模拟器搜索降权影响不到）；其余仍靠手动测试指南 |
 
 > 主链路测试的离线缝：取流层的 `offlineLookup` 回调在风控凭据之前拦截（M9 §9.4），测试覆盖它为本地测试资产即可全离线播放——**不需要生产代码测试缝**（VM 与 Activity 共享 ViewModelStore，测试里直接取同实例覆盖）。
+
+---
+
+## 11. M11 — 收藏夹 + 动态 + UP 主搜索
+
+> 日期：2026-08-29  
+> 依据：§10.3 计划 v3.1（收藏夹 / 动态 / UP 搜索三翼，五段串行 A→E）  
+> 验收：[M11 验收记录](验收记录/M11-2026-08-29.md)  
+> 版本：0.3.0（versionCode 3）
+
+### 11.1 范围
+
+M11 是「登录后内容」的第一批：收藏夹、关注动态、UP 主搜索。三翼五段：
+
+| 段 | 内容 |
+| --- | --- |
+| M11-A | 地基：DB v4 `favorite_folder` + 迁移测试；`RemoteListState`/`TrackListId` 契约；登录引导复用 `LoginPanel` |
+| M11-B | 收藏夹：list-all / resource/list + 目录快照同步（整体替换）+ 音乐库分区 + 内容分页页 |
+| M11-C | 动态：feed/all + feed/space + followings + 底部第 4 tab + 全部/仅视频 + UP chips 筛选 |
+| M11-D | UP 搜索：bili_user + arc/search + 搜索模式切换 + UP 空间页（投稿/动态双视图） |
+| M11-E | 收尾：文档同步 + 版本 0.3.0 |
+
+### 11.2 核心设计决策
+
+1. **收藏夹目录落库、内容不落库**（《架构设计篇》§6.2 落库边界）——目录很小（秒开、断网可见、显示同步时间），内容量大且易变（增量/删除/冲突收益近零）。
+2. **一切皆歌单**：收藏夹内容、UP 投稿收敛到同一个 `RemoteListState<T>` 状态形状，UI 只依赖来源无关的状态，新增列表 = 新增数据源，不改 UI。
+3. **登录非强制**：未登录时收藏夹 / 动态分区内嵌 `LoginPanel` 引导，搜索与播放完全不受影响。
+
+### 11.3 自动化
+
+| 项 | 结果 |
+| --- | --- |
+| `./gradlew test` | ✅ 全绿。新增：FavoriteDtoTest 5、DynamicDtoTest 7、UserDtoTest 6（含 `length` 字段修正） |
+| `connectedDebugAndroidTest` | ✅ MigrationTest 3/3（含新增 v3→v4，旧数据保留 + 唯一索引） |
+| schema 导出 | ✅ `4.json`（favorite_folder） |
+
+### 11.4 途中抓到的坑（按价值排序）
+
+1. **`arc/search` 的时长字段是 `length`（"03:53" 文本）不是 `duration`（秒）**——首版 UI 全部显示 00:00，真机化验证时发现。DTO 字段名与接口文档的偏差，单测钉住。
+2. **UP 模式无关键词时显示「没有找到相关 UP 主」**——应与视频模式一致回首页空状态（搜索历史/最近播放），已修。
+3. **动态头像没走 `normalizeCoverUrl`**——`//i0.hdslb.com` 无协议前缀，已修（单测捕获）。
+
+### 11.5 需登录遗留（真人账号闭合）
+
+| 项 | 状态 |
+| --- | --- |
+| 收藏夹真实同步（list-all / resource/list 返回与目录展示） | 🔸 逻辑已测（DTO/仓储/状态机/UI 分支），未登录分支已验；真实数据需真人账号 |
+| 动态真实 feed（feed/all、feed/space、followings） | 🔸 同上；`feed/space` 未登录必 -352，UP 筛选只对登录态开放 |
+| UP 空间页「动态」视图 | 🔸 同上 |
+| arc/search 的网络稳定性 | ⚠️ 模拟器搜索被服务端静默降权（M9 同款），实测间歇 -352/-412，真机复测 |
+
+---
+
+## 12. M12 — 莫奈取色 + Compose UI 测试
+
+> 日期：2026-08-29  
+> 依据：§10.3 候选 #2/#3 + §10.4 测试欠账 + 选型篇 P1「待办：莫奈取色」  
+> 验收：[M12 验收记录](验收记录/M12-2026-08-29.md)  
+> 范围：只做用户选定的两项——候选 #1（真机收尾 B6）与 #4（歌词）不在本次范围
+
+### 12.1 范围
+
+| 段 | 内容 |
+| --- | --- |
+| M12-A | 莫奈取色：design-system 策略层（纯函数）+ app 封面取色 + 播放器 UI 落点 |
+| M12-B | Compose UI 测试：测试基座 + 主链路端到端 + 纯状态组件测试（36 例） |
+| M12-C | 收尾：选型篇 P1 勾掉 / 功能优化篇 §10 更新 / README 能力表 |
+
+### 12.2 M12-A 莫奈取色
+
+**设计**：系统莫奈（Android 12+ 动态取色，`Theme.kt` 既有行为不变）管全局配色；封面取色只作用于播放器局部背景。策略层为纯函数，与播放链路无耦合。
+
+| # | 判据 | 结果 |
+| --- | --- | --- |
+| A-1 | 展开播放器背景随封面变化，换歌变色 | ✅ 像素扫描：深色封面（千本樱）→ 亮色模式暗色渐变；亮色封面（MIKU）→ 暗色模式青色渐变，与计算值吻合 |
+| A-2 | 亮封面在暗色模式自动压暗（scrim），文字可读 | ✅ `dominant=(192,240,240) dark=true → scrim=surface@0.6`，像素确认背景被压回表面色附近 |
+| A-3 | 无封面（纯音频）回落 M3 默认，不闪白 | ✅ `dominant=null → top=bottom=surface, scrim=null`；单测钉住 |
+| A-4 | Android 12+ 全局仍跟随系统莫奈 | ✅ Theme.kt 未动；亮/暗两套动态取色切换正常 |
+
+**单测覆盖**（`AccentPolicyTest`，12 例）：无封面回落 / 渐变端点与收敛方向 / blend 端点与越界 / 亮封面暗模式压暗 / 暗封面暗模式不压暗 / 亮色模式任意封面不压暗 / 临界亮度边界 / 对比度公式对称性 / 点缀色对比不足回退 null / 点缀色正常给出 / 非 12+ 无系统莫奈时封面取色照常生效 / 暗色模式决策输出。
+
+### 12.3 M12-B Compose UI 测试（36 例全绿）
+
+**主链路端到端**：起播 → 播放器自动展开、标题显示、听模式 → 切「看」呈现态 INLINE、按钮翻转 → 看模式换下一首回到听 → 暂停/继续往返。
+
+**全离线设计**：测试覆盖 `connection.offlineLookup` 指向拷贝到私有目录的测试资产（mp4 带音视频轨）。取流层 `offlineLookup` 回调在风控凭据（`awaitReady`）**之前**拦截（M9 §9.4）——播放完全不碰真实网络，模拟器搜索降权影响不到。
+
+**不需要生产代码测试缝**：`MainActivity` 的 `by viewModels()` 与测试里 `ViewModelProvider(activity)` 共享同一个 ViewModelStore，测试直接取同实例覆盖 `offlineLookup` 即可。计划稿里的 `connectionFactory` 缝因此未落地（更简、更稳）。
+
+**纯状态组件测试**：`PlayerContainerUiTest` 16（迷你/展开/听看切换/音质行/倍速/睡眠定时/队列/取流失败重试）+ `SearchScreenUiTest` 6（空状态/错误分类/**Blocked 无重试红线**/重试回调）+ `SettingsScreenUiTest` 4 + `DialogsUiTest` 5。
+
+### 12.4 与计划的偏差（均为实现层面的简化）
+
+1. `connectionFactory` 测试缝未落地——VM 与 Activity 共享 ViewModelStore，测试直接取同实例覆盖，零生产代码改动。
+2. 莫奈取色不加设置开关（计划已声明默认决策，用户无异议）。
+3. 封面取色用 `androidx.palette:palette-ktx`（官方小库，BBPlayer `image-theme-colors` 的等价实现）。
+
+### 12.5 遗留
+
+- M12 候选 #1（真机收尾 B6）与 #4（歌词）未做，仍在 §10 总表。
+- 封面取色缓存（`CoverAccentCache`，LRU 32）为进程内内存缓存：换封面重新取色一次，代价可接受。
+- 仪器化测试依赖模拟器（`connectedDebugAndroidTest`）；真机上同样可跑（无网络依赖）。
+
+---
+
+## 13. 逐条优化记录（v0.3.x 阶段，持续追加）
+
+> 日期：2026-08-30 起  
+> 定位：M12 之后不再以「里程碑」为粒度推进，改为**逐条优化**——每条独立评审、独立验证、独立记录。  
+> 格式：13.N 一条。后续优化追加到本章末尾（13.N 递增），不改动已记录条目。
+
+### 13.1 总览表
+
+| # | 条 | 状态 |
+| --- | --- | --- |
+| 13.2 | 用 B 站 App 一键登录 | ✅ 已实现 + 真机验证 |
+| 13.3 | 标题栏字号加大加粗 + 时段问候 | ✅ 已实现 + 真机验证 |
+| 13.4 | 收藏夹封面兜底（空封面拉首条内容 cover） | ✅ 已实现 + 真机验证 |
+| 13.5 | 锁屏 / 通知栏封面（MediaSession artwork） | ✅ 已实现（真机由用户验证） |
+| 13.6 | 动态页数据与互动（时长标签修复 + 播放量·弹幕 + 转发/评论/点赞） | ✅ 已实现 + 真机验证 |
+| 13.7 | 动态 module_stat.status 类型 bug（bool/int 兼容） | ✅ 已实现 + 真机验证（修复崩溃） |
+| 13.8 | 播放器导航重构（Player 进 NavController 栈） | ✅ 已实现（真机由用户验证） |
+| 13.9 | MiniPlayer 显隐修复（currentRoute 驱动） | ✅ 已实现（真机由用户验证） |
+| 13.10 | 首页中段重构（热力图柱状格 + 快捷入口） | ✅ 已实现（真机待网络恢复验证） |
+| 13.11 | 移除首页「最近播放」 | ✅ 已实现 + 真机验证 |
+| 13.12 | 真机验证说明（风控 -111 环境问题） | 📝 记录 |
+
+### 13.2 用 B 站 App 一键登录
+
+**需求**：Web 扫码登录生成二维码的同时，加一个按钮自动唤起手机中已安装的哔哩哔哩 App 完成扫码确认。
+
+**实现**（`app/.../LoginScreen.kt` + `AndroidManifest.xml`）：
+
+- `QrReady` 状态加「用 B 站 App 一键登录」按钮，点击后 `Intent(ACTION_VIEW, qrUrl).setPackage("tv.danmaku.bili")` 唤起官方 App
+- 官方 App 的 `IntentHandlerActivity` 处理 `account.bilibili.com` 域（`.bilibili.com` 通配 intent-filter），在 App 内 WebView 弹出扫码确认页
+- 用户在 B 站 App 点确认 → 服务端标记成功 → 我们既有的 2s 轮询自动收到 `code=0` 完成登录
+- Manifest 加 `<queries><package android:name="tv.danmaku.bili" /></queries>`（Android 11+ 包可见性）
+- 失败兜底：`ActivityNotFoundException`（未安装）→ Toast「未找到哔哩哔哩 App」；`SecurityException` → Toast 提示手动扫码
+
+**设计要点**：`setPackage` 避免浏览器抢选择框；不改轮询逻辑（登录成功自动收敛）；不引入 `QUERY_ALL_PACKAGES`。
+
+**验证**：真机 ColorOS 首次唤起会弹「应用启动确认」（系统级，选 30 天内允许后免打扰）；B 站 App 打开 `MWebActivity` 显示含 BiliSeek logo 的扫码确认页；轮询日志确认后台持续 `qrcode/poll`。
+
+### 13.3 标题栏字号加大加粗 + 时段问候
+
+**需求**：搜索页标题「BiliSeek」字号再大一点加粗；下面显示的 B 站用户名前加「上午好 / 中午好 / 下午好」，按当前时间选择。
+
+**实现**（`app/.../SearchScreen.kt`）：
+
+- 标题：`titleLarge`（22sp Medium）→ `headlineSmall.copy(fontWeight = Bold)`（24sp Bold）
+- 问候：`produceState` 每分钟 tick 一次取当前小时，映射：
+  - 5–11 点 → 上午好
+  - 12–13 点 → 中午好
+  - 14–17 点 → 下午好
+  - 18–4 点 → 晚上好（用户只列三档，18 点后留空会断档，补「晚上好」）
+
+**设计要点**：`produceState + delay(60_000)` 保证跨午 / 跨晚无需重启自动更新；首次加载用当前值避免 flash 空文字。
+
+### 13.4 收藏夹封面兜底
+
+**需求**：列表页各收藏夹没有封面——通过获取收藏夹内第一个内容的视频封面作为该文件夹的封面。
+
+**实现**（`core/network/.../BiliRepository.kt` + `app/.../AppViewModel.kt`）：
+
+- `BiliRepository.firstMediaCover(mediaId)`：拉收藏夹首页内容，取首条 media 的 cover（任何 type 都有 cover；空收藏夹 / 失败返回 null）
+- `syncFavoriteFolders()`：目录封面为空时串行调用 `firstMediaCover` 回填（串行避免限流；每个空封面多一次请求）
+- `replaceFavoriteFolders` 一次写入全部结果，无「部分有封面」中间态
+
+**验证**：真机同步后 7 个收藏夹全部拿到首条视频封面；HTTP 日志确认 `list-all` + 每空封面一个 `resource/list`。
+
+### 13.5 锁屏 / 通知栏封面（MediaSession artwork）
+
+**需求**：手机锁定时播放，锁屏媒体卡片只有默认音符图标、没有封面。
+
+**实现**（`core/player/.../PlayerConnection.kt` + `app/.../AppViewModel.kt`）：
+
+- `PlayerConnection` 加 `coverArtProvider: (suspend (String) -> ByteArray?)?` 回调
+- `play()` 构造 `MediaItem` 时：`setArtist(author)`（UP 主名）+ `setArtworkData(bytes, PICTURE_TYPE_FRONT_COVER)`
+- 拉取用 `withTimeoutOrNull(3s)` 保护——**绝不阻塞起播**，失败回落默认音符
+- `AppViewModel.fetchCoverArtBytes()`：Coil 拉图（复用全局 ImageLoader 的 Referer 注入）→ `allowHardware(false)`（MediaMetadata 跨进程序列化必须软件位图）→ 长边缩到 512px → JPEG q=85
+
+**设计要点**：必须在我们自己进程拉图——B 站 CDN（`i0.hdslb.com`）有 Referer 防盗链，系统 SystemUI 进程拉图会 403。方案 A（`setArtworkUri` 直给 URL）因防盗链不可行，故选方案 B（预抓 bitmap）。
+
+### 13.6 动态页数据与互动
+
+**需求**：动态页封面右下角有深色矩形（时长标签不可读）；没有视频时长、播放量、转发、评论、点赞等数据和互动。参考 BiliPai 动态页。
+
+**实现**（`core/network/.../DynamicFeed.kt` / `DynamicDto.kt` + `app/.../DynamicScreen.kt`）：
+
+- **时长标签修复**：`scrim + onSurface` 在所有主题下同色（深底深字）→ 硬编码 `Black@0.65 + White`（跨主题黑底白字，与 B 站 / 抖音平台惯例一致）
+- **播放量·弹幕行**：`archive.stat.play`（"1.2万"）/ `danmaku` 解析到 `DynamicVideo.playText / danmakuText`，标题下方 `${playText}播放 · ${danmakuText}弹幕`；任一缺失静默降级
+- **互动栏**：`module_stat` 的转发 / 评论 / 点赞计数，三等分布局；点赞态（`status`）用主题色高亮；转发禁用（`forbidden`）0.4 透明度
+- **DTO**：新增 `DynamicStatItem` / `DynamicStatModule` / `DynamicArchiveStat`
+- **转发语义**：转发动态的互动数取**转发者**的 `module_stat`（用户视角「这条转发有多少人转了」），不混 orig——与 BiliPai 一致
+- 互动按钮用纯文本（`N 转发`）而非图标——app 模块未引 material-icons-extended，加 ~30MB 库只为 4 个图标不值
+
+### 13.7 动态 module_stat.status 类型 bug
+
+**Bug**：动态页打开直接崩——`module_stat.forward.status`（及 `like.status`）B 站返回 **bool**（`false/true`），DTO 声明成 `Int`，整条 feed 解析失败。
+
+**修复**（`core/network/.../dto/FlexibleBooleanSerializer.kt`）：
+
+- 自定义 `KSerializer<Boolean>`：先按 bool 读，失败按 int 读（0→false，非 0→true）；缺字段 / null 回落默认 false
+- `DynamicStatItem.status` 改 `Boolean` 并挂 `@Serializable(with = FlexibleBooleanSerializer::class)`
+- UI 判断 `stat.like.status == 1` → `stat.like.status`
+- 与 BiliPai 的 `FlexibleBooleanSerializer` 同思路——同一问题同一解
+
+**验证**：真机复现崩溃 → 修复后动态页正常加载，3 条动态全字段齐全；新增单测覆盖 bool/int 双形态 fixture。
+
+### 13.8 播放器导航重构（Player 进 NavController 栈）
+
+**需求**：动态 / 列表页点视频打开播放页，返回手势要 2–3 下才能退出，且直接跳回搜索页。期望 1 次返回回原页面，播放页只是临时弹出。
+
+**根因**：player expansion 被当成 UI 状态而非导航状态。三个层级（player / 子页 / tab 导航）各自占一个 back，且 NavController 不知道 player 存在，pop 到底落回 SEARCH。
+
+**实现**（`app/.../AppShell.kt` + `PlayerContainer.kt` + `MainActivity.kt`）：
+
+- 新增 `Destination.PLAYER("player")`，点视频 / 点 MiniPlayer → `navController.navigate("player") { launchSingleTop = true }`
+- `private fun ExpandedPlayer` 拆为顶层 `fun PlayerScreen`（可独立 compose，成为 nav destination）
+- NavHost 注册 PLAYER destination，`onCollapse = { navController.popBackStack() }`——**back 由 NavController 接管**
+- `BackHandler` 简化为只拦 FULLSCREEN
+- `playbackStarted: SharedFlow<Unit>` 传入 AppShell，内部 `LaunchedEffect` 订阅后 navigate
+
+**改后行为**：
+
+| 路径 | 改后 |
+| --- | --- |
+| DYNAMIC → 点视频 → 1st back | pop PLAYER → 回 DYNAMIC（带 MiniPlayer）✅ |
+| LIBRARY → 歌单 → 点歌曲 → 1st back | pop PLAYER → 回歌单 ✅ |
+| Player route 时切 tab | NavController 自动 pop PLAYER 再 push tab |
+
+### 13.9 MiniPlayer 显隐修复
+
+**Bug**：杀 App 重开播第一首 MiniPlayer 出现，点一下后消失再也回不来。
+
+**根因**：MiniPlayer 的 `onExpand` 旧逻辑设 `expansion = EXPANDED`，但 M12-A 重构后 EXPANDED 不再是 UI 状态（PLAYER 是 nav destination）——设了反而让 AppShell 的 `if (expansion == COLLAPSED)` 判断失败，MiniPlayer 永久隐藏，且无代码重置。
+
+**修复**（`app/.../AppShell.kt` + `PlayerContainer.kt`）：
+
+- `showMiniPlayer = currentRoute?.route != PLAYER.route && expansion != FULLSCREEN`——**以 nav route 为唯一可靠信号**
+- `PlayerContainer` 加 `onExpand: () -> Unit` 参数，AppShell 传入 `navigate(PLAYER)`；不再设 EXPANDED 状态
+
+**改后行为**：播放页时 MiniPlayer 隐藏，退出播放页时显示；点 MiniPlayer 直接进播放页。
+
+### 13.10 首页中段重构（热力图柱状格 + 快捷入口）
+
+**需求**：主页搜索页中段加近三个月播放热力图（柱状格，点击日期跳转那日播放记录页，参考 BBPlayer）+ 快捷入口（稍后再看 + 近期歌单，不要最近常听 / 那月今日）。
+
+**实现**（`app/.../HomeScreen.kt` + 新 `DayHistoryScreen.kt` + 新 `WatchLaterScreen.kt` + `Daos.kt` / `BiliApi.kt` / `BiliRepository.kt` / `AppViewModel.kt`）：
+
+- **热力图**：`WeeklyHeatGrid`——7 行（周一~周日）× 13 周柱状格，4 级色阶（0.2/0.4/0.6/1.0 透明度），今天主色描边，横向滚动到今天；点击某格 → `openDayHistory(date)`
+  - 数据源改为**本地日期聚合**：`observeSince(cutoffMs)` 拉原始记录，`java.time` 按设备时区分组——修复旧实现 `playedAt / 86400000`（UTC 天数）凌晨错位 bug
+  - 色阶逻辑抽纯函数 `heatmapLevelAlpha` + 单测
+- **快捷入口**：横向两卡片「⏱ 稍后再看」（登录才显示）+「📁 近期歌单」（点击 → `tabSwitchRequests.tryEmit(LIBRARY)` 跳列表 tab）
+- **日历史页** `DayHistoryScreen`：顶部统计卡（当日听歌时长 + 曲目数）+ 当天播放列表（点击播放）；`observeDay(dayStart, dayEnd)` 查询
+- **稍后再看页** `WatchLaterScreen`：`x/v2/history/toview` API（新增 DTO `WatchLaterData/Item/Owner` + `BiliRepository.watchLater()`）；未登录 → LoginPanel 引导；列表点击走 `playBvid` 路径
+- 两页都走 `upSpace` 同款「tab 内容 slot 内守卫渲染」模式（`dayHistoryDate != null` / `watchLater != null` 分支 + BackHandler 返回），不占 nav 栈
+
+**途中修掉的真 bug**：`openWatchLater()` 预置 `isLoading = true` 导致 `loadWatchLater()` 开头 `if (state.isLoading) return` 拦截，请求永不发出——不预置，让 load 自己设。
+
+**验证**：首页滚动到底可见热力图 + 快捷入口；点稍后再看进入页面（当前受设备风控 -111 影响网络请求，见 13.12）。
+
+### 13.11 移除首页「最近播放」
+
+**需求**：搜索主页不再显示最近播放。
+
+**实现**（`app/.../HomeScreen.kt` + `MainActivity.kt`）：
+
+- 删除「最近播放」竖排 section（`recentPlays.take(8)`）与 `recentPlays` / `onRecentClick` 参数
+- slogan 判据从依赖 `recentPlays.isEmpty()` 改为 `searchHistory.isEmpty() && heatmap.isEmpty()`（全新用户引导）
+- **slogan 不再 `return@Column`**——全新用户也能看到快捷入口（之前 slogan 会把下面全跳过）
+
+**验证**：真机 UI dump 确认「最近播放」0 处，首页结构 = 标题 / 问候 / 搜索框 / 播放热力 / 快捷入口。
+
+### 13.12 真机验证说明（风控 -111 环境问题）
+
+**现象**：2026-08-30 晚，真机所有网络请求失败——`GenWebTicket 失败: code=-111`（搜索、稍后再看都不可用）。
+
+**分析**：
+- B 站官方错误码表无 -111 公开定义；社区经验指向「csrf 校验失败」，但在本项目场景（csrf 可空、几小时前同代码正常）不成立
+- 更合理：B 站服务端对该请求环境（IP / UA / 设备指纹组合）的**临时风控拒绝**，与 -412 同类
+
+**影响**：风控凭据是所有网络请求的前置（搜索/动态/稍后再看/收藏夹都依赖），-111 期间全部不可用。**不是代码 bug**——请求路径、错误捕获、重试按钮都符合预期。
+
+**排查建议**：等 30 分钟~几小时（临时风控过期）；切 WiFi ↔ 移动数据（换 IP）；冷启动一次（`AuthGate.invalidate()` 清旧凭据重种）；换设备排除设备指纹标记。
+

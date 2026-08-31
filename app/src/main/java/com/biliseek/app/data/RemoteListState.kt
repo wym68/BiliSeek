@@ -13,6 +13,9 @@ sealed interface TrackListId {
 
     /** UP 主投稿（M11-D）：空间投稿分页拉取。 */
     data class Uploader(val mid: Long) : TrackListId
+
+    /** 稍后再看（M12）：远程列表，一次性拉取（无分页）。 */
+    data object WatchLater : TrackListId
 }
 
 /**

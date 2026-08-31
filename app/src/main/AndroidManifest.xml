@@ -13,6 +13,14 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!--
+      Android 11+ 包可见性：仅当声明 <queries> 时才能 getPackageInfo 到指定包。
+      扫码登录一键唤起哔哩哔哩官方 App 需要查询这个包。
+    -->
+    <queries>
+        <package android:name="tv.danmaku.bili" />
+    </queries>
+
     <application
         android:name=".BiliSeekApp"
         android:allowBackup="true"

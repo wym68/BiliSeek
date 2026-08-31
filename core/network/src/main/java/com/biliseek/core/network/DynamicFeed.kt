@@ -1,6 +1,7 @@
 package com.biliseek.core.network
 
 import com.biliseek.core.network.dto.DynamicItem
+import com.biliseek.core.network.dto.DynamicStatModule
 
 /** 动态类型筛选（feed/all 的 type 参数）。 */
 object DynamicType {
@@ -21,6 +22,12 @@ data class DynamicEntry(
     val video: DynamicVideo?,
     /** 封面或首图（normalize 后）。 */
     val coverUrl: String,
+    /**
+     * 转发 / 评论 / 点赞。转发动态里是**转发者自己的**互动数，与 orig 不同——
+     * 与 BiliPai 语义一致："这条转发有多少人转了"是用户的视角，不是原作者的。
+     * 接口漏 module_stat 时为 null，UI 据此判断是否渲染底部互动栏。
+     */
+    val stat: DynamicStatModule? = null,
 )
 
 data class DynamicVideo(
@@ -29,6 +36,10 @@ data class DynamicVideo(
     val coverUrl: String,
     /** 展示文本（"03:27"），非秒。 */
     val durationText: String,
+    /** 视频播放量（"1.2万"）—— B 站已格式化，UI 直接展示 */
+    val playText: String = "",
+    /** 弹幕数（"324"） */
+    val danmakuText: String = "",
 )
 
 /** 动态类型常量（接口返回的 type 枚举值）。 */
@@ -61,6 +72,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
     if (item.idStr.isBlank()) return null
     val major = item.modules?.dynamic?.major
     val descText = item.modules?.dynamic?.desc?.text.orEmpty()
+    /** 转发者自己的互动数据。转发动态里不要混 orig 的数据（M11-C 决策）。 */
+    val stat = item.modules?.stat
 
     val base = DynamicEntry(
         idStr = item.idStr,
@@ -71,6 +84,7 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         rawType = item.type,
         video = null,
         coverUrl = "",
+        stat = stat,
     )
 
     return when (item.type) {
@@ -84,6 +98,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
                         title = stripHighlight(archive.title),
                         coverUrl = cover,
                         durationText = archive.durationText,
+                        playText = archive.stat?.play.orEmpty(),
+                        danmakuText = archive.stat?.danmaku.orEmpty(),
                     )
                 } else null,
                 coverUrl = cover,
@@ -101,6 +117,9 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
                         title = stripHighlight(origArchive.title),
                         coverUrl = normalizeCoverUrl(origArchive.cover),
                         durationText = origArchive.durationText,
+                        // 转发内嵌视频的统计仍取原视频的（B 站埋点）
+                        playText = origArchive.stat?.play.orEmpty(),
+                        danmakuText = origArchive.stat?.danmaku.orEmpty(),
                     )
                 } else null,
                 coverUrl = when {
