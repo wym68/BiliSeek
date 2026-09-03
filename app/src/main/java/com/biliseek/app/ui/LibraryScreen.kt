@@ -94,6 +94,8 @@ fun LibraryScreen(
     onFavoriteLoadMore: (Int) -> Unit = {},
     onStartLogin: () -> Unit = {},
     onCancelLogin: () -> Unit = {},
+    // ── 稍后再看 ─────────────────────────────────
+    onOpenWatchLater: () -> Unit = {},
     // ── 合集（M13-N）──────────────────────────────
     selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
     onTabSelected: (LibraryTab) -> Unit = {},
@@ -199,6 +201,37 @@ fun LibraryScreen(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
+                    // 稍后再看入口（仅登录时显示）
+                    if (session.isLoggedIn) {
+                        item(key = "watch-later") {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable(onClick = onOpenWatchLater)
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text("⏱", style = MaterialTheme.typography.bodyLarge)
+                                    Column {
+                                        Text("稍后再看", style = MaterialTheme.typography.bodyLarge)
+                                        Text(
+                                            "与 B 站「稍后再看」同步",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Text("›", style = MaterialTheme.typography.titleMedium)
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+
                     item(key = "playlist-header") {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),

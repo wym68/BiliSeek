@@ -334,6 +334,7 @@ class MainActivity : ComponentActivity() {
                                 onFavoriteLoadMore = viewModel::loadFavoritePage,
                                 onStartLogin = viewModel::startLogin,
                                 onCancelLogin = viewModel::cancelLogin,
+                                onOpenWatchLater = viewModel::openWatchLater,
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = viewModel.openedSeries.value,
