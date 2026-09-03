@@ -216,6 +216,7 @@ interface BiliApi {
         @Query("up_mid") upMid: Long,
         @Query("pn") pn: Int = 1,
         @Query("ps") ps: Int = 20,
+        @Query("platform") platform: String = "web",
     ): BiliResponse<CollectedListData>
 
     /** 合集内容（分页）。 */
