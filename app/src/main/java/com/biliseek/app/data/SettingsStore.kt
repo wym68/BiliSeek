@@ -6,10 +6,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.biliseek.core.player.AudioQuality
+import com.biliseek.core.player.PersistedSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** 起播时用哪种呈现态。 */
 enum class DefaultPresentation {
@@ -120,5 +123,36 @@ class SettingsStore(private val context: Context) {
         val KEY_LOUDNESS = booleanPreferencesKey("loudness_normalization")
         val KEY_DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val KEY_DOWNLOAD_SAF_TREE = stringPreferencesKey("download_saf_tree")
+        val KEY_LAST_SESSION = stringPreferencesKey("last_playback_session")
+
+        val json = Json { ignoreUnknownKeys = true }
+    }
+
+    // ── 播放会话持久化 ──────────────────────────────────
+
+    /** 保存播放会话。 */
+    suspend fun saveLastSession(session: PersistedSession) {
+        val jsonStr = json.encodeToString(session)
+        context.settingsDataStore.edit { p ->
+            p[KEY_LAST_SESSION] = jsonStr
+        }
+    }
+
+    /** 读取上次保存的播放会话，无则返回 null。 */
+    suspend fun getLastSession(): PersistedSession? {
+        val p = context.settingsDataStore.data.first()
+        val jsonStr = p[KEY_LAST_SESSION] ?: return null
+        return try {
+            json.decodeFromString<PersistedSession>(jsonStr)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 清除已保存的播放会话。 */
+    suspend fun clearLastSession() {
+        context.settingsDataStore.edit { p ->
+            p.remove(KEY_LAST_SESSION)
+        }
     }
 }

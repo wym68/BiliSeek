@@ -213,3 +213,56 @@ data class DownloadSource(
     val videoUrl: String?,
     val durationMs: Long,
 )
+
+// ── 播放会话持久化 ──────────────────────────────────────
+
+/**
+ * 可序列化的播放会话，用于跨进程重启恢复。
+ *
+ * 与 [PlaybackState] 的区别：只保留恢复所需的最小字段，不含 UI 状态。
+ */
+@kotlinx.serialization.Serializable
+data class PersistedSession(
+    val queue: List<PersistedTrack>,
+    val queueIndex: Int,
+    val positionMs: Long,
+    val playMode: PlayMode,
+    val presentationMode: PresentationMode,
+)
+
+/**
+ * 队列中单条曲目的可序列化表示。
+ *
+ * 与 [PlaybackRequest.Bili] 的区别：不含流解析参数，只保留元数据。
+ */
+@kotlinx.serialization.Serializable
+data class PersistedTrack(
+    val bvid: String,
+    val cid: Long,
+    val title: String,
+    val author: String,
+    val coverUrl: String,
+    val durationSec: Long,
+) {
+    companion object {
+        /** 从 [PlaybackRequest.Bili] 转换 */
+        fun fromBiliRequest(request: PlaybackRequest.Bili) = PersistedTrack(
+            bvid = request.bvid,
+            cid = request.cid ?: 0L,
+            title = request.title,
+            author = request.author,
+            coverUrl = request.coverUrl,
+            durationSec = request.durationSec,
+        )
+    }
+
+    /** 转换为 [PlaybackRequest.Bili]，用于恢复播放 */
+    fun toBiliRequest() = PlaybackRequest.Bili(
+        bvid = bvid,
+        cid = cid,
+        title = title,
+        author = author,
+        coverUrl = coverUrl,
+        durationSec = durationSec,
+    )
+}

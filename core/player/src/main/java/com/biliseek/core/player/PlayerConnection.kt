@@ -125,6 +125,12 @@ class PlayerConnection(private val context: Context) {
      */
     var coverArtProvider: (suspend (String) -> ByteArray?)? = null
 
+    /** 播放会话保存回调：`(session) -> Unit`。由 AppViewModel 注入。 */
+    var sessionSaver: (suspend (PersistedSession) -> Unit)? = null
+
+    /** 播放会话恢复回调：`() -> PersistedSession?`。由 AppViewModel 注入。 */
+    var sessionRestorer: (suspend () -> PersistedSession?)? = null
+
     /** 睡眠定时器。归本类持有：用户设完就会锁屏走开，状态不能绑 UI 生命周期。 */
     private var sleepTimer: SleepTimerSpec? = null
 
@@ -140,10 +146,18 @@ class PlayerConnection(private val context: Context) {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (recording && playbackState == Player.STATE_BUFFERING) bufferingEvents++
             if (playbackState == Player.STATE_ENDED) onTrackEnded()
+            // 停止播放时保存会话
+            if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
+                saveSession()
+            }
             pushState()
         }
 
-        override fun onIsPlayingChanged(isPlaying: Boolean) = pushState()
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            // 从播放切换到暂停时保存会话
+            if (!isPlaying) saveSession()
+            pushState()
+        }
 
         override fun onPositionDiscontinuity(
             oldPosition: Player.PositionInfo,
@@ -151,6 +165,11 @@ class PlayerConnection(private val context: Context) {
             reason: Int,
         ) {
             if (recording && reason == Player.DISCONTINUITY_REASON_SEEK) seekDiscontinuities++
+            // 切歌时保存会话
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION ||
+                reason == Player.DISCONTINUITY_REASON_REMOVE) {
+                saveSession()
+            }
             pushState()
         }
 
@@ -182,6 +201,65 @@ class PlayerConnection(private val context: Context) {
             }
         }
         pushState()
+    }
+
+    // ── 播放会话持久化 ──────────────────────────────────
+
+    /** 保存当前播放会话到持久化存储。 */
+    private fun saveSession() {
+        val saver = sessionSaver ?: return
+        if (queue.isEmpty() || queueIndex < 0) return
+        val c = controller ?: return
+        val tracks = queue.filterIsInstance<PlaybackRequest.Bili>().map {
+            PersistedTrack.fromBiliRequest(it)
+        }
+        if (tracks.isEmpty()) return
+        val session = PersistedSession(
+            queue = tracks,
+            queueIndex = queueIndex.coerceIn(0, tracks.size - 1),
+            positionMs = c.currentPosition.coerceAtLeast(0L),
+            playMode = playMode,
+            presentationMode = presentation,
+        )
+        scope?.launch { saver(session) }
+    }
+
+    /** 从持久化存储恢复播放会队列（不自动播放，仅设置队列和位置）。 */
+    suspend fun restoreSession(): Boolean {
+        val restorer = sessionRestorer ?: return false
+        val session = restorer() ?: return false
+        if (session.queue.isEmpty()) return false
+
+        queue = session.queue.map { it.toBiliRequest() }
+        queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+        playMode = session.playMode
+        presentation = session.presentationMode
+
+        // 设置到播放器但不播放
+        val c = controller ?: return false
+        val mediaItems = session.queue.map { track ->
+            MediaItem.Builder()
+                .setMediaId(track.bvid)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.author)
+                        .build()
+                )
+                .build()
+        }
+        c.setMediaItems(mediaItems, session.queueIndex, session.positionMs)
+        c.prepare()
+        c.playWhenReady = false
+        pushState()
+        return true
+    }
+
+    /** 恢复后点击播放时调用，从暂停位置开始播放。 */
+    fun resumeFromRestoredPosition() {
+        if (queue.isEmpty() || queueIndex < 0) return
+        val request = queue.getOrNull(queueIndex) ?: return
+        scope?.launch { play(request, fromQueue = true) }
     }
 
     /**

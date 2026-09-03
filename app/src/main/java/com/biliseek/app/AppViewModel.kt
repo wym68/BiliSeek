@@ -890,12 +890,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // - 失败返回 null——锁屏会显示默认音符，与改动前一致
         // - 内部已在 IO 调度器，且 [PlayerConnection] 侧还有 3s 超时兜底
         connection.coverArtProvider = { url -> fetchCoverArtBytes(url) }
+        // 播放会话持久化：跨进程重启恢复 minibar
+        connection.sessionSaver = { session -> settingsStore.saveLastSession(session) }
+        connection.sessionRestorer = { settingsStore.getLastSession() }
         viewModelScope.launch {
             settingsStore.load()
             network.sessionStore.load()
             // 老登录态（升级前登录的）没有用户名/头像，启动时补拉一次（失败不打扰）
             network.loginManager.refreshProfileIfNeeded()
             connection.connect()
+            // 恢复上次播放会话（设置队列和位置，不自动播放）
+            connection.restoreSession()
             // 登录态续期。会话已加载后再查，不阻塞 UI，失败也不打扰用户
             val outcome = network.cookieRefresher.refreshIfNeeded()
             android.util.Log.d("BiliSeekRefresh", "启动时检查登录态续期：$outcome")
