@@ -301,3 +301,47 @@ data class CollectedUpper(
     val mid: Long = 0,
     val name: String = "",
 )
+
+/** `x/space/fav/season/list` —— 追更合集内容。需登录。 */
+@Serializable
+data class CollectionSeasonData(
+    val info: CollectionSeasonInfo = CollectionSeasonInfo(),
+    val medias: List<CollectionMediaItem>? = null,
+)
+
+@Serializable
+data class CollectionSeasonInfo(
+    val id: Long = 0,
+    val season_type: Int = 0,
+    val title: String = "",
+    val cover: String = "",
+    val upper: CollectionUpper = CollectionUpper(),
+    val cnt_info: CollectionCntInfo = CollectionCntInfo(),
+    val media_count: Int = 0,
+    val intro: String = "",
+)
+
+@Serializable
+data class CollectionUpper(
+    val mid: Long = 0,
+    val name: String = "",
+)
+
+@Serializable
+data class CollectionCntInfo(
+    val collect: Int = 0,
+    val play: Int = 0,
+    val danmaku: Int = 0,
+)
+
+@Serializable
+data class CollectionMediaItem(
+    val id: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val duration: Int = 0,
+    val pubtime: Long = 0,
+    val bvid: String = "",
+    val upper: CollectionUpper = CollectionUpper(),
+    val cnt_info: CollectionCntInfo = CollectionCntInfo(),
+)

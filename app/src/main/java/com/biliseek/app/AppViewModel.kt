@@ -472,11 +472,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 isLoadingMore = loadingMore,
                 errorMessage = null,
             )
-            network.repository.seriesArchives(seriesId, page)
+            network.repository.collectionSeasonList(seriesId, page)
                 .onSuccess { result ->
                     val base = _openedSeries.value ?: return@onSuccess
+                    val archives = result.items.map { item ->
+                        SeriesArchive(
+                            bvid = item.bvid,
+                            cid = item.id,
+                            title = item.title,
+                            cover = item.cover,
+                            duration = item.duration.toLong(),
+                            author = item.upper.name,
+                        )
+                    }
                     _openedSeries.value = base.copy(
-                        items = if (loadingMore) base.items + result.items else result.items,
+                        items = if (loadingMore) base.items + archives else archives,
                         page = result.page,
                         hasMore = result.hasMore,
                         isLoading = false,

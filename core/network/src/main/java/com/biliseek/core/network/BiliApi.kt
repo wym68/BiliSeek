@@ -24,6 +24,7 @@ import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.dto.SeriesListData
 import com.biliseek.core.network.dto.SeriesPage
 import com.biliseek.core.network.dto.CollectedListData
+import com.biliseek.core.network.dto.CollectionSeasonData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -226,6 +227,14 @@ interface BiliApi {
         @Query("pn") pn: Int,
         @Query("ps") ps: Int = 20,
     ): BiliResponse<SeriesArchivesData>
+
+    /** 追更合集内容（分页）。 */
+    @GET("x/space/fav/season/list")
+    suspend fun collectionSeasonList(
+        @Query("season_id") seasonId: Long,
+        @Query("pn") pn: Int = 1,
+        @Query("ps") ps: Int = 20,
+    ): BiliResponse<CollectionSeasonData>
 
     // ── 稍后再看 ────────────────────────────────────────
 

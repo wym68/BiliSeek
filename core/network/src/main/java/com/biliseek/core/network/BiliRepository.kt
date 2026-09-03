@@ -15,6 +15,8 @@ import com.biliseek.core.network.dto.SeriesArchivesData
 import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.SeriesPage
 import com.biliseek.core.network.dto.CollectedItem
+import com.biliseek.core.network.dto.CollectionSeasonInfo
+import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
@@ -50,6 +52,14 @@ data class CollectedListPage(
     val page: Int,
     val hasMore: Boolean,
     val totalCount: Int,
+)
+
+/** 追更合集内容的一页。 */
+data class CollectionSeasonPage(
+    val info: CollectionSeasonInfo,
+    val items: List<CollectionMediaItem>,
+    val page: Int,
+    val hasMore: Boolean,
 )
 
 /** 业务数据入口。UI 层不直接碰 [BiliApi]。 */
@@ -244,6 +254,28 @@ class BiliRepository(
             items = data.list.filter { it.bvid.isNotBlank() },
             page = page,
             hasMore = data.list.size >= pageSize,
+        )
+    }
+
+    /** 追更合集内容（分页）。必须登录。 */
+    suspend fun collectionSeasonList(
+        seasonId: Long,
+        page: Int,
+        pageSize: Int = 20,
+    ): Result<CollectionSeasonPage> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.collectionSeasonList(seasonId = seasonId, pn = page, ps = pageSize)
+        require(response.code == 0) {
+            "追更合集内容失败：code=${response.code} ${response.message}"
+        }
+        val data = response.data ?: throw IllegalStateException("追更合集内容为空")
+        val medias = data.medias.orEmpty().filter { it.bvid.isNotBlank() }
+        CollectionSeasonPage(
+            info = data.info,
+            items = medias,
+            page = page,
+            hasMore = medias.size >= pageSize,
         )
     }
 
