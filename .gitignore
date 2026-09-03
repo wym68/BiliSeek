@@ -81,3 +81,6 @@ CLAUDE.local.md
 # ===== 操作系统杂项 =====
 .DS_Store
 Thumbs.db
+
+# ===== 参考 =====
+ref/

@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
@@ -105,7 +105,6 @@ fun LibraryScreen(
 ) {
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
-    var favoritesExpanded by rememberSaveable { mutableStateOf(true) }
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
 
     if (favoriteContent != null) {
@@ -156,12 +155,8 @@ fun LibraryScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                when (selectedTab) {
-                    LibraryTab.PLAYLISTS -> "音乐库"
-                    LibraryTab.FAVORITES -> "收藏夹"
-                    LibraryTab.SERIES -> "合集"
-                },
-                style = MaterialTheme.typography.titleMedium,
+                "播放列表",
+                style = MaterialTheme.typography.titleLarge,
             )
             if (downloads.any { it.isActive }) {
                 Row(
@@ -170,8 +165,9 @@ fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "${downloads.count { it.isActive }} 个",
+                        "下载中 ${downloads.count { it.isActive }} 个",
                         style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                     Text("›", style = MaterialTheme.typography.titleMedium)
                 }
@@ -195,23 +191,13 @@ fun LibraryScreen(
         // Tab 内容
         when (selectedTab) {
             LibraryTab.PLAYLISTS -> {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    favoriteSection(
-                        folders = favoriteFolders,
-                        sync = favoriteSync,
-                        loginState = loginState,
-                        session = session,
-                        onSync = onSyncFavorites,
-                        onOpen = onOpenFavorite,
-                        onStartLogin = onStartLogin,
-                        onCancelLogin = onCancelLogin,
-                        expanded = favoritesExpanded,
-                        onToggleExpanded = { favoritesExpanded = !favoritesExpanded },
-                    )
-
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
                     item(key = "playlist-header") {
                         Row(
-                            Modifier.fillMaxWidth().padding(16.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -219,10 +205,10 @@ fun LibraryScreen(
                                 Modifier.weight(1f).clickable { playlistsExpanded = !playlistsExpanded },
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("本地列表", style = MaterialTheme.typography.titleMedium)
+                                Text("本地列表", style = MaterialTheme.typography.titleSmall)
                                 Text(
                                     if (playlistsExpanded) " ▾" else " ▸",
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.labelSmall,
                                 )
                             }
                             Button(onClick = { showCreate = true }) { Text("新建") }
@@ -235,14 +221,18 @@ fun LibraryScreen(
                                 Modifier
                                     .fillMaxWidth()
                                     .clickable(onClick = onOpenDownloads)
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text("已下载", style = MaterialTheme.typography.bodyLarge)
-                                Text("${downloads.count { it.isDone }} 个 ›", style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    "${downloads.count { it.isDone }} 个 ›",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
                             }
-                            HorizontalDivider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
 
@@ -262,7 +252,7 @@ fun LibraryScreen(
                                     Modifier
                                         .fillMaxWidth()
                                         .clickable { onOpen(playlist) }
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -272,7 +262,7 @@ fun LibraryScreen(
                                         TextButton(onClick = { onDelete(playlist.id) }) { Text("删除") }
                                     }
                                 }
-                                HorizontalDivider()
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                         }
                     }
@@ -280,7 +270,10 @@ fun LibraryScreen(
             }
 
             LibraryTab.FAVORITES -> {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
                     if (!session.isLoggedIn) {
                         item(key = "favorite-login") {
                             LoginPanel(
@@ -291,7 +284,7 @@ fun LibraryScreen(
                                 onLogout = {},
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             )
-                            HorizontalDivider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     } else if (favoriteFolders.isEmpty()) {
                         item(key = "favorite-empty") {
@@ -312,7 +305,7 @@ fun LibraryScreen(
                                     )
                                 }
                             }
-                            HorizontalDivider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     } else {
                         items(favoriteFolders, key = { "favorite-${it.mediaId}" }) { folder ->
@@ -320,7 +313,7 @@ fun LibraryScreen(
                                 Modifier
                                     .fillMaxWidth()
                                     .clickable { onOpenFavorite(folder.mediaId, folder.title) }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -339,14 +332,17 @@ fun LibraryScreen(
                                 }
                                 Text("›", style = MaterialTheme.typography.titleMedium)
                             }
-                            HorizontalDivider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }
             }
 
             LibraryTab.SERIES -> {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                ) {
                     if (seriesList.isEmpty()) {
                         item(key = "series-empty") {
                             Box(
@@ -362,15 +358,15 @@ fun LibraryScreen(
                                 Modifier
                                     .fillMaxWidth()
                                     .clickable { onOpenSeries(item.id, item.title) }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                CoverThumbnail(normalizeCoverUrl(item.cover), width = 96.dp)
+                                CoverThumbnail(normalizeCoverUrl(item.cover), width = 72.dp)
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         item.title,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.bodyLarge,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -385,7 +381,7 @@ fun LibraryScreen(
                                     }
                                 }
                             }
-                            HorizontalDivider()
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                 }
@@ -515,129 +511,7 @@ private fun PlaylistDetail(
     }
 }
 
-/**
- * 收藏夹分区（M11-B），以 [LazyListScope] 扩展形式嵌入音乐库首页的单一 LazyColumn。
- *
- * 三种状态，如实呈现，不静默：
- * - 未登录：内嵌 [LoginPanel] 引导扫码（复用设置页同一组件，流程一致）
- * - 已登录但目录空：同步按钮 / 同步失败可重试
- * - 已登录有目录：目录行（封面 + 名称 + 条目数），点入拉内容
- */
-private fun LazyListScope.favoriteSection(
-    folders: List<FavoriteFolderEntity>,
-    sync: SyncState,
-    loginState: LoginState,
-    session: BiliSession,
-    onSync: () -> Unit,
-    onOpen: (Long, String) -> Unit,
-    onStartLogin: () -> Unit,
-    onCancelLogin: () -> Unit,
-    /** 折叠态：标题行常驻，目录/引导/空态隐藏（真机反馈：收藏夹多时想收起留出空间）。 */
-    expanded: Boolean = true,
-    onToggleExpanded: () -> Unit = {},
-) {
-    item(key = "favorite-header") {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier.weight(1f).clickable(onClick = onToggleExpanded),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Bilibili 收藏夹", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    if (expanded) " ▾" else " ▸",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-            }
-            when (sync) {
-                is SyncState.Syncing -> {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                }
-                is SyncState.Error -> {
-                    TextButton(onClick = onSync) { Text("重试") }
-                }
-                is SyncState.NotLoggedIn -> Unit
-                is SyncState.Idle -> {
-                    if (session.isLoggedIn && folders.isNotEmpty()) {
-                        TextButton(onClick = onSync) { Text("同步") }
-                    }
-                }
-            }
-        }
-    }
 
-    // 折叠时整个分区内容（登录引导 / 空态 / 目录行）隐藏，标题行常驻
-    if (!expanded) return
-
-    if (!session.isLoggedIn) {
-        // 登录引导：登录非强制，只有收藏夹/动态这类功能需要账号
-        item(key = "favorite-login") {
-            LoginPanel(
-                loginState = loginState,
-                session = session,
-                onStart = onStartLogin,
-                onCancel = onCancelLogin,
-                onLogout = {},
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-            HorizontalDivider()
-        }
-        return
-    }
-
-    if (folders.isEmpty()) {
-        item(key = "favorite-empty") {
-            when (sync) {
-                is SyncState.Syncing -> Unit // 标题行已有转圈
-                is SyncState.Error -> {
-                    Text(
-                        "同步失败：${sync.message}",
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                else -> {
-                    Text(
-                        "还没有收藏夹，点右上角「同步」从 B 站拉取",
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }            }
-            HorizontalDivider()
-        }
-        return
-    }
-
-    items(folders, key = { "favorite-${it.mediaId}" }) { folder ->
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable { onOpen(folder.mediaId, folder.title) }
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CoverThumbnail(folder.coverUrl, width = 56.dp)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    folder.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-            Text("›", style = MaterialTheme.typography.titleMedium)
-        }
-        HorizontalDivider()
-    }
-}
 
 /** 收藏夹内容页：分页拉取，滚动到底自动加载下一页。 */
 @Composable

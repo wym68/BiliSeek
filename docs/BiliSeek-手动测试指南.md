@@ -1,7 +1,7 @@
 # BiliSeek 手动测试指南
 
-> 版本：v3.2（补入 M8 设置页 / 音质 / 全屏）  
-> 日期：2026-08-26  
+> 版本：v3.3（补入 AVD 创建方法）  
+> 日期：2026-09-02  
 > 适用：MVP（M0–M4）+ 功能优化（M5–M8）已完成的构建  
 > 实跑记录：Part B 步骤 1–20 已在 Android 16 真机上跑通（[真机验收记录](验收记录/真机-2026-08-26.md)）；
 > M8 新增的步骤 21–23 在模拟器上跑通（[M8 验收记录](验收记录/M8-2026-08-26.md)）
@@ -52,17 +52,59 @@ adb wait-for-device
 adb shell getprop sys.boot_completed        # 返回 1 即就绪
 ```
 
+### 创建 AVD（如不存在）
 
+项目要求：API 35（Android 15）、Google APIs x86_64、Pixel 7 设备配置、4 GB RAM。
 
-虚拟机启动问题解决：
+```bash
+# 1. 确认 system-image 已安装
+sdkmanager --list | grep "system-images;android-35;google_apis;x86_64"
+# 未安装则执行：
+sdkmanager "system-images;android-35;google_apis;x86_64"
 
+# 2. 创建 AVD
+avdmanager create avd -n BiliSeek_API35 \
+  -k "system-images;android-35;google_apis;x86_64" \
+  -d "pixel_7" --force
+
+# 3. 写入项目定制配置（覆盖默认值）
+cat > ~/.android/avd/BiliSeek_API35.avd/config.ini << 'CONF'
+AvdId=BiliSeek_API35
+PlayStore.enabled=false
+abi.type=x86_64
+avd.ini.displayname=BiliSeek_API35
+avd.ini.encoding=UTF-8
+disk.dataPartition.size=4G
+hw.cpu.ncore=4
+hw.gpu.enabled=yes
+hw.gpu.mode=swiftshader_indirect
+hw.keyboard=yes
+hw.lcd.density=420
+hw.lcd.height=2400
+hw.lcd.width=1080
+hw.ramSize=4096
+hw.sdCard=yes
+hw.sdCard.size=512M
+image.sysdir.1=system-images/android-35/google_apis/x86_64/
+skin.dynamic=yes
+tag.display=Google APIs
+tag.id=google_apis
+vm.heapSize=576
+CONF
+
+# 4. 验证
+emulator -list-avds    # 应输出 BiliSeek_API35
+```
+
+### 虚拟机启动问题解决
+
+```bash
 emulator -list-avds                          # 先看 AVD 名字
 
-emulator -avd &lt;你的AVD名&gt; -no-snapshot-load    # 冷启动一次
+emulator -avd <你的AVD名> -no-snapshot-load    # 冷启动一次（跳过损坏的 snapshot）
 
-emulator -avd &lt;你的AVD名&gt; -wipe-data           # 或彻底重置
-
-
+emulator -avd <你的AVD名> -wipe-data           # 或彻底重置
+```
 
 ## A2. 安装并清空旧数据
 
