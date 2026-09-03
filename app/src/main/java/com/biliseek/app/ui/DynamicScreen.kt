@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -25,8 +26,14 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,12 +56,14 @@ import com.biliseek.core.network.dto.FollowingUp
  * 结构：筛选行（全部/仅视频 + 按 UP 筛选 chips）→ 动态流列表。
  * 未登录整页引导；视频动态可播，图文动态仅展示（不响应点击）。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DynamicScreen(
     state: DynamicUiState,
     session: BiliSession,
     loginState: LoginState,
     onInit: () -> Unit,
+    onRefresh: () -> Unit,
     onTypeFilterChange: (String) -> Unit,
     onSelectUp: (FollowingUp?) -> Unit,
     onLoadMore: () -> Unit,
@@ -64,6 +73,24 @@ fun DynamicScreen(
     onCancelLogin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var refreshMessage by remember { mutableStateOf<String?>(null) }
+    var refreshIsError by remember { mutableStateOf(false) }
+
+    // 监听刷新状态变化，显示提示
+    LaunchedEffect(state.feed.isLoading, state.feed.errorMessage) {
+        if (!state.feed.isLoading && state.feed.items.isNotEmpty()) {
+            if (state.feed.errorMessage != null) {
+                refreshMessage = "刷新失败：${state.feed.errorMessage}"
+                refreshIsError = true
+            } else if (refreshMessage == null) {
+                // 首次加载完成不显示提示
+            } else {
+                refreshMessage = "动态已刷新"
+                refreshIsError = false
+            }
+        }
+    }
+
     if (!session.isLoggedIn) {
         Column(
             Modifier.fillMaxSize().padding(16.dp),
@@ -90,68 +117,78 @@ fun DynamicScreen(
     // 登录后首次进入自动初始化（拉关注列表 + 第一页）
     LaunchedEffect(Unit) { onInit() }
 
-    Column(modifier.fillMaxSize()) {
-        DynamicFilterBar(
-            typeFilter = state.typeFilter,
-            upChips = state.upChips,
-            selectedUpMid = state.selectedUpMid,
-            onTypeFilterChange = onTypeFilterChange,
-            onSelectUp = onSelectUp,
-        )
+    val refreshState = rememberPullToRefreshState()
+    Box(modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.feed.isLoading && state.feed.items.isEmpty(),
+            onRefresh = onRefresh,
+            state = refreshState,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                DynamicFilterBar(
+                    typeFilter = state.typeFilter,
+                    upChips = state.upChips,
+                    selectedUpMid = state.selectedUpMid,
+                    onTypeFilterChange = onTypeFilterChange,
+                    onSelectUp = onSelectUp,
+                )
 
-        when {
-            state.initState is DynamicInitState.Loading &&
-                state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            }
-
-            state.initState is DynamicInitState.Error &&
-                state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            state.initState.message,
-                            Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Button(onClick = onRetryInit) { Text("重试") }
+                when {
+                    state.initState is DynamicInitState.Loading &&
+                        state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
                     }
-                }
-            }
 
-            state.feed.items.isEmpty() && !state.feed.isLoading -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text(
-                        when (state.feed.errorMessage) {
-                            null -> "没有动态" + (if (state.selectedUpMid != null) "，换个 UP 看看" else "")
-                            else -> state.feed.errorMessage
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-
-            else -> {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(state.feed.items, key = { it.idStr }) { entry ->
-                        DynamicCard(entry, onClick = { onEntryClick(entry) })
-                        HorizontalDivider()
-                    }
-                    if (state.feed.hasMore || state.feed.isLoadingMore) {
-                        item(key = "footer") {
-                            if (state.feed.hasMore && !state.feed.isLoadingMore) {
-                                LaunchedEffect(state.feedOffset) { onLoadMore() }
+                    state.initState is DynamicInitState.Error &&
+                        state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    state.initState.message,
+                                    Modifier.padding(16.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Button(onClick = onRetryInit) { Text("重试") }
                             }
-                            Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
-                                if (state.feed.isLoadingMore) {
-                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else if (state.feed.errorMessage != null) {
-                                    Text(
-                                        state.feed.errorMessage,
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                } else {
-                                    Text("加载中…", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    state.feed.items.isEmpty() && !state.feed.isLoading -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text(
+                                when (state.feed.errorMessage) {
+                                    null -> "没有动态" + (if (state.selectedUpMid != null) "，换个 UP 看看" else "")
+                                    else -> state.feed.errorMessage
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(state.feed.items, key = { it.idStr }) { entry ->
+                                DynamicCard(entry, onClick = { onEntryClick(entry) })
+                                HorizontalDivider()
+                            }
+                            if (state.feed.hasMore || state.feed.isLoadingMore) {
+                                item(key = "footer") {
+                                    if (state.feed.hasMore && !state.feed.isLoadingMore) {
+                                        LaunchedEffect(state.feedOffset) { onLoadMore() }
+                                    }
+                                    Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
+                                        if (state.feed.isLoadingMore) {
+                                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        } else if (state.feed.errorMessage != null) {
+                                            Text(
+                                                state.feed.errorMessage,
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        } else {
+                                            Text("加载中…", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -159,6 +196,11 @@ fun DynamicScreen(
                 }
             }
         }
+        RefreshStateSnackbar(
+            message = refreshMessage,
+            isError = refreshIsError,
+            onDismiss = { refreshMessage = null },
+        )
     }
 }
 

@@ -198,6 +198,7 @@ class MainActivity : ComponentActivity() {
                             session = session,
                             loginState = loginState,
                             onInit = viewModel::initDynamic,
+                            onRefresh = viewModel::initDynamic,
                             onTypeFilterChange = viewModel::setDynamicTypeFilter,
                             onSelectUp = viewModel::selectDynamicUp,
                             onLoadMore = viewModel::loadMoreDynamic,

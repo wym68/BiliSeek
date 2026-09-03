@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -116,6 +119,42 @@ fun LibraryScreen(
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
+    var favoritesRefreshMessage by remember { mutableStateOf<String?>(null) }
+    var favoritesRefreshIsError by remember { mutableStateOf(false) }
+    var seriesRefreshMessage by remember { mutableStateOf<String?>(null) }
+    var seriesRefreshIsError by remember { mutableStateOf(false) }
+
+    // 监听收藏夹同步状态变化，显示刷新提示
+    LaunchedEffect(favoriteSync) {
+        when (favoriteSync) {
+            is SyncState.Idle -> {
+                if (favoriteFolders.isNotEmpty()) {
+                    favoritesRefreshMessage = "收藏夹已刷新"
+                    favoritesRefreshIsError = false
+                }
+            }
+            is SyncState.Error -> {
+                favoritesRefreshMessage = "刷新失败：${favoriteSync.message}"
+                favoritesRefreshIsError = true
+            }
+            else -> {}
+        }
+    }
+
+    // 监听合集列表加载状态变化，显示刷新提示
+    LaunchedEffect(collectedListState.isLoading, collectedListState.errorMessage) {
+        if (!collectedListState.isLoading && collectedList.isNotEmpty()) {
+            if (collectedListState.errorMessage != null) {
+                seriesRefreshMessage = "刷新失败：${collectedListState.errorMessage}"
+                seriesRefreshIsError = true
+            } else if (seriesRefreshMessage == null) {
+                // 首次加载完成不显示提示
+            } else {
+                seriesRefreshMessage = "合集已刷新"
+                seriesRefreshIsError = false
+            }
+        }
+    }
 
     if (favoriteContent != null) {
         BackHandler(onBack = onCloseFavorite)
@@ -327,182 +366,203 @@ fun LibraryScreen(
             }
 
             LibraryTab.FAVORITES -> {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                val favoritesRefreshState = rememberPullToRefreshState()
+                PullToRefreshBox(
+                    isRefreshing = favoriteSync is SyncState.Syncing,
+                    onRefresh = onSyncFavorites,
+                    state = favoritesRefreshState,
+                    modifier = Modifier.fillMaxSize(),
                 ) {
-                    if (!session.isLoggedIn) {
-                        item(key = "favorite-login") {
-                            LoginPanel(
-                                loginState = loginState,
-                                session = session,
-                                onStart = onStartLogin,
-                                onCancel = onCancelLogin,
-                                onLogout = {},
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        }
-                    } else if (favoriteFolders.isEmpty()) {
-                        item(key = "favorite-empty") {
-                            when (favoriteSync) {
-                                is SyncState.Syncing -> Unit
-                                is SyncState.Error -> {
-                                    Text(
-                                        "同步失败：${favoriteSync.message}",
-                                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                                else -> {
-                                    Text(
-                                        "还没有收藏夹，点右上角「同步」从 B 站拉取",
-                                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        if (!session.isLoggedIn) {
+                            item(key = "favorite-login") {
+                                LoginPanel(
+                                    loginState = loginState,
+                                    session = session,
+                                    onStart = onStartLogin,
+                                    onCancel = onCancelLogin,
+                                    onLogout = {},
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        }
-                    } else {
-                        items(favoriteFolders, key = { "favorite-${it.mediaId}" }) { folder ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onOpenFavorite(folder.mediaId, folder.title) }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CoverThumbnail(folder.coverUrl, width = 56.dp)
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        folder.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
+                        } else if (favoriteFolders.isEmpty()) {
+                            item(key = "favorite-empty") {
+                                when (favoriteSync) {
+                                    is SyncState.Syncing -> Unit
+                                    is SyncState.Error -> {
+                                        Text(
+                                            "同步失败：${favoriteSync.message}",
+                                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                    else -> {
+                                        Text(
+                                            "还没有收藏夹，点右上角「同步」从 B 站拉取",
+                                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
                                 }
-                                Text("›", style = MaterialTheme.typography.titleMedium)
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        } else {
+                            items(favoriteFolders, key = { "favorite-${it.mediaId}" }) { folder ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenFavorite(folder.mediaId, folder.title) }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CoverThumbnail(folder.coverUrl, width = 56.dp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            folder.title,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                    Text("›", style = MaterialTheme.typography.titleMedium)
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
                         }
                     }
                 }
+                RefreshStateSnackbar(
+                    message = favoritesRefreshMessage,
+                    isError = favoritesRefreshIsError,
+                    onDismiss = { favoritesRefreshMessage = null },
+                )
             }
 
             LibraryTab.SERIES -> {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                val seriesRefreshState = rememberPullToRefreshState()
+                PullToRefreshBox(
+                    isRefreshing = collectedListState.isLoading && collectedList.isEmpty(),
+                    onRefresh = { onCollectedLoadMore(1) },
+                    state = seriesRefreshState,
+                    modifier = Modifier.fillMaxSize(),
                 ) {
-                    if (!session.isLoggedIn) {
-                        item(key = "series-login") {
-                            LoginPanel(
-                                loginState = loginState,
-                                session = session,
-                                onStart = onStartLogin,
-                                onCancel = onCancelLogin,
-                                onLogout = {},
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            )
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        }
-                    } else if (collectedListState.isLoading && collectedList.isEmpty()) {
-                        item(key = "series-loading") {
-                            Box(
-                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                                Alignment.Center,
-                            ) {
-                                CircularProgressIndicator()
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        if (!session.isLoggedIn) {
+                            item(key = "series-login") {
+                                LoginPanel(
+                                    loginState = loginState,
+                                    session = session,
+                                    onStart = onStartLogin,
+                                    onCancel = onCancelLogin,
+                                    onLogout = {},
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
-                        }
-                    } else if (collectedListState.errorMessage != null && collectedList.isEmpty()) {
-                        item(key = "series-error") {
-                            Box(
-                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                                Alignment.Center,
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        collectedListState.errorMessage!!,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.error,
-                                    )
-                                    Button(
-                                        onClick = { onCollectedLoadMore(1) },
-                                        modifier = Modifier.padding(top = 8.dp),
-                                    ) {
-                                        Text("重试")
-                                    }
-                                }
-                            }
-                        }
-                    } else if (collectedList.isEmpty()) {
-                        item(key = "series-empty") {
-                            Box(
-                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
-                                Alignment.Center,
-                            ) {
-                                Text("还没有订阅合集", style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    } else {
-                        items(collectedList, key = { it.id }) { item ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onOpenSeries(item.id, item.title) }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CoverThumbnail(normalizeCoverUrl(item.cover), width = 72.dp)
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        item.title,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Text(
-                                            item.upper.name,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Text(
-                                            "·",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Text(
-                                            "${item.media_count} 首",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        }
-                        if (collectedListState.hasMore) {
-                            item(key = "series-load-more") {
+                        } else if (collectedListState.isLoading && collectedList.isEmpty()) {
+                            item(key = "series-loading") {
                                 Box(
-                                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
                                     Alignment.Center,
                                 ) {
-                                    if (collectedListState.isLoadingMore) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                    } else {
-                                        LaunchedEffect(Unit) {
-                                            onCollectedLoadMore(collectedListState.page + 1)
+                                    CircularProgressIndicator()
+                                }
+                            }
+                        } else if (collectedListState.errorMessage != null && collectedList.isEmpty()) {
+                            item(key = "series-error") {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                    Alignment.Center,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            collectedListState.errorMessage!!,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                        Button(
+                                            onClick = { onCollectedLoadMore(1) },
+                                            modifier = Modifier.padding(top = 8.dp),
+                                        ) {
+                                            Text("重试")
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (collectedList.isEmpty()) {
+                            item(key = "series-empty") {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                    Alignment.Center,
+                                ) {
+                                    Text("还没有订阅合集", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        } else {
+                            items(collectedList, key = { it.id }) { item ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenSeries(item.id, item.title) }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CoverThumbnail(normalizeCoverUrl(item.cover), width = 72.dp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            item.title,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                item.upper.name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            Text(
+                                                "·",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            Text(
+                                                "${item.media_count} 首",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                            if (collectedListState.hasMore) {
+                                item(key = "series-load-more") {
+                                    Box(
+                                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                        Alignment.Center,
+                                    ) {
+                                        if (collectedListState.isLoadingMore) {
+                                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                        } else {
+                                            LaunchedEffect(Unit) {
+                                                onCollectedLoadMore(collectedListState.page + 1)
+                                            }
                                         }
                                     }
                                 }
@@ -510,6 +570,11 @@ fun LibraryScreen(
                         }
                     }
                 }
+                RefreshStateSnackbar(
+                    message = seriesRefreshMessage,
+                    isError = seriesRefreshIsError,
+                    onDismiss = { seriesRefreshMessage = null },
+                )
             }
         }
     }

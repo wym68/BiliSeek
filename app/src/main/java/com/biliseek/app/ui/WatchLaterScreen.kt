@@ -12,10 +12,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +43,7 @@ import com.biliseek.core.player.formatDuration
  * - 加载中 / 失败可重试 / 空列表：如实呈现
  * - 有数据：封面 + 标题 + UP + 进度，点击播放
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatchLaterScreen(
     state: RemoteListState<WatchLaterItem>,
@@ -47,6 +56,24 @@ fun WatchLaterScreen(
     onCancelLogin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var refreshMessage by remember { mutableStateOf<String?>(null) }
+    var refreshIsError by remember { mutableStateOf(false) }
+
+    // 监听刷新状态变化，显示提示
+    LaunchedEffect(state.isLoading, state.errorMessage) {
+        if (!state.isLoading && state.items.isNotEmpty()) {
+            if (state.errorMessage != null) {
+                refreshMessage = "刷新失败：${state.errorMessage}"
+                refreshIsError = true
+            } else if (refreshMessage == null) {
+                // 首次加载完成不显示提示
+            } else {
+                refreshMessage = "稍后再看已刷新"
+                refreshIsError = false
+            }
+        }
+    }
+
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
@@ -57,80 +84,95 @@ fun WatchLaterScreen(
             TextButton(onClick = onClose) { Text("返回") }
         }
 
-        when {
-            !session.isLoggedIn -> {
-                Box(Modifier.fillMaxSize().padding(16.dp), Alignment.Center) {
-                    LoginPanel(
-                        loginState = loginState,
-                        session = session,
-                        onStart = onStartLogin,
-                        onCancel = onCancelLogin,
-                        onLogout = {},
-                    )
-                }
-            }
-
-            state.isLoading && state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-            }
-
-            state.errorMessage != null && state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            state.errorMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                        Button(onClick = onRetry) { Text("重试") }
+        val refreshState = rememberPullToRefreshState()
+        Box(Modifier.fillMaxSize()) {
+            PullToRefreshBox(
+                isRefreshing = state.isLoading && state.items.isEmpty(),
+                onRefresh = onRetry,
+                state = refreshState,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                when {
+                    !session.isLoggedIn -> {
+                        Box(Modifier.fillMaxSize().padding(16.dp), Alignment.Center) {
+                            LoginPanel(
+                                loginState = loginState,
+                                session = session,
+                                onStart = onStartLogin,
+                                onCancel = onCancelLogin,
+                                onLogout = {},
+                            )
+                        }
                     }
-                }
-            }
 
-            state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("稍后再看是空的", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+                    state.isLoading && state.items.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                    }
 
-            else -> {
-                LazyColumn(Modifier.fillMaxWidth()) {
-                    items(state.items, key = { it.bvid }) { item ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onItemClick(item) }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            CoverThumbnail(normalizeCoverUrl(item.pic), width = 96.dp)
-                            Column(Modifier.weight(1f)) {
+                    state.errorMessage != null && state.items.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    item.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                    state.errorMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(16.dp),
                                 )
-                                Text(
-                                    buildString {
-                                        item.owner?.name?.takeIf(String::isNotBlank)?.let {
-                                            append(it); append(" · ")
-                                        }
-                                        append(formatDuration(item.duration * 1000))
-                                        if (item.progress > 0) {
-                                            append(" · 播到 ")
-                                            append(formatDuration(item.progress * 1000))
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Button(onClick = onRetry) { Text("重试") }
+                            }
+                        }
+                    }
+
+                    state.items.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text("稍后再看是空的", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(Modifier.fillMaxWidth()) {
+                            items(state.items, key = { it.bvid }) { item ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onItemClick(item) }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CoverThumbnail(normalizeCoverUrl(item.pic), width = 96.dp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            item.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            buildString {
+                                                item.owner?.name?.takeIf(String::isNotBlank)?.let {
+                                                    append(it); append(" · ")
+                                                }
+                                                append(formatDuration(item.duration * 1000))
+                                                if (item.progress > 0) {
+                                                    append(" · 播到 ")
+                                                    append(formatDuration(item.progress * 1000))
+                                                }
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            RefreshStateSnackbar(
+                message = refreshMessage,
+                isError = refreshIsError,
+                onDismiss = { refreshMessage = null },
+            )
         }
     }
 }
