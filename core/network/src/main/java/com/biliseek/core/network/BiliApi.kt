@@ -23,6 +23,7 @@ import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.dto.SeriesListData
 import com.biliseek.core.network.dto.SeriesPage
+import com.biliseek.core.network.dto.CollectedListData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -208,6 +209,14 @@ interface BiliApi {
     /** 我订阅的合集列表。必须登录。 */
     @GET("x/series/series")
     suspend fun seriesList(@Query("mid") mid: Long): BiliResponse<SeriesListData>
+
+    /** 订阅的合集/收藏夹追更列表（分页）。必须登录。 */
+    @GET("x/v3/fav/folder/collected/list")
+    suspend fun collectedList(
+        @Query("up_mid") upMid: Long,
+        @Query("pn") pn: Int = 1,
+        @Query("ps") ps: Int = 20,
+    ): BiliResponse<CollectedListData>
 
     /** 合集内容（分页）。 */
     @GET("x/series/archives")

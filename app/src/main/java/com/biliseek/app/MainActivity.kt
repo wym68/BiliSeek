@@ -144,6 +144,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 已登录且合集列表从未加载过 → 自动拉一次订阅合集列表
+                LaunchedEffect(session.isLoggedIn) {
+                    if (session.isLoggedIn && viewModel.collectedList.value.isEmpty() &&
+                        viewModel.collectedListState.value.isLoading.not()
+                    ) {
+                        viewModel.loadCollectedList(1)
+                    }
+                }
+
                 AppShell(
                     onEnterPip = { enterPip() },
                     playback = playback,
@@ -329,8 +338,10 @@ class MainActivity : ComponentActivity() {
                                 onTabSelected = onTab,
                                 openedSeries = viewModel.openedSeries.value,
                                 onCloseSeries = viewModel::closeSeries,
-                                seriesList = viewModel.seriesList.value,
+                                collectedList = viewModel.collectedList.value,
+                                collectedListState = viewModel.collectedListState.value,
                                 onOpenSeries = viewModel::openSeries,
+                                onCollectedLoadMore = viewModel::loadCollectedList,
                                 onSeriesLoadMore = viewModel::loadSeriesPage,
                                 onPlaySeriesArchive = viewModel::playSeriesArchive,
                             )

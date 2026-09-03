@@ -51,6 +51,7 @@ import com.biliseek.app.data.reorderNeighbors
 import com.biliseek.app.data.reorderTargetIndex
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.FavoriteFolderEntity
+import com.biliseek.app.data.CollectedListLoadState
 import com.biliseek.app.SyncState
 import com.biliseek.app.FavoriteTrack
 import com.biliseek.app.LoginPanel
@@ -58,6 +59,7 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
 import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.SeriesItem
+import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.player.formatDuration
 import com.biliseek.app.download.DownloadTask
@@ -97,8 +99,10 @@ fun LibraryScreen(
     onTabSelected: (LibraryTab) -> Unit = {},
     openedSeries: RemoteListState<SeriesArchive>? = null,
     onCloseSeries: () -> Unit = {},
-    seriesList: List<SeriesItem> = emptyList(),
+    collectedList: List<CollectedItem> = emptyList(),
+    collectedListState: CollectedListLoadState = CollectedListLoadState(),
     onOpenSeries: (Long, String) -> Unit = { _, _ -> },
+    onCollectedLoadMore: (Int) -> Unit = {},
     onSeriesLoadMore: (Int) -> Unit = {},
     onPlaySeriesArchive: (SeriesArchive) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -343,7 +347,49 @@ fun LibraryScreen(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
-                    if (seriesList.isEmpty()) {
+                    if (!session.isLoggedIn) {
+                        item(key = "series-login") {
+                            LoginPanel(
+                                loginState = loginState,
+                                session = session,
+                                onStart = onStartLogin,
+                                onCancel = onCancelLogin,
+                                onLogout = {},
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    } else if (collectedListState.isLoading && collectedList.isEmpty()) {
+                        item(key = "series-loading") {
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                Alignment.Center,
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
+                    } else if (collectedListState.errorMessage != null && collectedList.isEmpty()) {
+                        item(key = "series-error") {
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        collectedListState.errorMessage!!,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    Button(
+                                        onClick = { onCollectedLoadMore(1) },
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    ) {
+                                        Text("重试")
+                                    }
+                                }
+                            }
+                        }
+                    } else if (collectedList.isEmpty()) {
                         item(key = "series-empty") {
                             Box(
                                 Modifier.fillMaxWidth().padding(vertical = 24.dp),
@@ -353,7 +399,7 @@ fun LibraryScreen(
                             }
                         }
                     } else {
-                        items(seriesList, key = { it.id }) { item ->
+                        items(collectedList, key = { it.id }) { item ->
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -370,18 +416,44 @@ fun LibraryScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    item.description.takeIf(String::isNotBlank)?.let { desc ->
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
                                         Text(
-                                            desc,
+                                            item.upper.name,
                                             style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            "·",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            "${item.media_count} 首",
+                                            style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
                                 }
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                        if (collectedListState.hasMore) {
+                            item(key = "series-load-more") {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    Alignment.Center,
+                                ) {
+                                    if (collectedListState.isLoadingMore) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                    } else {
+                                        LaunchedEffect(Unit) {
+                                            onCollectedLoadMore(collectedListState.page + 1)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

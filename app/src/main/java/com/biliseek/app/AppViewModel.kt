@@ -21,6 +21,7 @@ import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.dto.SeriesArchive
+import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.SeriesArchivesPage
 import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
@@ -48,6 +49,7 @@ import com.biliseek.app.data.resolveVideoGate
 import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.data.RemoteListState
+import com.biliseek.app.data.CollectedListLoadState
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.DynamicItemType
@@ -399,20 +401,50 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── 合集（M13-N）────────────────────────────────
 
-    /** 订阅合集列表。 */
-    private val _seriesList = MutableStateFlow<List<SeriesItem>>(emptyList())
-    val seriesList: StateFlow<List<SeriesItem>> = _seriesList.asStateFlow()
+    /** 订阅合集列表（分页）。 */
+    private val _collectedList = MutableStateFlow<List<CollectedItem>>(emptyList())
+    val collectedList: StateFlow<List<CollectedItem>> = _collectedList.asStateFlow()
 
     /** 当前打开的合集内容页（分页拉取，不落库）。 */
     private val _openedSeries = MutableStateFlow<RemoteListState<SeriesArchive>?>(null)
     val openedSeries: StateFlow<RemoteListState<SeriesArchive>?> = _openedSeries.asStateFlow()
 
-    /** 加载订阅合集列表。 */
-    fun loadSeriesList() {
+    /** 订阅合集列表加载状态。 */
+    private val _collectedListState = MutableStateFlow(CollectedListLoadState())
+    val collectedListState: StateFlow<CollectedListLoadState> = _collectedListState.asStateFlow()
+
+    /** 加载订阅合集列表第 [page] 页。 */
+    fun loadCollectedList(page: Int = 1) {
+        val mid = session.value.dedeUserId.toLongOrNull() ?: return
+        val state = _collectedListState.value
+        if (state.isLoading || state.isLoadingMore) return
+        if (page > 1 && !state.hasMore) return
         viewModelScope.launch {
-            network.repository.seriesList(session.value.dedeUserId.toLong())
-                .onSuccess { _seriesList.value = it }
-                .onFailure { /* 静默降级 */ }
+            val loadingMore = page > 1
+            _collectedListState.value = state.copy(
+                isLoading = !loadingMore,
+                isLoadingMore = loadingMore,
+                errorMessage = null,
+            )
+            network.repository.collectedList(mid, page)
+                .onSuccess { result ->
+                    val base = _collectedListState.value
+                    _collectedList.value = if (loadingMore) _collectedList.value + result.items else result.items
+                    _collectedListState.value = base.copy(
+                        page = result.page,
+                        hasMore = result.hasMore,
+                        totalCount = result.totalCount,
+                        isLoading = false,
+                        isLoadingMore = false,
+                    )
+                }
+                .onFailure {
+                    _collectedListState.value = _collectedListState.value.copy(
+                        isLoading = false,
+                        isLoadingMore = false,
+                        errorMessage = it.message ?: "加载失败",
+                    )
+                }
         }
     }
 

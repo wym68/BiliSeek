@@ -45,3 +45,13 @@ data class RemoteListState<T>(
         fun <T> empty() = RemoteListState<T>()
     }
 }
+
+/** 订阅合集列表的加载状态。 */
+data class CollectedListLoadState(
+    val page: Int = 1,
+    val hasMore: Boolean = false,
+    val totalCount: Int = 0,
+    val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val errorMessage: String? = null,
+)

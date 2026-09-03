@@ -14,6 +14,7 @@ import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.dto.SeriesArchivesData
 import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.SeriesPage
+import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.resolveRetryAction
@@ -41,6 +42,14 @@ data class SeriesArchivesPage(
     val items: List<SeriesArchive>,
     val page: Int,
     val hasMore: Boolean,
+)
+
+/** 订阅合集列表的一页。 */
+data class CollectedListPage(
+    val items: List<CollectedItem>,
+    val page: Int,
+    val hasMore: Boolean,
+    val totalCount: Int,
 )
 
 /** 业务数据入口。UI 层不直接碰 [BiliApi]。 */
@@ -195,6 +204,27 @@ class BiliRepository(
             "合集列表失败：code=${response.code} ${response.message}"
         }
         response.data?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
+    }
+
+    /** 订阅合集列表（分页）。必须登录。 */
+    suspend fun collectedList(
+        mid: Long,
+        page: Int,
+        pageSize: Int = 20,
+    ): Result<CollectedListPage> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val response = api.collectedList(upMid = mid, pn = page, ps = pageSize)
+        require(response.code == 0) {
+            "订阅合集列表失败：code=${response.code} ${response.message}"
+        }
+        val data = response.data ?: throw IllegalStateException("订阅合集列表为空")
+        CollectedListPage(
+            items = data.list.filter { it.id > 0 && it.title.isNotBlank() },
+            page = page,
+            hasMore = data.has_more,
+            totalCount = data.count,
+        )
     }
 
     /** 合集内容（分页，`ps ≤ 20`）。必须登录。 */

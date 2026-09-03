@@ -272,3 +272,32 @@ data class SeriesPage(
     val ps: Int = 20,
     val count: Int = 0,
 )
+
+// ── 订阅合集（x/v3/fav/folder/collected/list）────────────
+
+/** `x/v3/fav/folder/collected/list` —— 用户订阅的合集/收藏夹追更列表。需登录。 */
+@Serializable
+data class CollectedListData(
+    val count: Int = 0,
+    val list: List<CollectedItem> = emptyList(),
+    val has_more: Boolean = false,
+)
+
+@Serializable
+data class CollectedItem(
+    val id: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val upper: CollectedUpper = CollectedUpper(),
+    val media_count: Int = 0,
+    val ctime: Long = 0,
+    val intro: String = "",
+    val attr: Int = 0,
+    val state: Int = 0,
+)
+
+@Serializable
+data class CollectedUpper(
+    val mid: Long = 0,
+    val name: String = "",
+)
