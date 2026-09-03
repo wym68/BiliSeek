@@ -99,10 +99,11 @@ fun AppShell(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination
-    // MiniPlayer 常驻显示：只要有播放内容就显示，不受当前 route 限制。
-    // 仅全屏模式下隐藏（全屏覆盖整个屏幕）。
+    // MiniPlayer 常驻显示：只要有播放内容就显示。
+    // 全屏模式或正在播放页（PLAYER route）时隐藏。
     val showMiniPlayer = playback.mode != PlaybackMode.IDLE &&
-        expansion != PlayerExpansion.FULLSCREEN
+        expansion != PlayerExpansion.FULLSCREEN &&
+        currentRoute?.route != Destination.PLAYER.route
 
     // 只拦全屏态的返回。EXPANDED 已变为 PLAYER destination，由 NavController pop 处理。
     BackHandler(enabled = expansion == PlayerExpansion.FULLSCREEN) {

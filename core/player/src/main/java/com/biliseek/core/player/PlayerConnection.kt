@@ -236,41 +236,44 @@ class PlayerConnection(private val context: Context) {
         if (session.queue.isEmpty()) return false
 
         isRestoring = true
-        queue = session.queue.map { it.toBiliRequest() }
-        queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
-        playMode = session.playMode
-        presentation = session.presentationMode
+        try {
+            queue = session.queue.map { it.toBiliRequest() }
+            queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+            playMode = session.playMode
+            presentation = session.presentationMode
 
-        // 从当前曲目推导 state 元数据，确保 minibar 显示正确信息
-        val current = session.queue.getOrNull(queueIndex)
-        if (current != null) {
-            _state.value = _state.value.copy(
-                title = current.title,
-                bvid = current.bvid,
-                cid = current.cid,
-                coverUrl = current.coverUrl,
-            )
-        }
-
-        // 设置到播放器但不播放
-        val c = controller ?: run { isRestoring = false; return false }
-        val mediaItems = session.queue.map { track ->
-            MediaItem.Builder()
-                .setMediaId(track.bvid)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.author)
-                        .build()
+            // 从当前曲目推导 state 元数据，确保 minibar 显示正确信息
+            val current = session.queue.getOrNull(queueIndex)
+            if (current != null) {
+                _state.value = _state.value.copy(
+                    title = current.title,
+                    bvid = current.bvid,
+                    cid = current.cid,
+                    coverUrl = current.coverUrl,
                 )
-                .build()
+            }
+
+            // 设置到播放器但不播放
+            val c = controller ?: return false
+            val mediaItems = session.queue.map { track ->
+                MediaItem.Builder()
+                    .setMediaId(track.bvid)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.author)
+                            .build()
+                    )
+                    .build()
+            }
+            c.setMediaItems(mediaItems, session.queueIndex, session.positionMs)
+            c.prepare()
+            c.playWhenReady = false
+            pushState()
+            return true
+        } finally {
+            isRestoring = false
         }
-        c.setMediaItems(mediaItems, session.queueIndex, session.positionMs)
-        c.prepare()
-        c.playWhenReady = false
-        pushState()
-        isRestoring = false
-        return true
     }
 
     /** 恢复后点击播放时调用，从暂停位置开始播放。 */
@@ -556,6 +559,8 @@ class PlayerConnection(private val context: Context) {
      * 这不是特例判断，而是「NONE 才回落」的自然结果。
      */
     fun onEnterBackground() {
+        // 进后台时强制保存会话，确保进程被杀前数据已落盘
+        saveSession()
         val target = com.biliseek.core.player.internal
             .resolvePresentationOnEnterBackground(presentation)
         if (target != presentation) setPresentation(target)
