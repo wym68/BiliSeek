@@ -209,7 +209,7 @@ class PlayerConnection(private val context: Context) {
     // ── 播放会话持久化 ──────────────────────────────────
 
     /** 保存当前播放会话到持久化存储。 */
-    private fun saveSession() {
+    fun saveSession() {
         if (isRestoring) return
         val saver = sessionSaver ?: return
         if (queue.isEmpty() || queueIndex < 0) return
@@ -540,6 +540,8 @@ class PlayerConnection(private val context: Context) {
 
     /** 播完自动推进。与手动切歌不同：单曲循环下这里原地重播。 */
     private fun onTrackEnded() {
+        // 恢复期间不推进队列
+        if (isRestoring) return
         // 「播完当前曲目再停」优先于播放模式——单曲循环下也必须真的停下来
         if (shouldStopOnTrackEnd(sleepTimer)) {
             sleepTimer = null

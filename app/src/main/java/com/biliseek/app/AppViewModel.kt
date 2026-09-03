@@ -2,6 +2,9 @@ package com.biliseek.app
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.network.BiliSession
@@ -907,6 +910,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // 中断的下载任务捞回队列（续传 / 重试）
             downloadManager.resumePending()
         }
+        // 进后台时强制保存播放会话，确保进程被杀前数据已落盘
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                connection.saveSession()
+            }
+        })
     }
 
     /** content:// 与 file:// 都存在性检查（SAF 走 DocumentsProvider 查询）。 */
@@ -1556,6 +1565,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         pollJob?.cancel()
+        // 进程死亡前强制保存播放会话
+        connection.saveSession()
         connection.release()
         super.onCleared()
     }
