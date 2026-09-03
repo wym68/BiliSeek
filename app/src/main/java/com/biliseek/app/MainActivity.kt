@@ -219,19 +219,6 @@ class MainActivity : ComponentActivity() {
                                 onClose = viewModel::closeDayHistory,
                                 onEntryClick = viewModel::playDayHistoryEntry,
                             )
-                        } else if (watchLater != null) {
-                            // 稍后再看页（M12）：从首页快捷入口进入
-                            BackHandler(onBack = viewModel::closeWatchLater)
-                            WatchLaterScreen(
-                                state = watchLater!!,
-                                session = session,
-                                loginState = loginState,
-                                onClose = viewModel::closeWatchLater,
-                                onRetry = viewModel::retryWatchLater,
-                                onItemClick = viewModel::playWatchLaterItem,
-                                onStartLogin = viewModel::startLogin,
-                                onCancelLogin = viewModel::cancelLogin,
-                            )
                         } else if (upSpace.up != null) {
                             // 系统返回手势应收起空间页，而不是弹走导航栈（tab 内状态）
                             BackHandler(onBack = viewModel::closeUpSpace)
@@ -334,7 +321,11 @@ class MainActivity : ComponentActivity() {
                                 onFavoriteLoadMore = viewModel::loadFavoritePage,
                                 onStartLogin = viewModel::startLogin,
                                 onCancelLogin = viewModel::cancelLogin,
+                                watchLaterContent = watchLater,
                                 onOpenWatchLater = viewModel::openWatchLater,
+                                onCloseWatchLater = viewModel::closeWatchLater,
+                                onWatchLaterRetry = viewModel::retryWatchLater,
+                                onWatchLaterItemClick = viewModel::playWatchLaterItem,
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = viewModel.openedSeries.value,

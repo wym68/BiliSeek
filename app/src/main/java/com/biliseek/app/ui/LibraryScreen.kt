@@ -95,7 +95,11 @@ fun LibraryScreen(
     onStartLogin: () -> Unit = {},
     onCancelLogin: () -> Unit = {},
     // ── 稍后再看 ─────────────────────────────────
+    watchLaterContent: RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>? = null,
     onOpenWatchLater: () -> Unit = {},
+    onCloseWatchLater: () -> Unit = {},
+    onWatchLaterRetry: () -> Unit = {},
+    onWatchLaterItemClick: (com.biliseek.core.network.dto.WatchLaterItem) -> Unit = {},
     // ── 合集（M13-N）──────────────────────────────
     selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
     onTabSelected: (LibraryTab) -> Unit = {},
@@ -146,6 +150,22 @@ fun LibraryScreen(
             onClose = onCloseSeries,
             onItemClick = onPlaySeriesArchive,
             onLoadMore = onSeriesLoadMore,
+            modifier = modifier,
+        )
+        return
+    }
+
+    if (watchLaterContent != null) {
+        BackHandler(onBack = onCloseWatchLater)
+        WatchLaterScreen(
+            state = watchLaterContent,
+            session = session,
+            loginState = loginState,
+            onClose = onCloseWatchLater,
+            onRetry = onWatchLaterRetry,
+            onItemClick = onWatchLaterItemClick,
+            onStartLogin = onStartLogin,
+            onCancelLogin = onCancelLogin,
             modifier = modifier,
         )
         return
