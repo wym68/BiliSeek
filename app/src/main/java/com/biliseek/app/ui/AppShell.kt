@@ -23,6 +23,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.biliseek.core.player.PlaybackMode
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
@@ -98,12 +99,9 @@ fun AppShell(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination
-    // MiniPlayer 是否显示：
-    // - 不在 PLAYER route（player route 是全屏，不该在底下叠 MiniPlayer）
-    // - 不在 FULLSCREEN 状态（全屏是顶级 overlay，画面全被填满）
-    // 不再以 `expansion == COLLAPSED` 为依据：M12-A 之后 EXPANDED 是历史状态，
-    // 取 currentRoute 才是唯一可靠信号。
-    val showMiniPlayer = currentRoute?.route != Destination.PLAYER.route &&
+    // MiniPlayer 常驻显示：只要有播放内容就显示，不受当前 route 限制。
+    // 仅全屏模式下隐藏（全屏覆盖整个屏幕）。
+    val showMiniPlayer = playback.mode != PlaybackMode.IDLE &&
         expansion != PlayerExpansion.FULLSCREEN
 
     // 只拦全屏态的返回。EXPANDED 已变为 PLAYER destination，由 NavController pop 处理。
@@ -111,15 +109,7 @@ fun AppShell(
         onExpansionChange(PlayerExpansion.EXPANDED)
     }
 
-    // 起播即展开：push PLAYER destination。launchSingleTop 避免连续点同一首堆叠。
-    // 之前这里在 MainActivity 里用 expansion 状态机控制；现在走 nav 栈。
-    LaunchedEffect(playbackStarted) {
-        playbackStarted.collect {
-            navController.navigate(Destination.PLAYER.route) {
-                launchSingleTop = true
-            }
-        }
-    }
+    // 起播不再自动跳转播放页——minibar 常驻显示曲目信息，点击 minibar 才进播放页。
 
     // 程序化 tab 切换（快捷入口「近期歌单」）。
     LaunchedEffect(tabSwitchRequests) {

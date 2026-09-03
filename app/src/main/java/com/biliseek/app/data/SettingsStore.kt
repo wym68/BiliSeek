@@ -123,25 +123,31 @@ class SettingsStore(private val context: Context) {
         val KEY_LOUDNESS = booleanPreferencesKey("loudness_normalization")
         val KEY_DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val KEY_DOWNLOAD_SAF_TREE = stringPreferencesKey("download_saf_tree")
-        val KEY_LAST_SESSION = stringPreferencesKey("last_playback_session")
+        const val KEY_LAST_SESSION = "last_playback_session"
 
         val json = Json { ignoreUnknownKeys = true }
     }
 
-    // ── 播放会话持久化 ──────────────────────────────────
+    // ── 播放会话持久化（SharedPreferences，保证进程被杀前数据已落盘） ──
 
-    /** 保存播放会话。 */
-    suspend fun saveLastSession(session: PersistedSession) {
+    private val sessionPrefs by lazy {
+        context.getSharedPreferences("biliseek_session", Context.MODE_PRIVATE)
+    }
+
+    /** 保存播放会话。使用 commit() 同步写入磁盘，确保进程被杀前数据已落盘。 */
+    fun saveLastSessionSync(session: PersistedSession) {
         val jsonStr = json.encodeToString(session)
-        context.settingsDataStore.edit { p ->
-            p[KEY_LAST_SESSION] = jsonStr
-        }
+        sessionPrefs.edit().putString(KEY_LAST_SESSION, jsonStr).commit()
+    }
+
+    /** 保存播放会话（挂起封装）。 */
+    suspend fun saveLastSession(session: PersistedSession) {
+        saveLastSessionSync(session)
     }
 
     /** 读取上次保存的播放会话，无则返回 null。 */
-    suspend fun getLastSession(): PersistedSession? {
-        val p = context.settingsDataStore.data.first()
-        val jsonStr = p[KEY_LAST_SESSION] ?: return null
+    fun getLastSessionSync(): PersistedSession? {
+        val jsonStr = sessionPrefs.getString(KEY_LAST_SESSION, null) ?: return null
         return try {
             json.decodeFromString<PersistedSession>(jsonStr)
         } catch (e: Exception) {
@@ -149,10 +155,16 @@ class SettingsStore(private val context: Context) {
         }
     }
 
+    /** 读取上次保存的播放会话（挂起封装）。 */
+    suspend fun getLastSession(): PersistedSession? = getLastSessionSync()
+
     /** 清除已保存的播放会话。 */
+    fun clearLastSessionSync() {
+        sessionPrefs.edit().remove(KEY_LAST_SESSION).commit()
+    }
+
+    /** 清除已保存的播放会话（挂起封装）。 */
     suspend fun clearLastSession() {
-        context.settingsDataStore.edit { p ->
-            p.remove(KEY_LAST_SESSION)
-        }
+        clearLastSessionSync()
     }
 }

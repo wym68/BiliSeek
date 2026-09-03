@@ -73,6 +73,9 @@ class PlayerConnection(private val context: Context) {
     private var queueIndex: Int = -1
     private var playMode: PlayMode = PlayMode.SEQUENTIAL
 
+    /** 恢复会话期间抑制 saveSession，防止空数据覆盖正确 session。 */
+    private var isRestoring: Boolean = false
+
     /** 起播时定位到的历史位置，由外部提供（续播）。 */
     var resumePositionProvider: (suspend (String, Long) -> Long)? = null
 
@@ -125,11 +128,11 @@ class PlayerConnection(private val context: Context) {
      */
     var coverArtProvider: (suspend (String) -> ByteArray?)? = null
 
-    /** 播放会话保存回调：`(session) -> Unit`。由 AppViewModel 注入。 */
-    var sessionSaver: (suspend (PersistedSession) -> Unit)? = null
+    /** 播放会话保存回调：`(session) -> Unit`。由 AppViewModel 注入。同步调用。 */
+    var sessionSaver: ((PersistedSession) -> Unit)? = null
 
-    /** 播放会话恢复回调：`() -> PersistedSession?`。由 AppViewModel 注入。 */
-    var sessionRestorer: (suspend () -> PersistedSession?)? = null
+    /** 播放会话恢复回调：`() -> PersistedSession?`。由 AppViewModel 注入。同步调用。 */
+    var sessionRestorer: (() -> PersistedSession?)? = null
 
     /** 睡眠定时器。归本类持有：用户设完就会锁屏走开，状态不能绑 UI 生命周期。 */
     private var sleepTimer: SleepTimerSpec? = null
@@ -207,6 +210,7 @@ class PlayerConnection(private val context: Context) {
 
     /** 保存当前播放会话到持久化存储。 */
     private fun saveSession() {
+        if (isRestoring) return
         val saver = sessionSaver ?: return
         if (queue.isEmpty() || queueIndex < 0) return
         val c = controller ?: return
@@ -221,7 +225,8 @@ class PlayerConnection(private val context: Context) {
             playMode = playMode,
             presentationMode = presentation,
         )
-        scope?.launch { saver(session) }
+        // 同步保存，确保进程被杀前数据已落盘
+        saver(session)
     }
 
     /** 从持久化存储恢复播放会队列（不自动播放，仅设置队列和位置）。 */
@@ -230,13 +235,25 @@ class PlayerConnection(private val context: Context) {
         val session = restorer() ?: return false
         if (session.queue.isEmpty()) return false
 
+        isRestoring = true
         queue = session.queue.map { it.toBiliRequest() }
         queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
         playMode = session.playMode
         presentation = session.presentationMode
 
+        // 从当前曲目推导 state 元数据，确保 minibar 显示正确信息
+        val current = session.queue.getOrNull(queueIndex)
+        if (current != null) {
+            _state.value = _state.value.copy(
+                title = current.title,
+                bvid = current.bvid,
+                cid = current.cid,
+                coverUrl = current.coverUrl,
+            )
+        }
+
         // 设置到播放器但不播放
-        val c = controller ?: return false
+        val c = controller ?: run { isRestoring = false; return false }
         val mediaItems = session.queue.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.bvid)
@@ -252,6 +269,7 @@ class PlayerConnection(private val context: Context) {
         c.prepare()
         c.playWhenReady = false
         pushState()
+        isRestoring = false
         return true
     }
 
@@ -694,6 +712,8 @@ class PlayerConnection(private val context: Context) {
         val videoSelected = c.currentTracks.groups.any { group ->
             group.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && group.isSelected
         }
+        // 从当前队列条目推导元数据
+        val currentTrack = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili
         _state.value = _state.value.copy(
             mode = resolvePlaybackMode(presentation, hasMedia),
             presentation = presentation,
@@ -702,6 +722,10 @@ class PlayerConnection(private val context: Context) {
             positionMs = c.currentPosition.coerceAtLeast(0L),
             durationMs = c.duration.takeIf { it > 0 } ?: 0L,
             videoTrackSelected = videoSelected,
+            title = currentTrack?.title.orEmpty(),
+            bvid = currentTrack?.bvid.orEmpty(),
+            cid = currentTrack?.cid ?: 0L,
+            coverUrl = currentTrack?.coverUrl.orEmpty(),
             queue = queue,
             queueIndex = queueIndex,
             playMode = playMode,

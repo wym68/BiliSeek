@@ -891,8 +891,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // - 内部已在 IO 调度器，且 [PlayerConnection] 侧还有 3s 超时兜底
         connection.coverArtProvider = { url -> fetchCoverArtBytes(url) }
         // 播放会话持久化：跨进程重启恢复 minibar
-        connection.sessionSaver = { session -> settingsStore.saveLastSession(session) }
-        connection.sessionRestorer = { settingsStore.getLastSession() }
+        connection.sessionSaver = { session -> settingsStore.saveLastSessionSync(session) }
+        connection.sessionRestorer = { settingsStore.getLastSessionSync() }
         viewModelScope.launch {
             settingsStore.load()
             network.sessionStore.load()
