@@ -73,8 +73,12 @@ class PlayerConnection(private val context: Context) {
     private var queueIndex: Int = -1
     private var playMode: PlayMode = PlayMode.SEQUENTIAL
 
-    /** 恢复会话期间抑制 saveSession，防止空数据覆盖正确 session。 */
-    private var isRestoring: Boolean = false
+    /** 已从持久化恢复队列（尚未起播）。用于 pushState 中 hasMedia 判断，
+     *  以及 togglePlayPause 时改走「取流续播」而非直接 play controller。 */
+    private var hasRestoredQueue: Boolean = false
+
+    /** 恢复会话时记下的上次播放位置，供 [resumeFromRestoredPosition] 续播。 */
+    private var restoredPositionMs: Long = 0L
 
     /** 起播时定位到的历史位置，由外部提供（续播）。 */
     var resumePositionProvider: (suspend (String, Long) -> Long)? = null
@@ -210,7 +214,6 @@ class PlayerConnection(private val context: Context) {
 
     /** 保存当前播放会话到持久化存储。 */
     fun saveSession() {
-        if (isRestoring) return
         val saver = sessionSaver ?: return
         if (queue.isEmpty() || queueIndex < 0) return
         val c = controller ?: return
@@ -229,58 +232,46 @@ class PlayerConnection(private val context: Context) {
         saver(session)
     }
 
-    /** 从持久化存储恢复播放会队列（不自动播放，仅设置队列和位置）。 */
-    suspend fun restoreSession(): Boolean {
+    /**
+     * 从持久化恢复上次会话，**只碰内存、不碰播放器**。
+     *
+     * 恢复后 minibar 立即显示暂停态曲目；用户按下播放才走 [resumeFromRestoredPosition]
+     * 真正取流。刻意不给播放器塞媒体项——URI-less 的假 MediaItem `prepare()` 会进
+     * error/IDLE，再靠时序窗口去压回调，得不偿失；也避免每次开 App 都向 B 站取流。
+     */
+    fun restoreSession(): Boolean {
         val restorer = sessionRestorer ?: return false
         val session = restorer() ?: return false
         if (session.queue.isEmpty()) return false
 
-        isRestoring = true
-        try {
-            queue = session.queue.map { it.toBiliRequest() }
-            queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
-            playMode = session.playMode
-            presentation = session.presentationMode
+        queue = session.queue.map { it.toBiliRequest() }
+        queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
+        playMode = session.playMode
+        presentation = session.presentationMode
+        restoredPositionMs = session.positionMs.coerceAtLeast(0L)
+        // 仅在播放器为空时才算「冷恢复」。服务在进程被杀后仍存活时，controller 已连到
+        // 有媒体的活会话——若此时也标记，暂停键会误走取流续播（卡顿后重启），而非暂停。
+        hasRestoredQueue = (controller?.mediaItemCount ?: 0) == 0
 
-            // 从当前曲目推导 state 元数据，确保 minibar 显示正确信息
-            val current = session.queue.getOrNull(queueIndex)
-            if (current != null) {
-                _state.value = _state.value.copy(
-                    title = current.title,
-                    bvid = current.bvid,
-                    cid = current.cid,
-                    coverUrl = current.coverUrl,
-                )
-            }
-
-            // 设置到播放器但不播放
-            val c = controller ?: return false
-            val mediaItems = session.queue.map { track ->
-                MediaItem.Builder()
-                    .setMediaId(track.bvid)
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(track.title)
-                            .setArtist(track.author)
-                            .build()
-                    )
-                    .build()
-            }
-            c.setMediaItems(mediaItems, session.queueIndex, session.positionMs)
-            c.prepare()
-            c.playWhenReady = false
-            pushState()
-            return true
-        } finally {
-            isRestoring = false
+        // 从当前曲目推导 state 元数据，确保 minibar 立即显示正确信息
+        val current = session.queue.getOrNull(queueIndex)
+        if (current != null) {
+            _state.value = _state.value.copy(
+                title = current.title,
+                bvid = current.bvid,
+                cid = current.cid,
+                coverUrl = current.coverUrl,
+                mode = resolvePlaybackMode(presentation, true),
+            )
         }
+        return true
     }
 
-    /** 恢复后点击播放时调用，从暂停位置开始播放。 */
+    /** 恢复后点击播放时调用：从上次位置取流续播。 */
     fun resumeFromRestoredPosition() {
-        if (queue.isEmpty() || queueIndex < 0) return
         val request = queue.getOrNull(queueIndex) ?: return
-        scope?.launch { play(request, fromQueue = true) }
+        val position = restoredPositionMs
+        scope?.launch { play(request, fromQueue = true, startPositionOverride = position) }
     }
 
     /**
@@ -306,6 +297,8 @@ class PlayerConnection(private val context: Context) {
             queue = listOf(request)
             queueIndex = 0
         }
+        // 用户开始播放，清除恢复队列标志
+        hasRestoredQueue = false
         _state.value = _state.value.copy(isResolving = true, error = null)
 
         // 先落库再取流，顺序不能反（见 trackStartRecorder 的说明）
@@ -540,8 +533,6 @@ class PlayerConnection(private val context: Context) {
 
     /** 播完自动推进。与手动切歌不同：单曲循环下这里原地重播。 */
     private fun onTrackEnded() {
-        // 恢复期间不推进队列
-        if (isRestoring) return
         // 「播完当前曲目再停」优先于播放模式——单曲循环下也必须真的停下来
         if (shouldStopOnTrackEnd(sleepTimer)) {
             sleepTimer = null
@@ -570,6 +561,12 @@ class PlayerConnection(private val context: Context) {
 
     fun togglePlayPause() {
         val c = controller ?: return
+        // 冷恢复：播放器里没有已加载媒体，但内存有恢复的队列 → 取流续播。
+        // 以 controller 实况（mediaItemCount）兜底，杜绝对存活的活会话误发续播。
+        if (c.mediaItemCount == 0 && hasRestoredQueue) {
+            resumeFromRestoredPosition()
+            return
+        }
         if (c.isPlaying) c.pause() else c.play()
     }
 
@@ -715,7 +712,8 @@ class PlayerConnection(private val context: Context) {
         val c = controller ?: return
         checkSleepTimer()
         val now = System.currentTimeMillis()
-        val hasMedia = c.mediaItemCount > 0
+        // hasMedia: player 有媒体项，或已从持久化恢复队列
+        val hasMedia = c.mediaItemCount > 0 || hasRestoredQueue
         val videoSelected = c.currentTracks.groups.any { group ->
             group.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && group.isSelected
         }

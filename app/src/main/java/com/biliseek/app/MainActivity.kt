@@ -102,6 +102,9 @@ class MainActivity : ComponentActivity() {
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
                 val downloadTasks by viewModel.downloadTasks.collectAsState()
+                val openedSeries by viewModel.openedSeries.collectAsState()
+                val collectedList by viewModel.collectedList.collectAsState()
+                val collectedListState by viewModel.collectedListState.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置
@@ -329,10 +332,10 @@ class MainActivity : ComponentActivity() {
                                 onWatchLaterItemClick = viewModel::playWatchLaterItem,
                                 selectedTab = tab,
                                 onTabSelected = onTab,
-                                openedSeries = viewModel.openedSeries.value,
+                                openedSeries = openedSeries,
                                 onCloseSeries = viewModel::closeSeries,
-                                collectedList = viewModel.collectedList.value,
-                                collectedListState = viewModel.collectedListState.value,
+                                collectedList = collectedList,
+                                collectedListState = collectedListState,
                                 onOpenSeries = viewModel::openSeries,
                                 onCollectedLoadMore = viewModel::loadCollectedList,
                                 onSeriesLoadMore = viewModel::loadSeriesPage,
