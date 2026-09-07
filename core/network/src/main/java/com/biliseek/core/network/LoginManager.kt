@@ -1,6 +1,9 @@
 package com.biliseek.core.network
 
 import android.util.Log
+import com.biliseek.core.network.internal.CredentialSource
+import com.biliseek.core.network.internal.parseLoginBuvids
+import com.biliseek.core.network.internal.resolveCredentialSource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +37,7 @@ sealed interface LoginState {
 class LoginManager(
     private val api: BiliApi,
     private val sessionStore: SessionStore,
+    private val authGate: AuthGate,
 ) {
     private val _state = MutableStateFlow<LoginState>(LoginState.Idle)
     val state: StateFlow<LoginState> = _state.asStateFlow()
@@ -70,6 +74,11 @@ class LoginManager(
                         // 登录成功后拉 nav 补用户名与头像（搜索页标题栏要显示）。
                         // 失败不阻塞登录成功——下次启动还会补拉。
                         sessionStore.save(profileOf(session))
+                        // B4：登录带回完整 buvid 系时采信真实身份（未验证，见 AuthGate.adoptLoginCredentials）
+                        val buvids = parseLoginBuvids(cookies)
+                        if (resolveCredentialSource(buvids.buvid3, buvids.buvidFp) == CredentialSource.REAL_LOGIN) {
+                            runCatching { authGate.adoptLoginCredentials(buvids) }
+                        }
                         _state.value = LoginState.Success
                         Log.d(TAG, "登录成功 uid=${session.dedeUserId}")
                     } else {

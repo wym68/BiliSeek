@@ -1,7 +1,9 @@
 package com.biliseek.core.network
 
+import com.biliseek.core.network.dto.AddReplyData
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.NavData
+import com.biliseek.core.network.dto.ReplyData
 import com.biliseek.core.network.dto.PageItem
 import com.biliseek.core.network.dto.PlayUrlData
 import com.biliseek.core.network.dto.SpiData
@@ -31,8 +33,10 @@ import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.Field
+import retrofit2.http.FieldMap
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Query
@@ -241,6 +245,104 @@ interface BiliApi {
     /** 稍后再看列表。需登录 Cookie（未登录返回 -101）。 */
     @GET("x/v2/history/toview")
     suspend fun watchLater(): BiliResponse<WatchLaterData>
+
+    // ── 评论读（B5）───────────────────────────────────────
+    /** 评论列表 · WBI 主链路。参数需 WBI 签名。 */
+    @GET("x/v2/reply/wbi/main")
+    suspend fun replyMainWbi(@QueryMap params: Map<String, String>): BiliResponse<ReplyData>
+
+    /** 评论列表 · 兼容链路（不带 WBI）。主链路遇 -111/风控时降级用。 */
+    @GET("x/v2/reply/main")
+    suspend fun replyMain(@QueryMap params: Map<String, String>): BiliResponse<ReplyData>
+
+    /** 楼中楼。 */
+    @GET("x/v2/reply/reply")
+    suspend fun replyReply(@QueryMap params: Map<String, String>): BiliResponse<ReplyData>
+
+    // ── 写操作（Phase A）──────────────────────────────────
+    //
+    // 统一 @FormUrlEncoded @POST + @FieldMap，**签名里绝不出现 csrf**——由
+    // BiliRepository.writeRequest 唯一注入，调用点物理上无法遗漏（结构性杜绝 -111）。
+    // 可选 @Header("Referer") 让写请求带视频页 Referer（body 里的 bvid 拦截器看不到）。
+
+    // ── 视频互动（点赞 / 投币 / 收藏 / 三连）───────────────────
+    @FormUrlEncoded
+    @POST("x/web-interface/archive/like")
+    suspend fun likeVideo(
+        @FieldMap fields: Map<String, String>,          // bvid, like(1赞/2取消), csrf
+        @Header("Referer") referer: String? = null,
+    ): BiliResponse<JsonElement>
+
+    @FormUrlEncoded
+    @POST("x/web-interface/coin/add")
+    suspend fun addCoin(
+        @FieldMap fields: Map<String, String>,          // bvid, multiply(1|2), select_like(0|1), csrf
+        @Header("Referer") referer: String? = null,
+    ): BiliResponse<JsonElement>
+
+    @FormUrlEncoded
+    @POST("x/v3/fav/resource/deal")
+    suspend fun dealFavorite(
+        @FieldMap fields: Map<String, String>,          // rid(=aid), type(2), add_media_ids, del_media_ids, csrf
+    ): BiliResponse<JsonElement>
+
+    @FormUrlEncoded
+    @POST("x/web-interface/archive/like/triple")
+    suspend fun tripleAction(
+        @FieldMap fields: Map<String, String>,          // bvid, csrf
+        @Header("Referer") referer: String? = null,
+    ): BiliResponse<JsonElement>
+
+    // ── 稍后再看 / 关注 ────────────────────────────────────────
+    @FormUrlEncoded
+    @POST("x/v2/history/toview/add")
+    suspend fun addToView(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>   // aid|bvid, csrf
+
+    @FormUrlEncoded
+    @POST("x/v2/history/toview/del")
+    suspend fun delToView(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>   // aid|viewed, csrf
+
+    @FormUrlEncoded
+    @POST("x/relation/modify")
+    suspend fun modifyRelation(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement> // fid, act(1|2), re_src(11), csrf
+
+    // ── 评论 ──────────────────────────────────────────────────
+    @FormUrlEncoded
+    @POST("x/v2/reply/add")
+    suspend fun addReply(@FieldMap fields: Map<String, String>): BiliResponse<AddReplyData>    // oid(aid), type(1), message, root?, parent?, plat(1), csrf → data.rpid
+
+    @FormUrlEncoded
+    @POST("x/v2/reply/action")
+    suspend fun replyAction(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>  // oid, type, rpid, action(1赞/0取消), csrf
+
+    // ── 弹幕（「看」= GET seg.so 属读路径；此处为写）────────────
+    @FormUrlEncoded
+    @POST("x/v2/dm/post")
+    suspend fun sendDanmaku(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>  // oid(cid), aid, type(1), msg, progress, color, fontsize, mode, pool, plat(1), csrf
+
+    @FormUrlEncoded
+    @POST("x/v2/dm/thumbup/add")
+    suspend fun likeDanmaku(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>  // oid(cid), dmid, op(1|2), csrf
+
+    // ── 举报（B6，表单写，复用 writeRequest）────────────────────
+    @FormUrlEncoded
+    @POST("x/v2/dm/report/add")
+    suspend fun reportDanmaku(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement> // cid, dmid, reason, content?, csrf
+
+    @FormUrlEncoded
+    @POST("x/v2/reply/report")
+    suspend fun reportReply(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>   // oid, type, rpid, reason, content?, csrf
+
+    /**
+     * 转发（动态转发）· WBI 签名 query + JSON body。表单 writeRequest 不适用，走 jsonWriteRequest。
+     * ⚠️ **未验证**：dyn_req JSON 结构复杂且易变，以当日抓包为准（B6，先只做纯文字转发最小集）。
+     */
+    @POST("x/dynamic/feed/create/dyn")
+    suspend fun createDynamic(
+        @QueryMap wbiParams: Map<String, String>,        // 含 csrf + WBI 签名
+        @Body body: RequestBody,                         // JSON：转发内容 / 原动态 id
+        @Header("Referer") referer: String = "https://t.bilibili.com/",
+    ): BiliResponse<JsonElement>
 
     companion object {
         const val QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"

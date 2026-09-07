@@ -37,4 +37,6 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     testImplementation(libs.junit)
+    // 单测里 buildActivationPayload 走真实 org.json（Android 桩件会抛 not-mocked）
+    testImplementation("org.json:json:20240303")
 }
