@@ -866,6 +866,80 @@ adb shell pm clear com.biliseek.debug
 adb logcat -c && adb logcat -s BiliSeekAuth:V BiliSeekPlayUrl:V BiliSeekPlayer:V
 ```
 
+
+## B4+. 投屏与截图（推荐 scrcpy ⭐）
+
+> **调试时比反复低头看手机高效得多**：实时把手机画面投到电脑窗口，调试过程顺带 `Ctrl+S` 截图，不用再切视图。本地设备操作，**不触发 B 站风控**。
+
+### 安装
+
+```bash
+# macOS
+brew install scrcpy
+
+# Ubuntu / Debian
+sudo apt install scrcpy
+
+# Windows
+scoop install scrcpy
+```
+
+其他平台见 https://github.com/Genymobile/scrcpy
+
+### USB 有线连接（紧接 B2 之后即可启动）
+
+```bash
+scrcpy                          # 自动连接唯一 USB 设备
+
+# 多设备时指定
+scrcpy -s <序列号>
+
+# 提高画质 / 降码率（默认 8M 已足够清晰）
+scrcpy --max-size 1080 --bit-rate 4M
+```
+
+### 无线连接（与 [Part C](#part-c--真机无线测试) 配合）
+
+```bash
+adb tcpip 5555                  # 临时开放无线端口（USB 连着时）
+adb connect <手机IP>:5555
+scrcpy                          # 同一条命令，会自动找到无线设备
+```
+
+### 常用快捷键（窗口聚焦时）
+
+| 快捷键             | 作用                                       |
+| -------------- | ---------------------------------------- |
+| **Ctrl+S**     | **截图，自动保存到 `~/Pictures/scrcpy/`**        |
+| Ctrl+Shift+S   | 录屏到 `~/Videos/`                            |
+| Ctrl+H         | Home 键                                   |
+| Ctrl+B         | 返回键                                      |
+| Ctrl+P         | 电源键                                      |
+| Ctrl+R         | 切换横竖屏                                    |
+| Ctrl+Shift+V   | 粘贴电脑剪贴板到手机输入框                            |
+| 双指捏合           | 缩放画面                                     |
+| `--record file.mp4` | 命令行参数，录屏到指定文件                          |
+
+### 在 BiliSeek 调试中的典型用法
+
+- **调试界面 bug**：scrcpy 窗口里直接操作手机，同时看 logcat 终端，比「低头看手机 + 抬头看电脑」高效
+- **截图归档**：发现 UI 异常时 `Ctrl+S` 一键存档，便于事后贴到工单/验收记录里
+- **触发系统分享面板**：步骤 16 要验系统分享面板里有没有 BiliSeek 入口，从 B 站 App 分享时投屏能直接看见
+- **视频画面不黑**：scrcpy 基于 MediaProjection 抓帧；步骤 18（PiP）和步骤 23（全屏）若发现普通截图黑屏，用 scrcpy 重截即可
+
+### 不想装工具？一行命令版
+
+如果只是临时需要一张截图：
+
+```bash
+# 直接保存到桌面（PNG，二进制走 stdout）
+adb exec-out screencap -p > ~/Desktop/$(date +%Y%m%d_%H%M%S).png
+```
+
+`exec-out` 走 stdout，无需先写设备再 pull，比 `screencap + adb pull` 更快、不留垃圾文件。
+
+> **小坑**：`adb screencap` 在 ExoPlayer 渲染的视频帧上偶尔会截到黑屏（MediaProjection 路径不受影响）。步骤 18 的 PiP、步骤 23 的全屏若发现截图是黑的，改用 scrcpy `Ctrl+S` 重截。
+
 ## B5. 界面功能测试
 
 **在手机上手动操作，按顺序做。** 步骤与 Part A 的 A4 完全一致：
