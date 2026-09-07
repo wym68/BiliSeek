@@ -21,12 +21,13 @@ internal const val BILI_ORIGIN = "https://www.bilibili.com"
  */
 internal class HeaderInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request().newBuilder()
-            .header("User-Agent", BILI_USER_AGENT)
-            .header("Referer", "$BILI_ORIGIN/")
-            .header("Origin", BILI_ORIGIN)
-            .build()
-        return chain.proceed(request)
+        val req = chain.request()
+        // 「缺则补」：写请求可用 @Header("Referer") 指定视频页 Referer，不能被无条件覆盖。
+        // 读请求不带 Referer，仍补 www 根——行为不变。
+        val builder = req.newBuilder().header("User-Agent", BILI_USER_AGENT)
+        if (req.header("Referer").isNullOrBlank()) builder.header("Referer", "$BILI_ORIGIN/")
+        if (req.header("Origin").isNullOrBlank()) builder.header("Origin", BILI_ORIGIN)
+        return chain.proceed(builder.build())
     }
 }
 
@@ -39,6 +40,14 @@ internal class BiliCookieJar(
 ) : CookieJar {
 
     private val serverCookies = mutableMapOf<String, Cookie>()
+
+    /**
+     * b_lsid 会话级：整个进程（= 一次会话）复用一份，比每请求现算更像真实浏览器。
+     * B2 只注入已确证安全的 b_nut / b_lsid；_uuid / buvid_fp 未做字节级取证，不上线（宁缺毋错）。
+     */
+    private val sessionLsid: String by lazy {
+        FingerprintCookies.bLsid(System.currentTimeMillis(), java.security.SecureRandom())
+    }
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
         synchronized(serverCookies) {
@@ -63,6 +72,9 @@ internal class BiliCookieJar(
         put("buvid3", credentials.buvid3)
         put("buvid4", credentials.buvid4)
         put("bili_ticket", credentials.ticket)
+        // B2 指纹 cookie（仅安全项）：b_nut 稳定随 buvid 落库；b_lsid 会话级
+        put("b_nut", credentials.bNut)
+        put("b_lsid", sessionLsid)
 
         // 账号凭据。未登录时为空，不影响搜索与播放——「登录非强制」。
         val session = sessionProvider()

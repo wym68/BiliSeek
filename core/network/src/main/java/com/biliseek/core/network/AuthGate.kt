@@ -8,12 +8,18 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.biliseek.core.network.internal.BiliCredentials
+import com.biliseek.core.network.internal.DeviceFingerprint
 import com.biliseek.core.network.internal.RetryBudget
 import com.biliseek.core.network.internal.SeedingProfile
+import com.biliseek.core.network.internal.FingerprintCookies
+import com.biliseek.core.network.internal.LoginBuvids
 import com.biliseek.core.network.internal.buildActivationPayload
 import com.biliseek.core.network.internal.hmacSha256Hex
 import com.biliseek.core.network.internal.nextBackoffMs
 import com.biliseek.core.network.internal.retryBudgetFor
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.CancellationException
@@ -60,6 +66,7 @@ class AuthGate(
 
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val json = Json { ignoreUnknownKeys = true }
 
     /** 供 CookieJar 同步读取，避免每次请求都走挂起函数。 */
     @Volatile
@@ -90,6 +97,30 @@ class AuthGate(
             is AuthState.Ready -> s.credentials
             is AuthState.Failed -> throw IllegalStateException("风控凭据不可用：${s.reason}")
             else -> throw IllegalStateException("风控凭据未就绪")
+        }
+    }
+
+    /**
+     * B4：采信登录带回的真实 buvid 系，覆盖自种身份（可信度更高）。
+     *
+     * 保守约束：**仅在凭据已就绪（wbi 已备）时覆盖**，避免覆盖到半截身份触发重种；只覆盖本项目
+     * 实际注入的字段（buvid3 / buvid4 / b_nut）。端到端需真人扫码验证（登录完成态历史上未跑通），
+     * 标「未验证」。登出清除真登录 buvid 的语义留待登录跑通后再做（现状登出保留设备身份）。
+     */
+    internal suspend fun adoptLoginCredentials(buvids: LoginBuvids) {
+        if (buvids.buvid3.isBlank()) return
+        mutex.withLock {
+            val base = (_state.value as? AuthState.Ready)?.credentials ?: return@withLock
+            if (base.wbiImgKey.isBlank()) return@withLock
+            val merged = base.copy(
+                buvid3 = buvids.buvid3,
+                buvid4 = buvids.buvid4.ifBlank { base.buvid4 },
+                bNut = buvids.bNut.ifBlank { base.bNut },
+            )
+            current = merged
+            persist(merged)
+            _state.value = AuthState.Ready(merged)
+            Log.d(TAG, "已采信登录带回的真实 buvid 系")
         }
     }
 
@@ -178,8 +209,9 @@ class AuthGate(
 
         // buvid 激活。刚下发的 buvid 未经激活时服务端不信任，
         // 搜索只会返回 v_voucher 风控凭据而非结果。失败不阻断——playurl 仍可用。
+        val fingerprint = restoreOrGenerateFingerprint()
         val activated = runCatching {
-            val body = buildActivationPayload(spi.data.buvid3)
+            val body = buildActivationPayload(spi.data.buvid3, fingerprint)
                 .toRequestBody("application/json".toMediaType())
             val response = api.activateBuvid(body)
             Log.d(TAG, "buvid 激活: code=${response.code}")
@@ -209,7 +241,21 @@ class AuthGate(
             wbiSubKey = subKey,
             wbiFetchedAt = System.currentTimeMillis(),
             activated = activated,
+            bNut = FingerprintCookies.bNut(System.currentTimeMillis()),
         )
+    }
+
+    /**
+     * B1：取 per-install 指纹档案，无则生成一次并落库（JSON 存单个 key，避免拆成十几个）。
+     * 同一安装每次返回同一份，跨安装不同——打散聚类。
+     */
+    private suspend fun restoreOrGenerateFingerprint(): DeviceFingerprint {
+        context.authDataStore.data.first()[KEY_FINGERPRINT]?.let { stored ->
+            runCatching { json.decodeFromString<DeviceFingerprint>(stored) }.getOrNull()?.let { return it }
+        }
+        val fresh = DeviceFingerprint.generate()
+        context.authDataStore.edit { it[KEY_FINGERPRINT] = json.encodeToString(fresh) }
+        return fresh
     }
 
     private suspend fun persist(c: BiliCredentials) {
@@ -222,6 +268,7 @@ class AuthGate(
             p[KEY_WBI_SUB] = c.wbiSubKey
             p[KEY_WBI_AT] = c.wbiFetchedAt
             p[KEY_ACTIVATED] = c.activated
+            p[KEY_BNUT] = c.bNut
         }
     }
 
@@ -237,6 +284,7 @@ class AuthGate(
             wbiSubKey = p[KEY_WBI_SUB].orEmpty(),
             wbiFetchedAt = p[KEY_WBI_AT] ?: 0L,
             activated = p[KEY_ACTIVATED] ?: false,
+            bNut = p[KEY_BNUT].orEmpty(),
         )
     }
 
@@ -255,5 +303,7 @@ class AuthGate(
         val KEY_WBI_SUB = stringPreferencesKey("wbi_sub_key")
         val KEY_WBI_AT = longPreferencesKey("wbi_fetched_at")
         val KEY_ACTIVATED = booleanPreferencesKey("buvid_activated")
+        val KEY_FINGERPRINT = stringPreferencesKey("device_fingerprint")
+        val KEY_BNUT = stringPreferencesKey("b_nut")
     }
 }

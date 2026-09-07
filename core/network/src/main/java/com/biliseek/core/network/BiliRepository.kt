@@ -18,8 +18,23 @@ import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.dto.CollectionSeasonInfo
 import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.BiliResponse
+import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.internal.IdempotentCodes
+import com.biliseek.core.network.internal.runCommentRead
+import com.biliseek.core.network.internal.RequestThrottle
 import com.biliseek.core.network.internal.RetryAction
+import com.biliseek.core.network.internal.RiskCooldown
+import com.biliseek.core.network.internal.ThrottleBucket
 import com.biliseek.core.network.internal.resolveRetryAction
+import com.biliseek.core.network.internal.runWriteRequest
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
 /** 搜索结果的一页。 */
@@ -63,10 +78,13 @@ data class CollectionSeasonPage(
 )
 
 /** 业务数据入口。UI 层不直接碰 [BiliApi]。 */
-class BiliRepository(
+class BiliRepository internal constructor(
     private val api: BiliApi,
     private val authGate: AuthGate,
     private val sessionStore: SessionStore,
+    private val cookieRefresher: CookieRefresher,   // -111 后刷新重试
+    private val riskCooldown: RiskCooldown = RiskCooldown(),          // B3：撞 -352 后全局冷却
+    private val requestThrottle: RequestThrottle = RequestThrottle(), // B3：连发限速降噪
 ) {
 
     /**
@@ -97,14 +115,19 @@ class BiliRepository(
             imgKey = credentials.wbiImgKey,
             subKey = credentials.wbiSubKey,
         )
+        ensureNotCoolingRead()
         val response = try {
-            api.searchType(params)
+            requestThrottle.gate(ThrottleBucket.SEARCH, SEARCH_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                api.searchType(params)
+            }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
         }
         when (resolveRetryAction(response.code)) {
-            RetryAction.BACKOFF_NO_RETRY ->
+            RetryAction.BACKOFF_NO_RETRY -> {
+                riskCooldown.onRiskControl()
                 throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            }
             RetryAction.RESEED_CREDENTIALS -> {
                 authGate.invalidate()
                 throw SearchException(SearchError.CredentialsInvalid, "请求被拦截（-412），已重置设备凭据")
@@ -117,6 +140,7 @@ class BiliRepository(
                 "搜索失败：code=${response.code} ${response.message}",
             )
         }
+        riskCooldown.onSuccess()
 
         // data 为 null 通常意味着 buvid 未激活，服务端只回了 v_voucher 风控凭据。
         // 这种情况必须显式报错，不能静默返回空列表——否则表现为「搜索没反应」，极难排查。
@@ -432,14 +456,19 @@ class BiliRepository(
             imgKey = credentials.wbiImgKey,
             subKey = credentials.wbiSubKey,
         )
+        ensureNotCoolingRead()
         val response = try {
-            block(signed)
+            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                block(signed)
+            }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
         }
         when (resolveRetryAction(response.code)) {
-            RetryAction.BACKOFF_NO_RETRY ->
+            RetryAction.BACKOFF_NO_RETRY -> {
+                riskCooldown.onRiskControl()
                 throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            }
             RetryAction.RESEED_CREDENTIALS -> {
                 authGate.invalidate()
                 throw SearchException(
@@ -455,6 +484,7 @@ class BiliRepository(
                 "请求失败：code=${response.code} ${response.message}",
             )
         }
+        riskCooldown.onSuccess()
         response.data
             ?: throw SearchException(SearchError.NotActivated, "响应为空，设备凭据可能未激活")
     }
@@ -469,8 +499,320 @@ class BiliRepository(
         )
     }
 
+    // ── 写操作（Phase A）──────────────────────────────────────
+    //
+    // 失败一律以 [WriteException] 抛出，携带 [WriteError] 分类——:app 据此决定
+    // 弹登录 / 弹重试 / 弹风控提示 / 静默。[WriteOutcome.AlreadyDone]（幂等重复动作）
+    // 在此已折叠成成功，UI 无需区分「本来就赞过」与「刚赞成功」。
+
+    /**
+     * 写操作统一入口。绑定 authGate/sessionStore/cookieRefresher 到纯编排函数
+     * [runWriteRequest]——csrf 在那里唯一注入，调用点物理上无法遗漏。
+     */
+    private suspend fun <T> writeRequest(
+        payload: Map<String, String>,
+        idempotentCodes: Set<Int> = emptySet(),
+        referer: String? = null,
+        block: suspend (fields: Map<String, String>, referer: String?) -> BiliResponse<T>,
+    ): Result<T?> = runCatching {
+        if (riskCooldown.remaining() > 0) {
+            throw WriteException(WriteError.Blocked, "触发风控冷却中(-352)，请稍后再试")
+        }
+        val session = sessionStore.current
+        requestThrottle.gate(ThrottleBucket.WRITE, WRITE_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+            try {
+                val result = runWriteRequest(
+                    payload = payload,
+                    idempotentCodes = idempotentCodes,
+                    referer = referer,
+                    loggedIn = session.isLoggedIn,
+                    initialJct = session.biliJct,
+                    awaitReady = { authGate.awaitReady() },
+                    refresh = { cookieRefresher.refreshIfNeeded() },
+                    invalidate = { authGate.invalidate() },
+                    currentJct = { sessionStore.current.biliJct },
+                    block = block,
+                )
+                riskCooldown.onSuccess()
+                result
+            } catch (e: WriteException) {
+                if (e.error is WriteError.Blocked) riskCooldown.onRiskControl()
+                throw e
+            }
+        }
+    }
+
+    /** 读路径冷却闸门：处于 -352 冷却期则快速失败，不硬顶。 */
+    private fun ensureNotCoolingRead() {
+        if (riskCooldown.remaining() > 0) {
+            throw SearchException(SearchError.Blocked, "触发风控冷却中，请稍后再试")
+        }
+    }
+
+    // ── 评论读（B5）────────────────────────────────────────
+
+    /** 评论列表的一页。 */
+    data class CommentPage(val items: List<ReplyItem>, val count: Int)
+
+    /**
+     * 评论列表。先走 WBI 主链路，遇 -111/风控降级兼容链路一次（[runCommentRead]）。
+     * `sort`：0 按时间 / 1 按热度。写侧（发评论/点赞）走 Phase A [addReply]/[replyAction]。
+     */
+    suspend fun comments(aid: Long, page: Int = 1, sort: Int = 1): Result<CommentPage> = runCatching {
+        val credentials = try {
+            authGate.awaitReady()
+        } catch (e: Exception) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "风控凭据不可用")
+        }
+        val baseParams = mapOf(
+            "oid" to aid.toString(),
+            "type" to "1",
+            "pn" to page.toString(),
+            "sort" to sort.toString(),
+        )
+        ensureNotCoolingRead()
+        val response = try {
+            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                runCommentRead(
+                    primary = {
+                        api.replyMainWbi(
+                            WbiSigner.sign(baseParams, credentials.wbiImgKey, credentials.wbiSubKey),
+                        )
+                    },
+                    compat = { api.replyMain(baseParams) },
+                )
+            }
+        } catch (e: IOException) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        }
+        when (resolveRetryAction(response.code)) {
+            RetryAction.BACKOFF_NO_RETRY -> {
+                riskCooldown.onRiskControl()
+                throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            }
+            RetryAction.RESEED_CREDENTIALS -> {
+                authGate.invalidate()
+                throw SearchException(SearchError.CredentialsInvalid, "请求被拦截（-412），已重置设备凭据")
+            }
+            else -> Unit
+        }
+        if (response.code != 0) {
+            throw SearchException(
+                SearchError.Unknown("code=${response.code} ${response.message}"),
+                "评论加载失败：code=${response.code} ${response.message}",
+            )
+        }
+        riskCooldown.onSuccess()
+        val data = response.data
+        CommentPage(items = data?.replies.orEmpty(), count = data?.page?.count ?: 0)
+    }
+
+    /** 点赞 / 取消点赞。 */
+    suspend fun likeVideo(bvid: String, like: Boolean): Result<Unit> =
+        writeRequest(
+            payload = mapOf("bvid" to bvid, "like" to if (like) "1" else "2"),
+            idempotentCodes = IdempotentCodes.LIKE,
+            referer = "https://www.bilibili.com/video/$bvid",
+        ) { f, r -> api.likeVideo(f, r) }.map { }
+
+    /** 投币（1 或 2 枚，alsoLike=同时点赞）。 */
+    suspend fun addCoin(bvid: String, count: Int, alsoLike: Boolean): Result<Unit> =
+        writeRequest(
+            payload = mapOf(
+                "bvid" to bvid,
+                "multiply" to count.coerceIn(1, 2).toString(),
+                "select_like" to if (alsoLike) "1" else "0",
+            ),
+            idempotentCodes = IdempotentCodes.COIN,
+            referer = "https://www.bilibili.com/video/$bvid",
+        ) { f, r -> api.addCoin(f, r) }.map { }
+
+    /** 收藏：加入 addIds、移出 delIds（deal 一次搞定）。rid 用 aid。 */
+    suspend fun dealFavorite(aid: Long, addIds: List<Long>, delIds: List<Long>): Result<Unit> =
+        writeRequest(
+            payload = mapOf(
+                "rid" to aid.toString(),
+                "type" to "2",
+                "add_media_ids" to addIds.joinToString(","),
+                "del_media_ids" to delIds.joinToString(","),
+            ),
+            idempotentCodes = IdempotentCodes.FAV,
+        ) { f, _ -> api.dealFavorite(f) }.map { }
+
+    /** 一键三连。 */
+    suspend fun tripleAction(bvid: String): Result<Unit> =
+        writeRequest(
+            payload = mapOf("bvid" to bvid),
+            referer = "https://www.bilibili.com/video/$bvid",
+        ) { f, r -> api.tripleAction(f, r) }.map { }
+
+    /** 关注 / 取关。act: 1 关注 / 2 取关。 */
+    suspend fun modifyRelation(mid: Long, follow: Boolean): Result<Unit> =
+        writeRequest(
+            payload = mapOf("fid" to mid.toString(), "act" to if (follow) "1" else "2", "re_src" to "11"),
+            idempotentCodes = IdempotentCodes.FOLLOW,
+        ) { f, _ -> api.modifyRelation(f) }.map { }
+
+    /** 稍后再看：加入。 */
+    suspend fun addToView(aid: Long): Result<Unit> =
+        writeRequest(payload = mapOf("aid" to aid.toString())) { f, _ -> api.addToView(f) }.map { }
+
+    /** 稍后再看：删除单条 / 清已看（viewed=true）。 */
+    suspend fun delToView(aid: Long?): Result<Unit> =
+        writeRequest(
+            payload = if (aid != null) mapOf("aid" to aid.toString()) else mapOf("viewed" to "true"),
+        ) { f, _ -> api.delToView(f) }.map { }
+
+    /** 发评论，返回 rpid。oid 用 aid，一级评论 root/parent 省略。 */
+    suspend fun addReply(aid: Long, message: String, root: Long? = null, parent: Long? = null): Result<Long> =
+        writeRequest(
+            payload = buildMap {
+                put("oid", aid.toString()); put("type", "1")
+                put("message", message); put("plat", "1")
+                root?.let { put("root", it.toString()) }
+                parent?.let { put("parent", it.toString()) }
+            },
+        ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
+
+    /** 评论点赞 / 取消。 */
+    suspend fun replyAction(aid: Long, rpid: Long, like: Boolean): Result<Unit> =
+        writeRequest(
+            payload = mapOf(
+                "oid" to aid.toString(), "type" to "1",
+                "rpid" to rpid.toString(), "action" to if (like) "1" else "0",
+            ),
+        ) { f, _ -> api.replyAction(f) }.map { }
+
+    /** 发弹幕。oid 用 cid，progress 单位毫秒。 */
+    suspend fun sendDanmaku(cid: Long, aid: Long, msg: String, progressMs: Long): Result<Unit> =
+        writeRequest(
+            payload = mapOf(
+                "oid" to cid.toString(), "aid" to aid.toString(), "type" to "1",
+                "msg" to msg, "progress" to progressMs.toString(),
+                "color" to "16777215", "fontsize" to "25", "mode" to "1", "pool" to "0", "plat" to "1",
+            ),
+        ) { f, _ -> api.sendDanmaku(f) }.map { }
+
+    /** 弹幕点赞 / 取消。op: 1 赞 / 2 取消。 */
+    suspend fun likeDanmaku(cid: Long, dmid: Long, like: Boolean): Result<Unit> =
+        writeRequest(
+            payload = mapOf("oid" to cid.toString(), "dmid" to dmid.toString(), "op" to if (like) "1" else "2"),
+        ) { f, _ -> api.likeDanmaku(f) }.map { }
+
+    // ── 举报 / 转发（B6）──────────────────────────────────────
+
+    /** 举报弹幕。reason 见 B 站举报理由枚举。 */
+    suspend fun reportDanmaku(cid: Long, dmid: Long, reason: Int, content: String? = null): Result<Unit> =
+        writeRequest(
+            payload = buildMap {
+                put("cid", cid.toString()); put("dmid", dmid.toString()); put("reason", reason.toString())
+                content?.let { put("content", it) }
+            },
+            idempotentCodes = IdempotentCodes.REPORT,
+        ) { f, _ -> api.reportDanmaku(f) }.map { }
+
+    /** 举报评论。oid 用 aid。 */
+    suspend fun reportReply(aid: Long, rpid: Long, reason: Int, content: String? = null): Result<Unit> =
+        writeRequest(
+            payload = buildMap {
+                put("oid", aid.toString()); put("type", "1"); put("rpid", rpid.toString()); put("reason", reason.toString())
+                content?.let { put("content", it) }
+            },
+            idempotentCodes = IdempotentCodes.REPORT,
+        ) { f, _ -> api.reportReply(f) }.map { }
+
+    /**
+     * 转发一条动态（纯文字最小集）。
+     * ⚠️ **未验证**：dyn_req JSON 结构以当日抓包为准，[buildForwardBody] 仅为最小骨架。
+     */
+    suspend fun forwardDynamic(dynIdStr: String, text: String): Result<Unit> =
+        jsonWriteRequest(
+            queryParams = mapOf("platform" to "web"),
+            jsonBody = buildForwardBody(dynIdStr, text),
+        )
+
+    /**
+     * 写操作的 JSON 孪生：csrf **结构性注入到 query**（再 WBI 签名，签名覆盖 csrf）、
+     * body 走 JSON。编排复用已单测的 [runWriteRequest]——csrf 注入、-111 刷新重试、错误分流一致；
+     * WBI 密钥先在此就绪并被 block 闭包捕获用于签名。
+     */
+    private suspend fun jsonWriteRequest(
+        queryParams: Map<String, String>,
+        jsonBody: String,
+        idempotentCodes: Set<Int> = emptySet(),
+        referer: String = "https://t.bilibili.com/",
+    ): Result<Unit> = runCatching {
+        if (riskCooldown.remaining() > 0) {
+            throw WriteException(WriteError.Blocked, "触发风控冷却中(-352)，请稍后再试")
+        }
+        val session = sessionStore.current
+        // 先就绪 WBI 密钥（登录校验交给 runWriteRequest）；仅登录态才拉，避免无谓请求
+        val credentials = if (session.isLoggedIn && session.biliJct.isNotBlank()) {
+            try {
+                authGate.awaitReady()
+            } catch (e: Exception) {
+                throw WriteException(WriteError.Network(e.message.orEmpty()), e.message ?: "风控凭据不可用")
+            }
+        } else {
+            null
+        }
+        val body = jsonBody.toRequestBody("application/json".toMediaType())
+        requestThrottle.gate(ThrottleBucket.WRITE, WRITE_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+            try {
+                runWriteRequest<JsonElement>(
+                    payload = queryParams,
+                    idempotentCodes = idempotentCodes,
+                    referer = referer,
+                    loggedIn = session.isLoggedIn,
+                    initialJct = session.biliJct,
+                    awaitReady = {},   // 已在上面就绪
+                    refresh = { cookieRefresher.refreshIfNeeded() },
+                    invalidate = { authGate.invalidate() },
+                    currentJct = { sessionStore.current.biliJct },
+                    block = { fields, r ->
+                        val c = credentials ?: throw WriteException(WriteError.NeedLogin, "写操作需要登录")
+                        api.createDynamic(
+                            WbiSigner.sign(fields, c.wbiImgKey, c.wbiSubKey),
+                            body,
+                            r ?: referer,
+                        )
+                    },
+                )
+                riskCooldown.onSuccess()
+            } catch (e: WriteException) {
+                if (e.error is WriteError.Blocked) riskCooldown.onRiskControl()
+                throw e
+            }
+        }
+        Unit
+    }
+
+    /** 纯文字转发的最小 JSON 骨架。⚠️ 未验证，字段以当日抓包为准。 */
+    private fun buildForwardBody(dynIdStr: String, text: String): String = buildJsonObject {
+        putJsonObject("dyn_req") {
+            putJsonObject("content") {
+                putJsonArray("contents") {
+                    addJsonObject {
+                        put("raw_text", text)
+                        put("type", 1)
+                        put("biz_id", "")
+                    }
+                }
+            }
+            put("scene", 4)
+            putJsonObject("attach_card") {
+                put("dyn_id_str", dynIdStr)
+            }
+        }
+    }.toString()
 
     private companion object {
         const val TAG = "BiliSeekRepo"
+
+        // B3 限速最小间隔（ms）+ 抖动。保守初值，真机按体感/效果校准（工单 §5.3）。
+        const val SEARCH_MIN_INTERVAL_MS = 800L
+        const val FEED_MIN_INTERVAL_MS = 600L
+        const val WRITE_MIN_INTERVAL_MS = 1_000L
+        const val THROTTLE_JITTER_MS = 300L
     }
 }

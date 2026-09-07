@@ -24,7 +24,7 @@ BiliSeek is a search-driven, audio-first, no-recommendation third-party Bilibili
 ./gradlew archiveReleaseArtifacts      # archive APK + mapping.txt to releases/<versionName>/
 ```
 
-Environment (see `docs/BiliSeek-开发环境搭建.md` for a clean-machine setup): minSdk 26 / targetSdk 35 / compileSdk 37, AGP 9.3.1, Gradle 9.7.1, Kotlin 2.4.10, JDK 21, Media3 1.11.0. Requires `local.properties` with `sdk.dir`. Point Gradle at the IDE's JBR via `org.gradle.java.home` to avoid dueling daemons.
+Environment (see `docs/01-开发环境搭建.md` for a clean-machine setup): minSdk 26 / targetSdk 35 / compileSdk 37, AGP 9.3.1, Gradle 9.7.1, Kotlin 2.4.10, JDK 21, Media3 1.11.0. Requires `local.properties` with `sdk.dir`. Point Gradle at the IDE's JBR via `org.gradle.java.home` to avoid dueling daemons.
 
 - **AGP 9 has built-in Kotlin support** — do **not** declare the `org.jetbrains.kotlin.android` plugin; it errors. Modules use `kotlin.compose` / `kotlin.serialization` / `ksp` plugins as needed.
 - **Release builds run R8 + resource shrink.** Over-stripping does not fail compilation — it crashes at runtime or silently breaks API parsing. A release build must pass a full regression pass. **No `mapping.txt` = not a valid release** (crash stacks can't be de-obfuscated).

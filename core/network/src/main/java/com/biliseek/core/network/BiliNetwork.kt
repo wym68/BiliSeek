@@ -52,11 +52,16 @@ class BiliNetwork private constructor(context: Context) {
 
     val authGate: AuthGate = AuthGate(context.applicationContext, api)
 
-    val repository: BiliRepository = BiliRepository(api, authGate, sessionStore)
-
-    val loginManager: LoginManager = LoginManager(api, sessionStore)
-
     val cookieRefresher: CookieRefresher = CookieRefresher(api, sessionStore)
+
+    /** B3 全局风控闸门。进程单例，跨所有请求共享冷却/限速状态。 */
+    private val riskCooldown = com.biliseek.core.network.internal.RiskCooldown()
+    private val requestThrottle = com.biliseek.core.network.internal.RequestThrottle()
+
+    val repository: BiliRepository =
+        BiliRepository(api, authGate, sessionStore, cookieRefresher, riskCooldown, requestThrottle)
+
+    val loginManager: LoginManager = LoginManager(api, sessionStore, authGate)
 
     /**
      * 播放器取流时要用的请求头。
