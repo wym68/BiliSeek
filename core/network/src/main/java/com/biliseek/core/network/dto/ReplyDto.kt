@@ -42,8 +42,14 @@ data class ReplyItem(
     val mid: Long = 0,
     val ctime: Long = 0,
     val like: Int = 0,
+    /** 楼中楼总数。 */
+    val rcount: Int = 0,
+    /** 当前用户是否已点赞该评论（1=已赞，0=未赞）。 */
+    val action: Int = 0,
     val content: ReplyContent = ReplyContent(),
     val member: ReplyMember = ReplyMember(),
+    /** 服务端随主评论内嵌返回的前几条楼中楼（预览用，翻页走 [BiliApi.replyReply]）。 */
+    val replies: List<ReplyItem>? = null,
 )
 
 @Serializable
