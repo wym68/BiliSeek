@@ -11,6 +11,7 @@ import com.biliseek.app.download.DownloadRequest
 import com.biliseek.app.ui.DownloadDialog
 import com.biliseek.app.ui.MeteredVideoDialog
 import com.biliseek.app.ui.PlaylistPickerDialog
+import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.designsystem.theme.BiliSeekTheme
 import org.junit.Rule
@@ -102,7 +103,7 @@ class DialogsUiTest {
         compose.setContent {
             BiliSeekTheme {
                 DownloadDialog(
-                    video = SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP"),
+                    target = SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget(),
                     settings = AppSettings(),
                     onDismiss = {},
                     onConfirm = {},
@@ -127,7 +128,7 @@ class DialogsUiTest {
         compose.setContent {
             BiliSeekTheme {
                 DownloadDialog(
-                    video = SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP"),
+                    target = SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget(),
                     settings = AppSettings(),
                     onDismiss = {},
                     onConfirm = { request = it },
