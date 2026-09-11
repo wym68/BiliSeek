@@ -57,6 +57,7 @@ import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.DynamicItemType
 import com.biliseek.core.network.dto.FollowingUp
+import com.biliseek.core.network.dto.ReplyItem
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -211,15 +212,26 @@ data class UpSpaceUiState(
     val followingLoading: Boolean = false,
 )
 
-/** Ch4 动态评论对话框状态。 */
+/** 评论回复目标：null=发表新评论；非 null=回复某条一级评论。 */
+data class CommentReplyTarget(
+    val root: Long,
+    val parent: Long,
+    val uname: String,
+)
+
+/** Ch4 动态评论对话框状态：列表 + 分页 + 楼中楼 + 回复目标。 */
 data class CommentDialogState(
     val idStr: String,
     val oid: Long,
     val type: Int,
     val content: String = "",
     val isPosting: Boolean = false,
-    /** 评论列表（提交后刷新该列表）。当前实现只展示占位，避免接口泛滥。 */
-    val recentReplies: List<String> = emptyList(),
+    /** 1=热度 0=时间，对应 [BiliRepository.comments] 的 sort 参数。 */
+    val sort: Int = 1,
+    val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
+    /** key=一级评论 rpid，value=其楼中楼的分页状态。未展开的评论不在这个 map 里。 */
+    val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
+    val replyTarget: CommentReplyTarget? = null,
 )
 
 /** Ch4 图文动态图片全屏预览状态。 */
@@ -1660,12 +1672,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr }
     }
 
-    /** 打开评论对话框：根据 dynamic entry 计算 oid/type。 */
+    /** 打开评论对话框：根据 dynamic entry 计算 oid/type，并立即加载第一页。未登录也可读。 */
     fun openCommentDialog(entry: DynamicEntry) {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再评论")
-            return
-        }
         val (oid, type) = com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry(
             idStr = entry.idStr,
             rawType = entry.rawType,
@@ -1676,6 +1684,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             oid = oid,
             type = type,
         )
+        loadComments(reset = true)
     }
 
     fun updateCommentContent(text: String) {
@@ -1685,22 +1694,90 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissCommentDialog() { _commentDialog.value = null }
 
-    /** 提交评论：乐观更新评论数 +1；失败回滚。 */
+    /** 加载评论列表。reset=true 重新拉第 1 页；false 翻页追加。 */
+    fun loadComments(reset: Boolean = true) {
+        val cur = _commentDialog.value ?: return
+        val base = if (reset) RemoteListState.empty<ReplyItem>() else cur.comments
+        if (base.isLoading || base.isLoadingMore) return
+        val nextPage = if (reset) 1 else base.page + 1
+        val loadingMore = !reset
+        _commentDialog.value = cur.copy(
+            comments = base.copy(isLoading = !loadingMore, isLoadingMore = loadingMore, errorMessage = null),
+        )
+        viewModelScope.launch {
+            network.repository.comments(cur.oid, cur.type, nextPage, cur.sort)
+                .onSuccess { page ->
+                    val dialog = _commentDialog.value ?: return@onSuccess
+                    val mergedItems = if (reset) page.items else dialog.comments.items + page.items
+                    _commentDialog.value = dialog.copy(
+                        comments = dialog.comments.copy(
+                            items = mergedItems,
+                            page = nextPage,
+                            hasMore = mergedItems.size < page.count,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = null,
+                        ),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _commentDialog.value ?: return@onFailure
+                    _commentDialog.value = dialog.copy(
+                        comments = dialog.comments.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = err.message ?: "评论加载失败",
+                        ),
+                    )
+                }
+        }
+    }
+
+    fun loadMoreComments() {
+        val cur = _commentDialog.value ?: return
+        if (!cur.comments.hasMore) return
+        loadComments(reset = false)
+    }
+
+    /** 切换热度/时间排序：清空列表重新拉第 1 页。 */
+    fun setCommentSort(sort: Int) {
+        val cur = _commentDialog.value ?: return
+        if (cur.sort == sort) return
+        _commentDialog.value = cur.copy(sort = sort, comments = RemoteListState.empty<ReplyItem>())
+        loadComments(reset = true)
+    }
+
+    /** 提交评论：发新评论或回复 [CommentDialogState.replyTarget]；成功后清空输入框与回复目标并刷新列表首页。 */
     fun submitComment() = viewModelScope.launch {
         val cur = _commentDialog.value ?: return@launch
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再评论")
+            return@launch
+        }
         if (cur.isPosting || cur.content.isBlank()) return@launch
         _commentDialog.value = cur.copy(isPosting = true)
+        val target = cur.replyTarget
         patchEntry(cur.idStr) { e ->
             val stat = e.stat ?: return@patchEntry e
             e.copy(stat = stat.copy(comment = stat.comment.copy(count = stat.comment.count + 1)))
         }
-        network.repository.addDynamicReply(cur.oid, cur.type, cur.content)
+        network.repository.addDynamicReply(
+            oid = cur.oid,
+            type = cur.type,
+            message = cur.content,
+            root = target?.root ?: 0L,
+            parent = target?.parent ?: 0L,
+        )
             .onSuccess {
-                _commentDialog.value = null
+                val dialog = _commentDialog.value
+                if (dialog != null) {
+                    _commentDialog.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
+                }
                 emitMessage("评论已发送")
+                loadComments(reset = true)
             }
             .onFailure { err ->
-                _commentDialog.value = cur.copy(isPosting = false)
+                _commentDialog.value = _commentDialog.value?.copy(isPosting = false)
                 patchEntry(cur.idStr) { e ->
                     val stat = e.stat ?: return@patchEntry e
                     e.copy(stat = stat.copy(comment = stat.comment.copy(
