@@ -48,3 +48,11 @@ fun resolveDynamicCommentTargetFromEntry(
         idStr.toLongOrNull()?.let { it to 17 } ?: (idStr.hashCode().toLong() to 17)
     }
 }
+
+/**
+ * 回复目标的 root/parent（B 站 `x/v2/reply/add` 语义）。
+ * 回复一级评论：`rootRpid` 为 null，此时 root=parent=该评论 rpid。
+ * 回复楼中楼：`rootRpid` 是其所属根评论 rpid，root=rootRpid，parent=该楼中楼 rpid。
+ */
+fun resolveReplyRootParent(rpid: Long, rootRpid: Long?): Pair<Long, Long> =
+    (rootRpid ?: rpid) to rpid
