@@ -489,12 +489,23 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Ch4：动态转发 / 评论 / 图片预览
+                // Ch4：动态评论 / 图片预览
                 commentDialog?.let { state ->
                     com.biliseek.app.ui.components.DynamicCommentDialog(
+                        comments = state.comments,
+                        sort = state.sort,
+                        replyTargetUname = state.replyTarget?.uname,
                         content = state.content,
                         isPosting = state.isPosting,
+                        expandedSubReplies = state.expandedSubReplies,
+                        onSortChange = viewModel::setCommentSort,
+                        onLoadMore = viewModel::loadMoreComments,
+                        onLike = { reply, root -> viewModel.toggleCommentLike(reply, root) },
+                        onReply = { reply, root -> viewModel.startReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel::expandSubReplies,
+                        onLoadMoreSubReplies = viewModel::loadMoreSubReplies,
                         onContentChange = viewModel::updateCommentContent,
+                        onClearReplyTarget = viewModel::clearReplyTarget,
                         onSubmit = viewModel::submitComment,
                         onDismiss = viewModel::dismissCommentDialog,
                     )
