@@ -612,6 +612,53 @@ class BiliRepository internal constructor(
         CommentPage(items = data?.replies.orEmpty(), count = data?.page?.count ?: 0)
     }
 
+    /**
+     * 楼中楼（`x/v2/reply/reply`，不需要 WBI 签名）。`root` 是根评论 rpid，`page` 从 1 起。
+     * 错误分流 / 风控退避与 [comments] 一致，但只有单一链路，没有 WBI/兼容双轨。
+     */
+    suspend fun subReplies(oid: Long, type: Int, root: Long, page: Int = 1): Result<CommentPage> = runCatching {
+        try {
+            authGate.awaitReady()
+        } catch (e: Exception) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "风控凭据不可用")
+        }
+        val params = mapOf(
+            "oid" to oid.toString(),
+            "type" to type.toString(),
+            "root" to root.toString(),
+            "pn" to page.toString(),
+            "ps" to "10",
+        )
+        ensureNotCoolingRead()
+        val response = try {
+            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                api.replyReply(params)
+            }
+        } catch (e: IOException) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        }
+        when (resolveRetryAction(response.code)) {
+            RetryAction.BACKOFF_NO_RETRY -> {
+                riskCooldown.onRiskControl()
+                throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            }
+            RetryAction.RESEED_CREDENTIALS -> {
+                authGate.invalidate()
+                throw SearchException(SearchError.CredentialsInvalid, "请求被拦截（-412），已重置设备凭据")
+            }
+            else -> Unit
+        }
+        if (response.code != 0) {
+            throw SearchException(
+                SearchError.Unknown("code=${response.code} ${response.message}"),
+                "楼中楼加载失败：code=${response.code} ${response.message}",
+            )
+        }
+        riskCooldown.onSuccess()
+        val data = response.data
+        CommentPage(items = data?.replies.orEmpty(), count = data?.page?.count ?: 0)
+    }
+
     /** 点赞 / 取消点赞。 */
     suspend fun likeVideo(bvid: String, like: Boolean): Result<Unit> =
         writeRequest(
