@@ -541,6 +541,7 @@ class BiliRepository internal constructor(
                     refresh = { cookieRefresher.refreshIfNeeded() },
                     invalidate = { authGate.invalidate() },
                     currentJct = { sessionStore.current.biliJct },
+                    log = { msg -> Log.d("BiliSeekWriteDebug", msg) },
                     block = block,
                 )
                 riskCooldown.onSuccess()
@@ -818,6 +819,7 @@ class BiliRepository internal constructor(
                     refresh = { cookieRefresher.refreshIfNeeded() },
                     invalidate = { authGate.invalidate() },
                     currentJct = { sessionStore.current.biliJct },
+                    log = { msg -> Log.d("BiliSeekWriteDebug", msg) },
                     block = { fields, r ->
                         val c = credentials ?: throw WriteException(WriteError.NeedLogin, "写操作需要登录")
                         api.createDynamic(

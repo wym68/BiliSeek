@@ -27,6 +27,8 @@ internal suspend fun <T> runWriteRequest(
     refresh: suspend () -> RefreshOutcome,
     invalidate: suspend () -> Unit,
     currentJct: () -> String,
+    /** -111 调试日志的注入点，默认空实现保持本函数无 Android 依赖、可在纯 JVM 单测里离线跑。 */
+    log: (String) -> Unit = {},
     block: suspend (fields: Map<String, String>, referer: String?) -> BiliResponse<T>,
 ): T? {
     if (!loggedIn || initialJct.isBlank()) {
@@ -43,8 +45,7 @@ internal suspend fun <T> runWriteRequest(
         block(payload + ("csrf" to csrf), referer).also { resp ->
             // 调试期：仅在 -111 时打印原始响应，定位"双码"是哪个端点、csrf 是否进了 body
             if (resp.code == -111) {
-                android.util.Log.d(
-                    "BiliSeekWriteDebug",
+                log(
                     "code=-111  payloadKeys=${payload.keys} csrfInPayload=${payload.containsKey("csrf")} " +
                         "msg='${resp.message}' referer=$referer",
                 )
