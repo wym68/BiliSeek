@@ -387,7 +387,7 @@ private fun UpDynamicList(
                         onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
                         onRepostClick = { onOpenRepost(entry.idStr) },
                         onCommentClick = { onOpenComment(entry) },
-                        onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status == true) },
+                        onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
                     )
                     HorizontalDivider()
                 }
