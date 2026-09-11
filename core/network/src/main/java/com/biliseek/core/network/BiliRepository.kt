@@ -679,11 +679,11 @@ class BiliRepository internal constructor(
             },
         ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
 
-    /** 评论点赞 / 取消。 */
-    suspend fun replyAction(aid: Long, rpid: Long, like: Boolean): Result<Unit> =
+    /** 评论点赞 / 取消。`oid`/`type` 语义同 [comments]。 */
+    suspend fun replyAction(oid: Long, type: Int, rpid: Long, like: Boolean): Result<Unit> =
         writeRequest(
             payload = mapOf(
-                "oid" to aid.toString(), "type" to "1",
+                "oid" to oid.toString(), "type" to type.toString(),
                 "rpid" to rpid.toString(), "action" to if (like) "1" else "0",
             ),
         ) { f, _ -> api.replyAction(f) }.map { }
