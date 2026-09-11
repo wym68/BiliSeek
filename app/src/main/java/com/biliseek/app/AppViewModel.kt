@@ -211,13 +211,6 @@ data class UpSpaceUiState(
     val followingLoading: Boolean = false,
 )
 
-/** Ch4 动态转发对话框状态。 */
-data class RepostDialogState(
-    val idStr: String,
-    val content: String = "",
-    val isPosting: Boolean = false,
-)
-
 /** Ch4 动态评论对话框状态。 */
 data class CommentDialogState(
     val idStr: String,
@@ -326,10 +319,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ── Ch4 状态 ──────────────────────────────────────
-
-    /** 动态转发对话框。null=关闭。 */
-    private val _repostDialog = MutableStateFlow<RepostDialogState?>(null)
-    val repostDialog: StateFlow<RepostDialogState?> = _repostDialog.asStateFlow()
 
     /** 动态评论对话框。null=关闭。 */
     private val _commentDialog = MutableStateFlow<CommentDialogState?>(null)
@@ -1669,50 +1658,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun snapshotEntry(idStr: String): DynamicEntry? {
         _dynamic.value.feed.items.firstOrNull { it.idStr == idStr }?.let { return it }
         return _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr }
-    }
-
-    /** 打开转发输入对话框。 */
-    fun openRepostDialog(idStr: String) {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再转发")
-            return
-        }
-        _repostDialog.value = RepostDialogState(idStr = idStr)
-    }
-
-    fun updateRepostContent(text: String) {
-        val cur = _repostDialog.value ?: return
-        _repostDialog.value = cur.copy(content = text)
-    }
-
-    fun dismissRepostDialog() { _repostDialog.value = null }
-
-    /** 提交转发：乐观更新转发数 +1；失败回滚。 */
-    fun submitRepost() = viewModelScope.launch {
-        val cur = _repostDialog.value ?: return@launch
-        if (cur.isPosting) return@launch
-        _repostDialog.value = cur.copy(isPosting = true)
-        // 乐观更新
-        patchEntry(cur.idStr) { e ->
-            val stat = e.stat ?: return@patchEntry e
-            e.copy(stat = stat.copy(forward = stat.forward.copy(count = stat.forward.count + 1)))
-        }
-        network.repository.forwardDynamic(cur.idStr, cur.content)
-            .onSuccess {
-                _repostDialog.value = null
-                emitMessage("已转发")
-            }
-            .onFailure { err ->
-                // 回滚
-                _repostDialog.value = cur.copy(isPosting = false)
-                patchEntry(cur.idStr) { e ->
-                    val stat = e.stat ?: return@patchEntry e
-                    e.copy(stat = stat.copy(forward = stat.forward.copy(
-                        count = (stat.forward.count - 1).coerceAtLeast(0),
-                    )))
-                }
-                emitMessage("转发失败：${err.message ?: "未知错误"}")
-            }
     }
 
     /** 打开评论对话框：根据 dynamic entry 计算 oid/type。 */

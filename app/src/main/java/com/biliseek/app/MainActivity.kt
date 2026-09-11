@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
-                val repostDialog by viewModel.repostDialog.collectAsState()
                 val commentDialog by viewModel.commentDialog.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
                 val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
@@ -491,15 +490,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // Ch4：动态转发 / 评论 / 图片预览
-                repostDialog?.let { state ->
-                    com.biliseek.app.ui.components.RepostDialog(
-                        content = state.content,
-                        isPosting = state.isPosting,
-                        onContentChange = viewModel::updateRepostContent,
-                        onSubmit = viewModel::submitRepost,
-                        onDismiss = viewModel::dismissRepostDialog,
-                    )
-                }
                 commentDialog?.let { state ->
                     com.biliseek.app.ui.components.DynamicCommentDialog(
                         content = state.content,

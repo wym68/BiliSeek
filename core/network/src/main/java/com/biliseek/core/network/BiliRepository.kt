@@ -28,14 +28,7 @@ import com.biliseek.core.network.internal.RiskCooldown
 import com.biliseek.core.network.internal.ThrottleBucket
 import com.biliseek.core.network.internal.resolveRetryAction
 import com.biliseek.core.network.internal.runWriteRequest
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
 /** 搜索结果的一页。 */
@@ -770,92 +763,6 @@ class BiliRepository internal constructor(
         if (response.code != 0) error("relation 接口失败：code=${response.code} ${response.message}")
         response.data ?: RelationData()
     }
-
-    /**
-     * 转发一条动态（纯文字最小集）。
-     * ⚠️ **未验证**：dyn_req JSON 结构以当日抓包为准，[buildForwardBody] 仅为最小骨架。
-     */
-    suspend fun forwardDynamic(dynIdStr: String, text: String): Result<Unit> =
-        jsonWriteRequest(
-            queryParams = mapOf("platform" to "web"),
-            jsonBody = buildForwardBody(dynIdStr, text),
-        )
-
-    /**
-     * 写操作的 JSON 孪生：csrf **结构性注入到 query**（再 WBI 签名，签名覆盖 csrf）、
-     * body 走 JSON。编排复用已单测的 [runWriteRequest]——csrf 注入、-111 刷新重试、错误分流一致；
-     * WBI 密钥先在此就绪并被 block 闭包捕获用于签名。
-     */
-    private suspend fun jsonWriteRequest(
-        queryParams: Map<String, String>,
-        jsonBody: String,
-        idempotentCodes: Set<Int> = emptySet(),
-        referer: String = "https://t.bilibili.com/",
-    ): Result<Unit> = runCatching {
-        if (riskCooldown.remaining() > 0) {
-            throw WriteException(WriteError.Blocked, "触发风控冷却中(-352)，请稍后再试")
-        }
-        val session = sessionStore.current
-        // 先就绪 WBI 密钥（登录校验交给 runWriteRequest）；仅登录态才拉，避免无谓请求
-        val credentials = if (session.isLoggedIn && session.biliJct.isNotBlank()) {
-            try {
-                authGate.awaitReady()
-            } catch (e: Exception) {
-                throw WriteException(WriteError.Network(e.message.orEmpty()), e.message ?: "风控凭据不可用")
-            }
-        } else {
-            null
-        }
-        val body = jsonBody.toRequestBody("application/json".toMediaType())
-        requestThrottle.gate(ThrottleBucket.WRITE, WRITE_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-            try {
-                runWriteRequest<JsonElement>(
-                    payload = queryParams,
-                    idempotentCodes = idempotentCodes,
-                    referer = referer,
-                    loggedIn = session.isLoggedIn,
-                    initialJct = session.biliJct,
-                    awaitReady = {},   // 已在上面就绪
-                    refresh = { cookieRefresher.refreshIfNeeded() },
-                    invalidate = { authGate.invalidate() },
-                    currentJct = { sessionStore.current.biliJct },
-                    log = { msg -> Log.d("BiliSeekWriteDebug", msg) },
-                    block = { fields, r ->
-                        val c = credentials ?: throw WriteException(WriteError.NeedLogin, "写操作需要登录")
-                        api.createDynamic(
-                            WbiSigner.sign(fields, c.wbiImgKey, c.wbiSubKey),
-                            body,
-                            r ?: referer,
-                        )
-                    },
-                )
-                riskCooldown.onSuccess()
-            } catch (e: WriteException) {
-                if (e.error is WriteError.Blocked) riskCooldown.onRiskControl()
-                throw e
-            }
-        }
-        Unit
-    }
-
-    /** 纯文字转发的最小 JSON 骨架。⚠️ 未验证，字段以当日抓包为准。 */
-    private fun buildForwardBody(dynIdStr: String, text: String): String = buildJsonObject {
-        putJsonObject("dyn_req") {
-            putJsonObject("content") {
-                putJsonArray("contents") {
-                    addJsonObject {
-                        put("raw_text", text)
-                        put("type", 1)
-                        put("biz_id", "")
-                    }
-                }
-            }
-            put("scene", 4)
-            putJsonObject("attach_card") {
-                put("dyn_id_str", dynIdStr)
-            }
-        }
-    }.toString()
 
     private companion object {
         const val TAG = "BiliSeekRepo"

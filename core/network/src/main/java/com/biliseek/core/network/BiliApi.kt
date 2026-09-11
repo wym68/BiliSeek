@@ -334,17 +334,6 @@ interface BiliApi {
     @POST("x/v2/reply/report")
     suspend fun reportReply(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>   // oid, type, rpid, reason, content?, csrf
 
-    /**
-     * 转发（动态转发）· WBI 签名 query + JSON body。表单 writeRequest 不适用，走 jsonWriteRequest。
-     * ⚠️ **未验证**：dyn_req JSON 结构复杂且易变，以当日抓包为准（B6，先只做纯文字转发最小集）。
-     */
-    @POST("x/dynamic/feed/create/dyn")
-    suspend fun createDynamic(
-        @QueryMap wbiParams: Map<String, String>,        // 含 csrf + WBI 签名
-        @Body body: RequestBody,                         // JSON：转发内容 / 原动态 id
-        @Header("Referer") referer: String = "https://t.bilibili.com/",
-    ): BiliResponse<JsonElement>
-
     // ── 动态互动（Ch4）───────────────────────────────────
 
     /**
