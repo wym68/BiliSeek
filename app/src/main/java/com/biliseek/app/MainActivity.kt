@@ -234,7 +234,10 @@ class MainActivity : ComponentActivity() {
                             onCancelLogin = viewModel::cancelLogin,
                             // Ch4
                             onOpenImagePreview = viewModel::openImagePreview,
-                            onOpenRepost = viewModel::openRepostDialog,
+                            onOpenRepost = { idStr ->
+                                copyToClipboard(viewModel.dynamicUrl(idStr))
+                                viewModel.notifyLinkCopied()
+                            },
                             onOpenComment = viewModel::openCommentDialog,
                             onToggleLike = viewModel::toggleDynamicLike,
                         )
@@ -266,7 +269,10 @@ class MainActivity : ComponentActivity() {
                                 // Ch4
                                 onToggleFollow = viewModel::toggleRelation,
                                 onOpenImagePreview = viewModel::openImagePreview,
-                                onOpenRepost = viewModel::openRepostDialog,
+                                onOpenRepost = { idStr ->
+                                    copyToClipboard(viewModel.dynamicUrl(idStr))
+                                    viewModel.notifyLinkCopied()
+                                },
                                 onOpenComment = viewModel::openCommentDialog,
                                 onToggleLike = viewModel::toggleDynamicLike,
                                 // 投稿复选与动作

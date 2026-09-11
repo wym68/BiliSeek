@@ -303,6 +303,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun emitMessage(text: String) { _transientMessage.tryEmit(text) }
 
+    /** 复制链接后的一次性提示（Toast），走既有 [transientMessage] 管道。 */
+    fun notifyLinkCopied() = emitMessage("链接已复制")
+
     // ── Ch5 MiniPlayer 状态 ─────────────────────────
 
     /** 播放列表 sheet 是否打开。 */
@@ -1189,6 +1192,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun videoUrl(video: SearchVideo) = "https://www.bilibili.com/video/${video.bvid}"
+
+    /** 动态外链（用于「转发=复制链接」，Ch4 转发按钮的新语义）。 */
+    fun dynamicUrl(idStr: String) = "https://t.bilibili.com/$idStr"
 
     fun playHistoryEntry(entry: PlayHistoryEntity) =
         play(
