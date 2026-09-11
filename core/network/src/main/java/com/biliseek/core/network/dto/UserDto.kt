@@ -1,7 +1,29 @@
 package com.biliseek.core.network.dto
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+
+/**
+ * 播放量容错解析。B 站接口怪癖：UP 主隐藏播放量时 `play` 返回字符串 `"--"`，
+ * 直接按 Long 反序列化会让整条请求失败——非数字一律按 0 处理。
+ */
+object TolerantLongSerializer : KSerializer<Long> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("TolerantLong", PrimitiveKind.LONG)
+
+    override fun deserialize(decoder: Decoder): Long =
+        (decoder.decodeSerializableValue(JsonElement.serializer()) as? JsonPrimitive)
+            ?.content?.toLongOrNull() ?: 0L
+
+    override fun serialize(encoder: Encoder, value: Long) = encoder.encodeLong(value)
+}
 
 // ── UP 主搜索与空间投稿（M11-D）──────────────────────────
 
@@ -59,4 +81,7 @@ data class SpaceVideo(
     @SerialName("length") val length: String = "",
     val author: String = "",
     val created: Long = 0,
+    /** 播放量。UP 主隐藏时为字符串 "--"，容错解析为 0。 */
+    @Serializable(with = TolerantLongSerializer::class)
+    val play: Long = 0,
 )

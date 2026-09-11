@@ -60,6 +60,11 @@ private val Context.authDataStore by preferencesDataStore(name = "biliseek_auth"
 class AuthGate(
     private val context: Context,
     private val api: BiliApi,
+    /**
+     * 供 [GenWebTicket] 取 csrf(=bili_jct)。登录后 CookieJar 会给这个 POST 带上 SESSDATA，
+     * B 站网关随即校验 csrf==bili_jct，空 csrf → -111。未登录时返回空，与匿名请求一致。
+     */
+    private val csrfProvider: () -> String = { "" },
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Idle)
     val state: StateFlow<AuthState> = _state.asStateFlow()
@@ -197,14 +202,40 @@ class AuthGate(
         val spi = api.getBuvid()
         require(spi.code == 0 && spi.data != null) { "spi_v2 失败: code=${spi.code} ${spi.message}" }
 
-        val ts = System.currentTimeMillis() / 1000
-        val ticket = api.genWebTicket(
-            keyId = TICKET_KEY_ID,
-            hexsign = hmacSha256Hex(key = TICKET_HMAC_KEY, message = "ts$ts"),
-            ts = ts,
+        // spi_v2 到手的 buvid 立刻经 current 注入 CookieJar，再调 GenWebTicket——
+        // 真实浏览器里该请求总是带着 buvid3/buvid4/b_nut 发出。
+        // 只写内存 current（其唯一消费者是 BiliCookieJar），不持久化——种到一半
+        // 失败也不留半成品脏档，下次种植从头来过。
+        val spiBNut = FingerprintCookies.bNut(System.currentTimeMillis())
+        current = BiliCredentials(
+            buvid3 = spi.data.buvid3,
+            buvid4 = spi.data.buvid4,
+            ticket = "",
+            ticketExpiresAt = 0,
+            wbiImgKey = "",
+            wbiSubKey = "",
+            wbiFetchedAt = 0,
+            activated = false,
+            bNut = spiBNut,
         )
-        require(ticket.code == 0 && ticket.data != null) {
-            "GenWebTicket 失败: code=${ticket.code} ${ticket.message}"
+
+        // ① GenWebTicket 是 POST。登录后 CookieJar 会给它带上 SESSDATA，B 站网关随即
+        //    校验 csrf==bili_jct，空 csrf → -111。故显式带上 csrf(=bili_jct)；未登录时为空。
+        // ② 非致命：ticket 只是风控加分项（bili_ticket 缺失仅提高验证概率），不是搜索/取流的
+        //    必要条件。失败就跳过 ticket，WBI 改从 nav 取，照常放行——单个端点失败不再拖垮全 app。
+        val ts = System.currentTimeMillis() / 1000
+        val ticketData = runCatching {
+            val resp = api.genWebTicket(
+                keyId = TICKET_KEY_ID,
+                hexsign = hmacSha256Hex(key = TICKET_HMAC_KEY, message = "ts$ts"),
+                ts = ts,
+                csrf = csrfProvider(),
+            )
+            if (resp.code == 0) resp.data
+            else { Log.w(TAG, "GenWebTicket 失败(code=${resp.code} ${resp.message})，回退 nav 取 WBI、跳过 bili_ticket"); null }
+        }.getOrElse {
+            Log.w(TAG, "GenWebTicket 异常，回退 nav 取 WBI、跳过 bili_ticket：${it.message}")
+            null
         }
 
         // buvid 激活。刚下发的 buvid 未经激活时服务端不信任，
@@ -221,8 +252,8 @@ class AuthGate(
             false
         }
 
-        val nav = ticket.data.nav
-        // GenWebTicket 通常顺带返回 WBI 密钥；万一没有则回退 nav 接口
+        val nav = ticketData?.nav
+        // GenWebTicket 通常顺带返回 WBI 密钥；缺失或整步失败则回退 nav 接口
         val (imgKey, subKey) = if (nav != null && nav.img.isNotBlank()) {
             WbiSigner.extractKey(nav.img) to WbiSigner.extractKey(nav.sub)
         } else {
@@ -235,13 +266,14 @@ class AuthGate(
         return BiliCredentials(
             buvid3 = spi.data.buvid3,
             buvid4 = spi.data.buvid4,
-            ticket = ticket.data.ticket,
-            ticketExpiresAt = (ticket.data.createdAt + ticket.data.ttl) * 1000,
+            ticket = ticketData?.ticket.orEmpty(),
+            ticketExpiresAt = ticketData?.let { (it.createdAt + it.ttl) * 1000 } ?: 0L,
             wbiImgKey = imgKey,
             wbiSubKey = subKey,
             wbiFetchedAt = System.currentTimeMillis(),
             activated = activated,
-            bNut = FingerprintCookies.bNut(System.currentTimeMillis()),
+            // b_nut 与 buvid3 同刻生成（种植时刻），保持语义一致
+            bNut = spiBNut,
         )
     }
 

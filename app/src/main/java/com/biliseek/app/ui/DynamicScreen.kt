@@ -71,6 +71,11 @@ fun DynamicScreen(
     onEntryClick: (DynamicEntry) -> Unit,
     onStartLogin: () -> Unit,
     onCancelLogin: () -> Unit,
+    // Ch4
+    onOpenImagePreview: (List<String>, Int) -> Unit = { _, _ -> },
+    onOpenRepost: (String) -> Unit = {},
+    onOpenComment: (DynamicEntry) -> Unit = {},
+    onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var refreshMessage by remember { mutableStateOf<String?>(null) }
@@ -169,7 +174,14 @@ fun DynamicScreen(
                     else -> {
                         LazyColumn(Modifier.fillMaxSize()) {
                             items(state.feed.items, key = { it.idStr }) { entry ->
-                                DynamicCard(entry, onClick = { onEntryClick(entry) })
+                                DynamicCard(
+                                    entry = entry,
+                                    onClick = { onEntryClick(entry) },
+                                    onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
+                                    onRepostClick = { onOpenRepost(entry.idStr) },
+                                    onCommentClick = { onOpenComment(entry) },
+                                    onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status == true) },
+                                )
                                 HorizontalDivider()
                             }
                             if (state.feed.hasMore || state.feed.isLoadingMore) {
@@ -251,10 +263,17 @@ private fun DynamicFilterBar(
     }
 }
 
-/** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文仅展示）。
- * 动态 tab 与 UP 空间页「动态」视图共用（M11-D）。 */
+/** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文用 DrawGrid）。
+ * 动态 tab 与 UP 空间页「动态」视图共用（M11-D）。Ch4 接入互动操作。 */
 @Composable
-internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
+internal fun DynamicCard(
+    entry: DynamicEntry,
+    onClick: () -> Unit,
+    onImageClick: (Int) -> Unit = {},
+    onRepostClick: () -> Unit = {},
+    onCommentClick: () -> Unit = {},
+    onLikeClick: () -> Unit = {},
+) {
     val clickable = if (entry.video != null) Modifier.clickable(onClick = onClick) else Modifier
     Column(Modifier.fillMaxWidth().then(clickable).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -329,8 +348,6 @@ internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    // 播放量 · 弹幕。任一字段缺失就不渲染该子项，整行全空才不画
-                    // —— B 站部分老 UP 关闭了统计，需要静默降级
                     val hasPlay = video.playText.isNotBlank()
                     val hasDanmaku = video.danmakuText.isNotBlank()
                     if (hasPlay || hasDanmaku) {
@@ -346,27 +363,33 @@ internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
                         )
                     }
                     if (entry.rawType == "DYNAMIC_TYPE_FORWARD") {
-                        Text(
-                            "转发动态",
-                            style = MaterialTheme.typography.labelSmall,
-                        )
+                        Text("转发动态", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
+        } else if (entry.pics.size > 1) {
+            // 多图图文动态：用 DrawGrid
+            com.biliseek.app.ui.components.DrawGrid(
+                pics = entry.pics,
+                onImageClick = onImageClick,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         } else if (entry.coverUrl.isNotBlank()) {
-            // 图文动态：仅展示首图
+            // 单图兜底：与原版同款（点击进入全屏预览）
             AsyncImage(
                 model = entry.coverUrl,
                 contentDescription = null,
-                modifier = Modifier.padding(top = 8.dp).fillMaxWidth().size(width = 200.dp, height = 120.dp)
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .size(width = 200.dp, height = 120.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onImageClick(0) },
                 contentScale = ContentScale.Crop,
             )
         }
 
-        // 底部互动操作栏。stat 整体缺失时不渲染——B 站历史接口 / 部分
-        // UP 关闭统计都会拿到 null，不要猜个 0 渲染三个「0」。
+        // Ch4：底部互动按钮
         val stat = entry.stat
         if (stat != null) {
             HorizontalDivider(
@@ -377,47 +400,24 @@ internal fun DynamicCard(entry: DynamicEntry, onClick: () -> Unit) {
                 Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                DynamicActionText(
+                com.biliseek.app.ui.components.ActionButton(
                     count = stat.forward.count,
                     label = "转发",
                     enabled = !stat.forward.forbidden,
+                    onClick = onRepostClick,
                 )
-                DynamicActionText(
+                com.biliseek.app.ui.components.ActionButton(
                     count = stat.comment.count,
                     label = "评论",
+                    onClick = onCommentClick,
                 )
-                DynamicActionText(
+                com.biliseek.app.ui.components.ActionButton(
                     count = stat.like.count,
                     label = "点赞",
                     active = stat.like.status,
+                    onClick = onLikeClick,
                 )
             }
         }
     }
-}
-
-/**
- * 动态卡底部的「数字 + 标签」按钮。**只展示，不可点击**——转发 / 评论 / 点赞
- * 的真实接口（M11-C 暂未实现）需要登录态 Cookie 与风控码校验，独立 M12 任务。
- *
- * 用文本而非图标：app 模块未引 material-icons-extended，全量加一个仅用 4 个图标
- * 的库不值。纯文本与 B 站 Web 关注流风格一致，可访问性也更好。
- */
-@Composable
-private fun DynamicActionText(
-    count: Int,
-    label: String,
-    active: Boolean = false,
-    enabled: Boolean = true,
-) {
-    val tint = when {
-        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-        active -> MaterialTheme.colorScheme.primary  // 已点赞用主题色高亮
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Text(
-        text = "$count $label",
-        style = MaterialTheme.typography.labelMedium,
-        color = tint,
-    )
 }

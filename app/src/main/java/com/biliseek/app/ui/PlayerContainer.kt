@@ -22,11 +22,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -41,6 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,6 +109,9 @@ fun PlayerContainer(
     onSetSleepTimer: (Long) -> Unit = {},
     onRetryPlayback: () -> Unit = {},
     onQueueSkipTo: (Int) -> Unit = {},
+    // Ch5
+    onOpenQueue: () -> Unit = {},
+    miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
     /**
      * 点 MiniPlayer 跳到 player route。由 AppShell 提供（调 navController.navigate）。
      * 不在此处设 onExpansionChange(EXPANDED)：M12-A 之后 EXPANDED 不再是 UI 状态，
@@ -123,6 +128,9 @@ fun PlayerContainer(
                 onExpand = onExpand,
                 onTogglePlayPause = onTogglePlayPause,
                 accent = accent,
+                onOpenQueue = onOpenQueue,
+                onSeek = onSeek,
+                miniBarStyle = miniBarStyle,
                 modifier = modifier,
             )
         }
@@ -223,6 +231,9 @@ private fun MiniPlayer(
     onExpand: () -> Unit,
     onTogglePlayPause: () -> Unit,
     accent: AccentDecision,
+    onOpenQueue: () -> Unit,
+    onSeek: (Long) -> Unit,
+    miniBarStyle: com.biliseek.app.data.MiniBarStyle,
     modifier: Modifier = Modifier,
 ) {
     AnimatedVisibility(
@@ -231,9 +242,20 @@ private fun MiniPlayer(
         exit = fadeOut(),
         modifier = modifier,
     ) {
+        // Ch5 §5.1.4：FLOAT 浮在底部上（圆角 24dp + 左右 16dp + elevation=7）；
+        // BOTTOM 贴底（圆角顶 24dp、无阴影）。
+        val surfaceModifier = when (miniBarStyle) {
+            com.biliseek.app.data.MiniBarStyle.FLOAT -> Modifier
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 8.dp)
+                .shadow(elevation = 7.dp, shape = RoundedCornerShape(24.dp), clip = false)
+                .clip(RoundedCornerShape(24.dp))
+            com.biliseek.app.data.MiniBarStyle.BOTTOM -> Modifier
+                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+        }
         Surface(
             tonalElevation = 3.dp,
-            modifier = Modifier
+            modifier = surfaceModifier
                 .fillMaxWidth()
                 .pointerInput(Unit) {
                     // 上滑展开
@@ -243,17 +265,13 @@ private fun MiniPlayer(
                 },
         ) {
             Column {
-                val progress = if (state.durationMs > 0) {
-                    state.positionMs.toFloat() / state.durationMs
-                } else {
-                    0f
-                }
-                // Mini 上的进度条不可拖：这么细的条子拖不准，拖动入口在展开态。
-                // 颜色随封面取色（M12-A），无取色时回落主题 primary
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(2.dp),
-                    color = accent.accent ?: MaterialTheme.colorScheme.primary,
+                // Ch5 §5.1.1：minibar 进度条也可拖（24dp 触摸区 + 2dp 视觉条）
+                com.biliseek.app.ui.components.DraggableProgressBar(
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs,
+                    onSeek = onSeek,
+                    height = 2.dp,
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Row(
                     Modifier
@@ -278,8 +296,12 @@ private fun MiniPlayer(
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }
+                    // Ch5 §5.1.2：minibar 右侧加播放列表按钮
                     IconButton(onClick = onTogglePlayPause) {
                         Text(if (state.isPlaying) "⏸" else "▶")
+                    }
+                    IconButton(onClick = onOpenQueue) {
+                        Text("☰")
                     }
                 }
             }

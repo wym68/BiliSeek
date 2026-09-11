@@ -7,6 +7,7 @@ import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.FollowingUp
+import com.biliseek.core.network.dto.RelationData
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.dto.WatchLaterItem
@@ -479,6 +480,15 @@ class BiliRepository internal constructor(
             else -> Unit
         }
         if (response.code != 0) {
+            // 调试期：把"双码"分别打出来——确认到底是 code=-111 还是 message 也是 -111
+            if (response.code == -111) {
+                android.util.Log.d(
+                    "BiliSeekReadDebug",
+                    "wbiRequest code=-111 msg='${response.message}' " +
+                        "paramsSignedKeys=${signed.keys.sorted()} " +
+                        "csrfInQuery=${signed.containsKey("csrf")}",
+                )
+            }
             throw SearchException(
                 SearchError.Unknown("code=${response.code} ${response.message}"),
                 "请求失败：code=${response.code} ${response.message}",
@@ -720,6 +730,45 @@ class BiliRepository internal constructor(
             },
             idempotentCodes = IdempotentCodes.REPORT,
         ) { f, _ -> api.reportReply(f) }.map { }
+
+    /**
+     * 点赞 / 取消点赞一条动态。`up=1` 点赞、`up=2` 取消（BiliPai 沿用语义，真机上线前需抓包确认）。
+     */
+    suspend fun likeDynamic(dynIdStr: String, like: Boolean): Result<Unit> =
+        writeRequest(
+            payload = mapOf(
+                "dyn_id_str" to dynIdStr,
+                "up" to if (like) "1" else "2",
+            ),
+            referer = "https://t.bilibili.com/",
+        ) { f, r -> api.likeDynamic(f) }.map { }
+
+    /**
+     * 动态评论。`type` 与 `oid` 由调用方按 [resolveDynamicCommentTarget] 决定
+     * ——DRAW=11+drawId，其他=17+id_str。
+     */
+    suspend fun addDynamicReply(oid: Long, type: Int, message: String): Result<Long> =
+        writeRequest(
+            payload = mapOf(
+                "oid" to oid.toString(),
+                "type" to type.toString(),
+                "message" to message,
+                "plat" to "1",
+            ),
+            referer = "https://t.bilibili.com/",
+        ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
+
+    /**
+     * 拉取 `fid` 的关注状态。仅登录后有效；未登录会 -101 由调用方按现有错误分支处理。
+     */
+    suspend fun relation(fid: Long): Result<RelationData> = runCatching {
+        ensureNotCoolingRead()
+        val response = api.relation(fid)
+        // -101 / -352 由 interceptor 链提前抛成 SearchException；
+        // 这里只负责把 code != 0 折成 Result 失败
+        if (response.code != 0) error("relation 接口失败：code=${response.code} ${response.message}")
+        response.data ?: RelationData()
+    }
 
     /**
      * 转发一条动态（纯文字最小集）。

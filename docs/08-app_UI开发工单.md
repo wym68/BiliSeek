@@ -50,7 +50,7 @@
 - **搜索结果页**（已有关键词且已搜出结果）下，系统边缘滑动手势/虚拟返回键：
   - 若有子页面（多 P 面板、UP 空间页、日历史页等）打开 → **先收子页面**，回到搜索结果页
   - 没有子页面 → **清空搜索框 + 自动聚焦 + 弹起软键盘**（模拟「撤销这次搜索」的感觉）
-  - **清空之后再滑一次** → 走 Activity 默认 pop：此时搜索框为空、不自动聚焦、不弹键盘，让系统决定退到桌面
+  - **清空之后再滑一次** → 走 Activity 默认 pop：此时搜索框为空、不自动聚焦、不弹键盘，回到首页状态
 - **首页空状态**（无关键词）保持现状：返回手势直接退到桌面
 - **长按搜索结果弹出的 `ResultActionSheet`**：`ModalBottomSheet` 自带返回消费，不在此节改造
 - 全屏播放、UP 空间页、稍后再看、合集等页面的返回处理沿用既有 `BackHandler`（在 `LibraryScreen.kt` / `MainActivity.kt` 已覆盖）
@@ -141,12 +141,12 @@
 
 ### 1.7 错误分支在 UI 上的映射
 
-| 状态 | 提示位置 | 文案 |
-| --- | --- | --- |
-| 顶部加载下一页失败 | 顶部红条 | 复用现有 `errorMessage` |
-| 整页失败（首屏） | 全屏 ErrorPanel | 同上 |
-| 触发 `SearchError.Blocked` | 顶部红条 | 「请求太频繁，B 站暂时拦截了搜索」+ 提示「过几分钟再试」 |
-| 返回清空后无历史 | 聚焦弹层中央 | 现有「暂无搜索历史」 |
+| 状态                       | 提示位置          | 文案                             |
+| ------------------------ | ------------- | ------------------------------ |
+| 顶部加载下一页失败                | 顶部红条          | 复用现有 `errorMessage`            |
+| 整页失败（首屏）                 | 全屏 ErrorPanel | 同上                             |
+| 触发 `SearchError.Blocked` | 顶部红条          | 「请求太频繁，B 站暂时拦截了搜索」+ 提示「过几分钟再试」 |
+| 返回清空后无历史                 | 聚焦弹层中央        | 现有「暂无搜索历史」                     |
 
 ### 1.8 待开发 / 复用项清单
 
@@ -180,16 +180,16 @@
   - 滑回搜索结果页时，搜索结果是否仍在；不期望被清掉（仅清空 keyword，不清空 results —— 若你要的是「清空全部结果」请在工单里加备注）
   - 滑回空状态时，再次返回是否真的退到桌面而不是「先关键盘」
 
-> 备注：当前 `onKeywordChange("")` 把 `SearchUiState` 整体重置（`AppViewModel.kt:979`），等于 keyword/results/errors/pages 全清。如果你希望「清空 keyword 后保留上次搜索结果」，需要在 ViewModel 拆出只清 keyword 的入口（例：`fun clearKeywordOnly()`）。请确认。
+> 备注（定案）：结果页滑返回触发「清空」时**全清** `SearchUiState`（keyword/results/errors/pages），回到空状态并显示搜索历史——沿用现有 `onKeywordChange("")`（`AppViewModel.kt:979`），本节零改动。**不**拆 `clearKeywordOnly()`：保留结果又清关键词会与「聚焦时显示历史」冲突（框空着却挂着上次列表）。
 
 ---
 
 ## 2. 搜索页：结果区滚动与统计行（定稿方案 A3）
 
 > 用户反馈：搜索结果页向上滑动查看更多结果时，标题栏下方的筛选区（视频/UP主 + 排序 + 时长）始终不滚动，可视结果区太小；并要求去掉「约 N 个结果 · 第 X/Y 页」一行。
->
+> 
 > 截图来源：`/home/minifive/Desktop/Snipaste_2026-09-07_15-29-07.png`（已查看）
->
+> 
 > **定稿方案 A3**：顶栏（`BiliSeek` 标题 + 问候语 + 头像）+ 搜索框保持固定不动；模式切换、排序/时长筛选、错误条、多 P 面板、搜索结果列表、加载更多指示器全部进入单一 `LazyColumn` 一起参与滚动。统计行**直接删除**，不替代显示。
 
 ### 2.1 截图与代码核对
@@ -347,26 +347,31 @@ Column(modifier = modifier.fillMaxSize()) {
 ### 3.1 目标效果
 
 - **三点按钮（`MoreVert`）**
+  
   - 在每个 `ResultRow` 右侧（在封面与文字列之外）加一列；点击弹**单条**功能框，与原长按 `ResultActionSheet` 内容一致
   - 复选模式下三点按钮**隐藏**，行尾改为复选框
   - 复选框/三点按钮二者互斥，同一行不同时显示
 
 - **长按进入复选模式**
-  - 长按任一结果 → 整页进入「管理态」：**顶栏换成工具栏**、**搜索框隐藏**，每行尾部出现复选框
+  
+  - 长按任一结果 → 整页进入「管理态」：**顶栏换成工具栏**、**搜索框隐藏**，每行首...........................部出现复选框
   - 长按后该行被勾选；再点行 = 切换勾选态
   - 工具栏：`全选 / 全不选 / 加入歌单 / 加入播放列表 / 退出复选`
   - 「全选」范围 = 当前可见 `state.items`（分页拉满之前已有的那些）
   - 系统返回键 = 退出复选模式并**清空勾选**，回到搜索结果页
   - 复选模式下点击单条视频 = **不播放**，仅切换勾选态
 
-- **多 P 视频拆解**
-  - 单条 BV（无论单 P/多 P）执行「加入歌单 / 加入播放列表 / 下一首播放 / 下载」时：
+- **多 P 视频拆解（分两种场景，定案）**
+  
+  - **批量场景**（复选模式下对选中集执行动作）：**直接取每条视频的全部分 P**、按 `pages` 自然顺序执行，**不弹选择页**（多选是批量快捷操作，反复弹选择页打断体验）。搜索页封面**不加 P 数角标**（`SearchVideo` DTO 无分 P 字段，逐条预取 `pages()` 会高频命中服务器，违反安全铁律）——用户在触发单条动作时才由选择页自然看到 P 数。
+  - **单条场景**（正常态点三点按钮对单条 BV 执行动作）：单条 BV（无论单 P/多 P）执行「加入歌单 / 加入播放列表 / 下一首播放 / 下载」时：
     - **单 P** → 跳过选择页，直接执行
     - **多 P** → 进入**新的多选分 P 组件 `MultiPagePickerScreen`**，顶部常驻工具栏：`加入歌单 / 加入播放列表 / 下一首播放 / 下载 / 返回结果`
     - 选中若干分 P 后点击工具栏动作 → 对选中 P 批量执行（不直接播放）
   - 多选分 P 组件不复用现有 `MultiPagePanel`（语义不同：MultiPagePanel 是「挑一首播」，这里是「挑若干执行批量操作」）
 
 - **加入播放列表（新增能力）**
+  
   - 把选中的视频（多 P 已拆为 P1/P2/…/PN）按列表顺序**追加到 ExoPlayer 队列末尾**，不动 `queueIndex`
   - 与「下一首播放」（`enqueueNext`）语义分开
   - 走统一成功 toast，不显示「已加入 3/5」
@@ -388,7 +393,7 @@ Column(modifier = modifier.fillMaxSize()) {
   - `appendSelectionToQueue()` —— 追加到 ExoPlayer 队列
   - `enqueueSelectionNext()` —— `enqueueNext` 按列表顺序逐条入队
   - `downloadSelection()` —— `enqueueDownload` 按列表顺序逐条入队
-  - `pickMultiPagesAnd(action)` —— 给多 P BV 进入 `MultiPagePickerScreen`，收到选中 P 后执行 `action`
+  - `pickMultiPagesAnd(action)` —— **单条场景专用**（正常态三点按钮）：给多 P BV 进入 `MultiPagePickerScreen`，收到选中 P 后执行 `action`；批量场景不经此路径
 
 ### 3.3 状态模型
 
@@ -417,6 +422,7 @@ Column(modifier = modifier.fillMaxSize()) {
 - 新增（`:core:player`）：
   - `PlayerConnection.appendToQueue(request: PlaybackRequest)` —— 追加到 ExoPlayer 队列末尾，不动 `queueIndex`，不自动播放
     - 实现要点（基于 `PlayerConnection.kt:72-73, 482-511`）：
+      
       ```kotlin
       fun appendToQueue(request: PlaybackRequest) {
           if (request !is PlaybackRequest.Bili) return
@@ -444,7 +450,7 @@ Column(modifier = modifier.fillMaxSize()) {
   - 公共媒体库权限链路（`MainActivity.kt:55-66`）继续生效
 - 复选模式：
   - 不引入新的错误分支；纯 UI 态
-- 统一成功 toast：进入 `MultiPagePickerScreen` 执行动作后，弹一个 `Snackbar`（或 `Toast`） 「已加入 N 项到 X」，N = 选中数，X = 动作名（歌单名 / 播放队列 / 下一首播放 / 下载队列）
+- 统一成功 toast：动作执行完（批量取全 P、或单条走选择页选完 P 后）弹一个 `Snackbar`（或 `Toast`）「已加入 N 项到 X」，N = 实际入队/入库的 P 总数，X = 动作名（歌单名 / 播放队列 / 下一首播放 / 下载队列）
 
 ### 3.6 交互草图（ASCII）
 
@@ -535,12 +541,12 @@ BiliRepository.pages(bvid)
   - 新增 `_selectionMode: MutableStateFlow<SelectionMode>`、`selectionMode: StateFlow<SelectionMode>`
   - 新增 `_multiPagePicker: MutableStateFlow<MultiPagePickerState?>`
   - 新增函数：`enterSelectionMode(initialBvid)` / `exitSelectionMode()` / `toggleSelection(bvid)` / `selectAllVisible()` / `clearSelection()`
-  - 新增批量动作：
-    - `addSelectionToPlaylist()` → 多 P 先开 `MultiPagePickerScreen`，单 P 直接弹 `PlaylistPickerDialog`
-    - `appendSelectionToQueue()` → 多 P 先开 `MultiPagePickerScreen`，单 P 直接 `connection.appendToQueue`
-    - `enqueueSelectionNext()` → 多 P 先开 `MultiPagePickerScreen`，单 P 直接 `connection.enqueueNext`
-    - `downloadSelection()` → 多 P 先开 `MultiPagePickerScreen`，单 P 直接 `enqueueDownload`
-  - 私有辅助 `private fun openMultiPagePicker(bvid, action)`：拉 `pages(bvid)`，结果写入 `_multiPagePicker`
+  - 新增批量动作（定案：批量一律取全 P、不弹选择页；对每条选中 BV 先取 `pages`，按自然顺序把全部 P 拆成 `PlaybackRequest.Bili` 执行）：
+    - `addSelectionToPlaylist()` → 弹一次 `PlaylistPickerDialog`，把所有选中 BV 的全部 P 入选中歌单
+    - `appendSelectionToQueue()` → 所有选中 BV 的全部 P 依次 `connection.appendToQueue`
+    - `enqueueSelectionNext()` → 所有选中 BV 的全部 P 依次 `connection.enqueueNext`
+    - `downloadSelection()` → 所有选中 BV 的全部 P 依次 `enqueueDownload`
+  - 私有辅助 `private fun openMultiPagePicker(bvid, action)`：**仅单条场景（三点按钮）用**——拉 `pages(bvid)`，多 P 时写入 `_multiPagePicker` 弹选择页、单 P 直接执行
   - 私有辅助 `private fun executeOnSelectedPages(action, pages: List<PageEntry>)`：按 `pages` 顺序对每个 P 执行 `action`
   - `executeOnSelectedPages` 内部对每个 P 构造 `PlaybackRequest.Bili(bvid, cid=page.cid, ...)` 并调对应 API
 - `MultiPagePickerScreen` 回调：
@@ -561,7 +567,7 @@ BiliRepository.pages(bvid)
   - 已选数 = 0 时「加入歌单 / 加入播放列表 / 下一首播放 / 下载」**禁用**
   - 已选数 = `state.items.size` 时「全选」**禁用**
   - 已选数 < `state.items.size` 时「全不选」**启用**
-- 多 P 选择页：
+- 多 P 选择页（**仅单条场景**，正常态三点按钮触发；批量场景不弹此页）：
   - 单 P BV（`pages.size == 1`）→ 跳过选择页，直接执行动作
   - 多 P BV → 进入选择页，选中若干 → 工具栏动作 → 批量执行
   - 选择页内「加入歌单 / 加入播放列表 / 下一首播放 / 下载」按选中 cid 列表逐条执行
@@ -576,27 +582,28 @@ BiliRepository.pages(bvid)
 - 真机（仅真人）：
   - 长按搜索结果 → 进入复选态，标题栏换成工具栏，搜索框隐藏
   - 工具栏点「全选」→ 当前可见全部勾选；「全不选」→ 清空
-  - 点工具栏「加入播放列表」 → 单 P 直接追加队列 + toast；多 P 跳 `MultiPagePickerScreen`
-  - 在 `MultiPagePickerScreen` 选若干 P → 点工具栏「加入播放列表」 → toast 反馈；返回搜索结果页
+  - 点工具栏「加入播放列表」 → 批量取每条选中 BV 的全部 P、按自然顺序追加队列 + toast（**不弹选择页**）
+  - 正常态点单条三点按钮「加入播放列表」 → 单 P 直接追加；多 P 跳 `MultiPagePickerScreen` 挑 P → toast → 返回搜索结果页
   - 复选态下系统返回键 → 退出复选、勾选清空、回到搜索结果页
   - 三点按钮点击 → 弹单条 `ResultActionSheet`，与原长按内容一致
   - 复选态下三点按钮不可见，行尾为复选框
   - 「下一首播放」批量：选 3 个 BV → 加入到当前播放位的下一首（按列表顺序逐条入队）
   - 「下载」批量：选 3 个 BV → `DownloadManager` 任务列表新增 3 条
 
-### 3.9 风险与未决
+### 3.9 已决 / 实现注意
 
-- **`PlaybackRequest.Bili` 构造**：当前 `AppViewModel.playBvid` 用 `PlaybackRequest.Bili(bvid, title, coverUrl, author, durationSec)`，未传 `cid`。本工单需要按 `PageEntry.cid` 构造 `PlaybackRequest.Bili(bvid, cid=page.cid, ...)`。需确认 `PlaybackRequest.Bili` 接受 `cid` 入参，若不接受需扩展。
-- **多 P `appendToQueue` 顺序**：按选中 P 的顺序（用户在 `MultiPagePickerScreen` 勾选顺序）而非 `pages` 自然顺序，可能造成实际队列顺序与用户预期不符。建议按 `pages` 自然顺序执行。
-- **复选态跨页行为**：分页拉下一页时 `selectAllVisible` 范围是否会刷新？本工单采取「退出复选态前 selectAllVisible 保持只针对当时可见的 items」策略，简化逻辑。
-- **三点按钮与现有长按冲突**：现有 `combinedClickable(onClick, onLongClick)`（`SearchScreen.kt:531`）保留，三点按钮点击区域需避免与行的长按手势重叠。
-- **离线/未登录场景**：未登录时 BV 仍可加播放列表（队列是内存的）；但「加入歌单」会因没账号被拦下。本工单不改变未登录行为，仅在工具栏按钮禁用条件中考虑是否需要登录检查（建议：未登录时「加入歌单 / 下载 / 关注」禁用；「加入播放列表 / 下一首播放」不禁用）。
+- **`PlaybackRequest.Bili` 构造（已确认）**：`PlaybackRequest.Bili` 已带 `cid: Long? = null`（`PlaybackModels.kt:54`），按 `PageEntry.cid` 构造 `PlaybackRequest.Bili(bvid, cid=page.cid, ...)` 直接可行，**无需扩展**。
+- **多 P 入队顺序（定案）**：按 `pages` **自然顺序**（P1→P2→…）执行，不按勾选先后。
+- **复选态跨页行为（定案）**：`selectAllVisible` 只覆盖**点「全选」当时已加载的可见项**；之后翻页拉出的新项不自动纳入。
+- **未登录禁用策略（定案）**：未登录时「加入歌单 / 下载 / 关注」**禁用**（无账号无意义）；「加入播放列表 / 下一首播放」是内存队列，**不禁用**。
+- **三点按钮与现有长按冲突（实现注意）**：现有 `combinedClickable(onClick, onLongClick)`（`SearchScreen.kt:531`）保留，三点按钮点击区域需避免与行的长按手势重叠。
 
 ---
 
 ## 4. UP 空间页与动态页：动态互动 + 图文动态 + 关注 + 投稿批量
 
 > 本章覆盖四处变更：
+> 
 > - **UP 空间页**（`UpSpaceScreen`）：投稿视图复用第 3 章的三点按钮 / 复选模式 + 关注/已关注按钮
 > - **动态 tab / UP 空间·动态视图**（`DynamicScreen` / `DynamicCard`）：图文动态多图 + desc bug修复、图片全屏预览、点赞/评论/转发功能落地
 > - **基础设施**：`jsonWriteRequest` 补齐（对齐07 工单 B6）；新增 `likeDynamic` / `addDynamicReply` 接口
@@ -701,6 +708,7 @@ BiliRepository.pages(bvid)
 #### 4.3.3 `DynamicFeed.parseDynamicItem` 修复
 
 - DRAW / OPUS / ARTICLE 分支：
+  
   ```kotlin
   val descText = listOf(
       content?.desc?.text.orEmpty(),
@@ -736,11 +744,13 @@ BiliRepository.pages(bvid)
 - `BiliApi.likeDynamic` → `BiliRepository.likeDynamic(idStr, like)` → `x/dynamic/feed/dyn/thumb`（**走 jsonWriteRequest**）
 - `BiliApi.addDynamicReply` → `BiliRepository.addDynamicReply(oid, type, message)` → `x/v2/reply/add`（走 writeRequest）
 - `BiliApi.repostDynamic` → `BiliRepository.repostDynamic(idStr, content)` → `x/dynamic/feed/create/dyn`（**走 jsonWriteRequest**，JSON body `dyn_req`）
+- `BiliApi.relation(fid)` → `BiliRepository.relation(mid): Result<RelationStat>` → `x/relation?fid=<mid>`（**读接口**，非写；进 UP 空间页时单发一次，取返回的 `relation`/`attribute` 判断是否已关注）
 - `BiliRepository.resolveDynamicCommentTarget(entry)` 返回 `(oid, type)`，参照 BiliPai 规则
 
 #### 4.4.3 基础设施新增
 
 - `:core:network` 新增 `internal/JsonWriteRequest.kt`（对齐07 工单 B6）：
+  
   ```kotlin
   internal suspend fun <T> jsonWriteRequest(
       payloadJson: String,
@@ -752,7 +762,7 @@ BiliRepository.pages(bvid)
   - 错误分流复用 `WriteOutcome` / `WriteError`
   - 走风控三件套 `authGate.awaitReady()` + 冷却闸门
 - `BiliApi.repostDynamic(@Query("csrf"), @Body body: RequestBody)` + `BiliApi.likeDynamic(@Query("csrf"), @Body body: RequestBody)`
-- 新增 DTO：`DynamicThumbRequest(dyn_id_str, up: Int)`、`DynamicRepostRequest(dyn_id_str, content, dyn_req_str?)`
+- 新增 DTO：`DynamicThumbRequest(dyn_id_str, up: Int)`、`DynamicRepostRequest(dyn_id_str, content, dyn_req_str?)`、`RelationStat(relation/attribute)`（`x/relation` 返回，判断关注态）
 
 ### 4.5 错误/登录/风控分支
 
@@ -958,7 +968,7 @@ BiliRepository.pages(bvid)
 5. **图片预览的进入动画**：`Rect` 转 `offset` 需 `LookaheadScope` 或测量后延迟，复杂度高，本工单做简化版本（直接全屏切换）
 6. **评论列表懒加载**：BiliPai 用 `Pager` + 分页，本工单只做首次拉 10 条 + 提交后局部追加，不做翻页
 7. **未登录点赞/评论/转发**：B 站服务端可能直接拒绝（不报错但无效），需前端拦截
-8. **关注按钮状态来源**：当前 `_followingMid` 仅本地状态，**没有从 B 站拉过**。要么从 `space/acc/info` 接口补一个 `relation.is_followed`，要么进 UP 空间页时拉一次。本工单采用后者，但需要新增空间详情接口或从 `dynamicSpace` 顺带提取
+8. **关注按钮状态来源（定案）**：`dynamicSpace` 返回**不含**关系字段，`followings()` 列表分页/有上限、判断不可靠。定为**进 UP 空间页时单发一次 `x/relation?fid=<mid>`**（读接口）取关注态，新增 `BiliApi.relation` + `RelationStat` DTO。用户主动进空间页才触发，不违反高频铁律。
 9. **多图加载性能**：9 张图同时加载可能 OOM，需用 Coil 的 `crossfade(false)` + 缩略图占位（200×200），避免大图阻塞
 10. **DRAW 多图与 BiliPai OPUS 详情富文本渲染冲突**：BiliPai 详情页用 `OpusContentBlock` 解析，列表页用九宫格。本工单只做列表页九宫格，详情页暂不做（不在本章范围）
 
@@ -971,6 +981,7 @@ BiliRepository.pages(bvid)
 ## 5. MiniPlayer 改造：可拖动进度条 + 播放列表按钮 + 风格切换
 
 > 本章覆盖三处变更：
+> 
 > - **minibar 与展开态的进度条均可拖动**（当前 minibar 用 `LinearProgressIndicator` 不可拖）
 > - **minibar 右侧新增播放列表按钮**，弹出底部 sheet 显示 ExoPlayer 队列
 > - **minibar 样式两种风格可切换**：FLOAT（仿 BBPlayer，浮在底部上）+ BOTTOM（贴底）
@@ -993,6 +1004,7 @@ BiliRepository.pages(bvid)
 #### 5.1.2 播放列表按钮
 
 - minibar 右侧加 `IconButton(icon = 'format-list-bulleted')`，位置在「播放/暂停」按钮**右侧**：
+  
   ```
   ┌──────────────────────────────────────────┐
   │ ┌──┐ 标题                          ▶  ☰ │
@@ -1014,6 +1026,7 @@ BiliRepository.pages(bvid)
   - 时长（右对齐）
   - **当前播放高亮**：序号与标题用主题色 `colorScheme.primary`，前缀「✓ 当前播放」标记
 - 点击条目 → `onQueueSkipTo(index)` → 跳到该 P
+- 底部「清空队列」按钮（**本轮做**）：点击 → `onClearQueue()` → **保留当前播放、清掉其余**，`queueIndex` 归 0；清空后 sheet 显示「只有当前这一首」，当前播放不打断
 - **空队列**显示「队列为空」+「从搜索结果加入」提示
 - **列表为空 vs 队列为空**：
   - 当前播放为空（`state.mode == IDLE`）：sheet 不弹出
@@ -1025,6 +1038,7 @@ BiliRepository.pages(bvid)
   - `FLOAT`（默认）：圆角 24dp、左右 margin 16dp、阴影 elevation=7、高度约 70dp（仿 BBPlayer）
   - `BOTTOM`：贴底、圆角顶 24dp、阴影 elevation=0、高度约 70dp（保留 BiliSeek 现状）
 - FLOAT 样式示意：
+  
   ```
   ┌──────────────────────────────────────────┐
   │ ┌──┐ 标题                          ▶  ☰ │ ← 圆角 24dp / elevation=7
@@ -1035,6 +1049,7 @@ BiliRepository.pages(bvid)
         ↑ 距底 16dp margin / 左右 16dp margin
   ```
 - BOTTOM 样式示意（与现状一致）：
+  
   ```
   ┌──────────────────────────────────────────┐
   │ ┌──┐ 标题                          ▶  ☰ │ ← 贴底，圆角顶 24dp
@@ -1063,6 +1078,7 @@ BiliRepository.pages(bvid)
 - `_queueSheetOpen: MutableStateFlow<Boolean>`（是否显示播放列表 sheet）
 - `queueSheetOpen: StateFlow<Boolean>`
 - `openQueueSheet()` / `closeQueueSheet()`
+- `clearQueue()`（透传 `connection.clearQueue()`）
 
 #### 5.3.2 `AppSettings` 新增字段
 
@@ -1083,10 +1099,11 @@ BiliRepository.pages(bvid)
 
 ### 5.4 调用的 `BiliRepository` 方法
 
-- 本节**不涉及新接口**：
+- 不涉及新**网络**接口；新增一个播放器本地 API：
   - `PlayerConnection.seekTo(positionMs)`（已存在）
   - `PlayerConnection.queueSkipTo(index)`（已存在）
   - `PlayerConnection.queue` / `queueIndex`（已暴露在 `PlaybackState.queue`）
+  - `PlayerConnection.clearQueue()`（**新增**：保留当前播放、清其余，`queueIndex` 归 0）
 
 ### 5.5 错误/登录/风控分支
 
@@ -1146,7 +1163,7 @@ BiliRepository.pages(bvid)
  │    04  …                                │
  │    05  …                                │
  ├──────────────────────────────────────────┤
- │  [清空队列]                                │ ← 可选：后续加入
+ │  [清空队列]                                │ ← 本轮做：保留当前播放、清其余
  └──────────────────────────────────────────┘
 ```
 
@@ -1172,7 +1189,7 @@ BiliRepository.pages(bvid)
   - 内部用 `Slider`，拖动期间本地 `dragValue` 状态
   - `onValueChangeFinished` 时调 `onSeek`
 - `:app/src/main/java/com/biliseek/app/ui/components/PlayerQueueSheet.kt`
-  - 入参：`queue: List<PlaybackRequest>`, `queueIndex: Int`, `onSkipTo: (Int) -> Unit`, `onDismiss: () -> Unit`
+  - 入参：`queue: List<PlaybackRequest>`, `queueIndex: Int`, `onSkipTo: (Int) -> Unit`, `onClearQueue: () -> Unit`, `onDismiss: () -> Unit`
   - 内部用 `ModalBottomSheet` + `LazyColumn`
 - `:app/src/main/java/com/biliseek/app/ui/MiniBarStyle.kt`（enum）
 
@@ -1186,9 +1203,12 @@ BiliRepository.pages(bvid)
 - `:app/src/main/java/com/biliseek/app/data/BiliSeekDatabase.kt`：
   - schema 版本 4 → 5
   - 加 `MIGRATION_4_5`：`ALTER TABLE settings ADD COLUMN mini_bar_style TEXT NOT NULL DEFAULT 'FLOAT'`
+- `:core:player/src/main/java/com/biliseek/core/player/PlayerConnection.kt`：
+  - 新增 `fun clearQueue()`：保留 `queue[queueIndex]`（当前播放）、移除其余，`queueIndex` 归 0，复用 `persistQueue()`；不打断当前播放。空队列 / 单首时为 no-op
 - `:app/src/main/java/com/biliseek/app/AppViewModel.kt`：
   - 新增 `_queueSheetOpen: MutableStateFlow<Boolean>`、`queueSheetOpen: StateFlow<Boolean>`
   - 新增 `openQueueSheet()` / `closeQueueSheet()`
+  - 新增 `clearQueue()`（透传 `connection.clearQueue()`）
   - 新增 `setMiniBarStyle(style: MiniBarStyle)` 持久化设置
 - `:app/src/main/java/com/biliseek/app/ui/PlayerContainer.kt`（MiniPlayer 部分）：
   - 替换 `LinearProgressIndicator` 为 `DraggableProgressBar`
@@ -1233,6 +1253,7 @@ BiliRepository.pages(bvid)
 - `./gradlew :app:assembleDebug` 编译通过
 - 数据库迁移测试：v4 → v5 不丢旧数据
 - `MiniBarStyle` 枚举单测（FLOAT / BOTTOM 默认值）
+- `./gradlew :core:player:test` 新增 `ClearQueueTest`（用假 `PlayerConnection`：多首队列 `clearQueue()` 后只剩当前播放、`queueIndex == 0`；空队列/单首为 no-op）
 
 #### 5.8.2 真机（仅真人）
 
@@ -1246,6 +1267,7 @@ BiliRepository.pages(bvid)
   - 当前播放条目 ✓ + 主色高亮
   - 点击非当前条目 → 跳到该 P
   - 点击当前条目 → 仅关闭 sheet
+  - 点「清空队列」→ 当前这首继续放，其余移除，sheet 显示「只有当前这一首」
   - sheet 关闭手势：下滑 / 点空白 / 系统返回键
 - **样式切换**：
   - 设置页切换 FLOAT → minibar 浮在底部上、左右 margin、阴影
@@ -1270,4 +1292,3 @@ BiliRepository.pages(bvid)
 ---
 
 后续章节按用户页面讨论顺序继续追加。
-

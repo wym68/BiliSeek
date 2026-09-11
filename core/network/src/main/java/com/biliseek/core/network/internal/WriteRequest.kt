@@ -40,7 +40,16 @@ internal suspend fun <T> runWriteRequest(
     }
 
     suspend fun fire(csrf: String) = try {
-        block(payload + ("csrf" to csrf), referer)
+        block(payload + ("csrf" to csrf), referer).also { resp ->
+            // 调试期：仅在 -111 时打印原始响应，定位"双码"是哪个端点、csrf 是否进了 body
+            if (resp.code == -111) {
+                android.util.Log.d(
+                    "BiliSeekWriteDebug",
+                    "code=-111  payloadKeys=${payload.keys} csrfInPayload=${payload.containsKey("csrf")} " +
+                        "msg='${resp.message}' referer=$referer",
+                )
+            }
+        }
     } catch (e: IOException) {
         throw WriteException(WriteError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
     }

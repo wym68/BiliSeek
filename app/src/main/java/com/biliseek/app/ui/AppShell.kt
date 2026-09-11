@@ -76,6 +76,10 @@ fun AppShell(
     onSetSleepTimer: (Long) -> Unit = {},
     onRetryPlayback: () -> Unit = {},
     onQueueSkipTo: (Int) -> Unit = {},
+    /** Ch5：打开播放列表 sheet。 */
+    onOpenQueue: () -> Unit = {},
+    /** Ch5：minibar 风格（FLOAT/BOTTOM）。 */
+    miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
     /**
      * 「开始播放」信号。AppShell 订阅后 push PLAYER destination。
      * 传 SharedFlow 而不是 () -> Unit 回调：同一个源可被多个 LaunchedEffect 订阅，
@@ -137,6 +141,9 @@ fun AppShell(
                             onExpansionChange = onExpansionChange,
                             onTogglePlayPause = onTogglePlayPause,
                             onPresentationChange = onPresentationChange,
+                            onSeek = onSeek,
+                            onOpenQueue = onOpenQueue,
+                            miniBarStyle = miniBarStyle,
                             // 点 MiniPlayer 跳 player route；EXPANDED 不再是状态，
                             // 设了反而让上面对的 showMiniPlayer 判走错。
                             onExpand = {

@@ -34,6 +34,8 @@ import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.DayHistoryScreen
 import com.biliseek.app.ui.Destination
 import com.biliseek.app.ui.DownloadDialog
+import com.biliseek.app.ui.toDownloadTarget
+import com.biliseek.app.toSearchVideo
 import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.DynamicScreen
 import com.biliseek.app.ui.HomeEmptyState
@@ -98,7 +100,19 @@ class MainActivity : ComponentActivity() {
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayHistory by viewModel.dayHistory.collectAsState()
                 val watchLater by viewModel.watchLater.collectAsState()
-                val pendingAdd by viewModel.pendingAdd.collectAsState()
+                val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
+                val selectionMode by viewModel.selectionMode.collectAsState()
+                val selectedBvids by viewModel.selectedBvids.collectAsState()
+                val multiPagePicker by viewModel.multiPagePicker.collectAsState()
+                // 多 P 面板 / UP 空间投稿的复选作用域（与搜索结果复选互斥）
+                val pageSelectionActive by viewModel.pageSelection.active.collectAsState()
+                val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
+                val upSelectionActive by viewModel.upSelection.active.collectAsState()
+                val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
+                val repostDialog by viewModel.repostDialog.collectAsState()
+                val commentDialog by viewModel.commentDialog.collectAsState()
+                val previewImage by viewModel.previewImage.collectAsState()
+                val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
                 val downloadTasks by viewModel.downloadTasks.collectAsState()
@@ -107,8 +121,8 @@ class MainActivity : ComponentActivity() {
                 val collectedListState by viewModel.collectedListState.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
-                // 长按 → 下载：先问内容与保存位置
-                var downloadFor by remember { mutableStateOf<SearchVideo?>(null) }
+                // 长按 → 下载：先问内容与保存位置（搜索结果 / 多 P 分 P / UP 投稿共用）
+                var downloadFor by remember { mutableStateOf<com.biliseek.app.ui.DownloadTarget?>(null) }
                 // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // 「已下载」分区展开态
@@ -134,6 +148,13 @@ class MainActivity : ComponentActivity() {
                         if (viewModel.shouldAutoEnterVideo()) {
                             viewModel.requestPresentation(PresentationMode.INLINE, surfaceView)
                         }
+                    }
+                }
+
+                // Ch3：批量操作成功的瞬时提示。Android Toast——简单可靠、与现有 UI 解耦。
+                LaunchedEffect(Unit) {
+                    viewModel.transientMessage.collect { msg ->
+                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
 
@@ -195,6 +216,8 @@ class MainActivity : ComponentActivity() {
                     onSetSleepTimer = viewModel::setSleepTimer,
                     onRetryPlayback = viewModel::retryPlayback,
                     onQueueSkipTo = viewModel::queueSkipTo,
+                    onOpenQueue = viewModel::openQueueSheet,
+                    miniBarStyle = settings.miniBarStyle,
                     dynamicContent = {
                         DynamicScreen(
                             state = dynamic,
@@ -209,6 +232,11 @@ class MainActivity : ComponentActivity() {
                             onEntryClick = viewModel::playDynamic,
                             onStartLogin = viewModel::startLogin,
                             onCancelLogin = viewModel::cancelLogin,
+                            // Ch4
+                            onOpenImagePreview = viewModel::openImagePreview,
+                            onOpenRepost = viewModel::openRepostDialog,
+                            onOpenComment = viewModel::openCommentDialog,
+                            onToggleLike = viewModel::toggleDynamicLike,
                         )
                     },
                     // UP 空间页（M11-D）：从搜索页点 UP 结果进入
@@ -235,6 +263,30 @@ class MainActivity : ComponentActivity() {
                                 onRetryPosts = { viewModel.loadUpPosts(1) },
                                 onDynamicClick = viewModel::playDynamic,
                                 onLoadMoreDynamic = viewModel::loadMoreUpDynamic,
+                                // Ch4
+                                onToggleFollow = viewModel::toggleRelation,
+                                onOpenImagePreview = viewModel::openImagePreview,
+                                onOpenRepost = viewModel::openRepostDialog,
+                                onOpenComment = viewModel::openCommentDialog,
+                                onToggleLike = viewModel::toggleDynamicLike,
+                                // 投稿复选与动作
+                                isSelection = upSelectionActive,
+                                selectedBvids = selectedUpKeys,
+                                isLoggedIn = session.isLoggedIn,
+                                onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
+                                onToggleSelection = viewModel::toggleUpSelection,
+                                onSelectAll = viewModel::selectAllUp,
+                                onClearSelection = viewModel::clearUpSelection,
+                                onExitSelection = viewModel::exitUpSelection,
+                                onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
+                                onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
+                                onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
+                                onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
+                                onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                                onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                                onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                                onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
+                                onPostDownload = { downloadFor = it.toSearchVideo().toDownloadTarget() },
                             )
                         } else {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
@@ -247,14 +299,54 @@ class MainActivity : ComponentActivity() {
                             onKeywordChange = viewModel::onKeywordChange,
                             onSubmit = viewModel::submitSearch,
                             onResultClick = viewModel::onResultClick,
-                            onAddToPlaylist = viewModel::requestAddToPlaylist,
-                            onPlayNext = viewModel::enqueueNext,
+                            onAddToPlaylist = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                            // 加入队列 = 追加到播放队列末尾（多 P 走挑 P 页，默认全选）
+                            onAppendToQueue = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                            onPlayNext = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
                             onCopyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
                             onShowPages = viewModel::showPages,
-                            onDownload = { downloadFor = it },
+                            onDownload = { downloadFor = it.toDownloadTarget() },
                             onLoadMore = viewModel::loadMore,
                             onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
                             onDismissPages = viewModel::dismissPages,
+                            // 多 P 面板：复选与动作
+                            isPageSelection = pageSelectionActive,
+                            selectedPageCids = selectedPageKeys.mapNotNull { it.toLongOrNull() }.toSet(),
+                            onEnterPageSelection = { viewModel.enterPageSelection(it.cid) },
+                            onTogglePageSelection = viewModel::togglePageSelection,
+                            onSelectAllPages = viewModel::selectAllPages,
+                            onClearPageSelection = viewModel::clearPageSelection,
+                            onExitPageSelection = viewModel::exitPageSelection,
+                            onAddPagesToPlaylist = { viewModel.runPageBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
+                            onAppendPagesToQueue = { viewModel.runPageBatch(com.biliseek.app.PendingAction.AppendToQueue) },
+                            onEnqueuePagesNext = { viewModel.runPageBatch(com.biliseek.app.PendingAction.EnqueueNext) },
+                            onDownloadPages = { viewModel.runPageBatch(com.biliseek.app.PendingAction.Download) },
+                            onPageAddToPlaylist = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                            onPageAppendToQueue = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                            onPagePlayNext = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                            onPageCopyLink = { copyToClipboard(viewModel.pageVideoUrl(it)) },
+                            onPageDownload = {
+                                downloadFor = com.biliseek.app.ui.DownloadTarget(
+                                    bvid = search.pagesOfBvid,
+                                    cid = it.cid,
+                                    title = "P${it.page} ${it.title}".trim(),
+                                    coverUrl = search.pagesCover,
+                                    author = search.pagesAuthor,
+                                )
+                            },
+                            // Ch3 复选模式
+                            isSelectionMode = selectionMode is com.biliseek.app.SelectionMode.On,
+                            selectedBvids = selectedBvids,
+                            onEnterSelection = { viewModel.enterSelectionMode(it.bvid) },
+                            onToggleSelection = viewModel::toggleSelection,
+                            onSelectAll = viewModel::selectAllVisible,
+                            onClearSelection = viewModel::clearSelection,
+                            onExitSelection = viewModel::exitSelectionMode,
+                            onAddSelectionToPlaylist = viewModel::addSelectionToPlaylist,
+                            onAppendSelectionToQueue = viewModel::appendSelectionToQueue,
+                            onEnqueueSelectionNext = viewModel::enqueueSelectionNext,
+                            onDownloadSelection = viewModel::downloadSelection,
+                            isLoggedIn = session.isLoggedIn,
                             onRetry = viewModel::retrySearch,
                             onOrderChange = { viewModel.setSearchFilters(it, search.duration) },
                             onDurationChange = { viewModel.setSearchFilters(search.order, it) },
@@ -347,6 +439,7 @@ class MainActivity : ComponentActivity() {
                         SettingsScreen(
                             settings = settings,
                             onDefaultPresentationChange = viewModel::setDefaultPresentation,
+                            onMiniBarStyleChange = viewModel::setMiniBarStyle,
                             onAllowVideoOnMeteredChange = viewModel::setAllowVideoOnMetered,
                             onAudioQualityChange = viewModel::setAudioQuality,
                             onLoudnessChange = viewModel::setLoudnessNormalization,
@@ -373,19 +466,65 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // 加入歌单不再替用户选第一个：问清楚加到哪儿
-                pendingAdd?.let {
+                pendingBatchAdd?.let {
                     PlaylistPickerDialog(
                         playlists = playlists,
                         onPick = viewModel::confirmAddToPlaylist,
                         onCreate = viewModel::createPlaylistAndAdd,
-                        onDismiss = viewModel::dismissAddToPlaylist,
+                        onDismiss = viewModel::dismissBatchAdd,
+                    )
+                }
+
+                // 单条多 P 视频的分 P 选择页（Ch3）
+                multiPagePicker?.let { picker ->
+                    com.biliseek.app.ui.MultiPagePickerScreen(
+                        state = picker,
+                        onConfirm = viewModel::confirmMultiPagePicker,
+                        onDismiss = viewModel::dismissMultiPagePicker,
+                    )
+                }
+
+                // Ch4：动态转发 / 评论 / 图片预览
+                repostDialog?.let { state ->
+                    com.biliseek.app.ui.components.RepostDialog(
+                        content = state.content,
+                        isPosting = state.isPosting,
+                        onContentChange = viewModel::updateRepostContent,
+                        onSubmit = viewModel::submitRepost,
+                        onDismiss = viewModel::dismissRepostDialog,
+                    )
+                }
+                commentDialog?.let { state ->
+                    com.biliseek.app.ui.components.DynamicCommentDialog(
+                        content = state.content,
+                        isPosting = state.isPosting,
+                        onContentChange = viewModel::updateCommentContent,
+                        onSubmit = viewModel::submitComment,
+                        onDismiss = viewModel::dismissCommentDialog,
+                    )
+                }
+                previewImage?.let { state ->
+                    com.biliseek.app.ui.components.ImagePreviewDialog(
+                        pics = state.pics,
+                        initialIndex = state.initialIndex,
+                        onDismiss = viewModel::dismissImagePreview,
+                    )
+                }
+
+                // Ch5：播放列表 sheet
+                if (queueSheetOpen) {
+                    com.biliseek.app.ui.components.PlayerQueueSheet(
+                        state = playback,
+                        onSkipTo = viewModel::queueSkipTo,
+                        onClearQueue = viewModel::clearQueue,
+                        onDismiss = viewModel::closeQueueSheet,
                     )
                 }
 
                 // 下载前先确认内容与保存位置
-                downloadFor?.let { video ->
+                downloadFor?.let { target ->
                     DownloadDialog(
-                        video = video,
+                        target = target,
                         settings = settings,
                         onDismiss = { downloadFor = null },
                         onConfirm = { request ->

@@ -57,3 +57,16 @@ internal fun resolveManualNextIndex(current: Int, size: Int, mode: PlayMode): In
         else -> (current + 1) % size
     }
 }
+
+/**
+ * 清空队列后的尺寸与下标（Ch5 §5.1.3 / §5.8）。
+ *
+ * **保留当前播放、清其余**；[currentIndex] 越界或队列为空时为 no-op（返回 size, queueIndex=-1）。
+ * queueIndex 归 0：清完后当前项是队首，下一次手动"下一首"按 [resolveManualNextIndex]
+ * 自然回 1（基于 size=1），避免回到原下标导致再次寻址已删除项。
+ */
+internal fun resolveClearedQueue(currentIndex: Int, size: Int): Pair<Int, Int> {
+    if (size <= 0) return 0 to -1
+    if (currentIndex !in 0 until size) return 0 to -1
+    return 1 to 0
+}

@@ -50,7 +50,8 @@ class BiliNetwork private constructor(context: Context) {
         .build()
         .create(BiliApi::class.java)
 
-    val authGate: AuthGate = AuthGate(context.applicationContext, api)
+    val authGate: AuthGate =
+        AuthGate(context.applicationContext, api, csrfProvider = { sessionStore.current.biliJct })
 
     val cookieRefresher: CookieRefresher = CookieRefresher(api, sessionStore)
 

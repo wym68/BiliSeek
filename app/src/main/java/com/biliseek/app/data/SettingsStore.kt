@@ -36,7 +36,12 @@ data class AppSettings(
     val lastDownloadLocation: String = DownloadLocation.PRIVATE,
     /** 上次选的 SAF 目录 uri。持久授权后重进 App 不必重选。 */
     val lastDownloadSafTreeUri: String = "",
+    /** Ch5：minibar 风格（FLOAT 浮在底部上、BOTTOM 贴底）。默认 FLOAT。 */
+    val miniBarStyle: MiniBarStyle = MiniBarStyle.FLOAT,
 )
+
+/** minibar 风格（Ch5 §5.1.4）。 */
+enum class MiniBarStyle { FLOAT, BOTTOM }
 
 private val Context.settingsDataStore by preferencesDataStore(name = "biliseek_settings")
 
@@ -71,6 +76,9 @@ class SettingsStore(private val context: Context) {
             lastDownloadLocation = p[KEY_DOWNLOAD_LOCATION]
                 ?: DownloadLocation.PRIVATE,
             lastDownloadSafTreeUri = p[KEY_DOWNLOAD_SAF_TREE] ?: "",
+            miniBarStyle = p[KEY_MINI_BAR_STYLE]
+                ?.let { name -> MiniBarStyle.entries.firstOrNull { it.name == name } }
+                ?: MiniBarStyle.FLOAT,
         )
         publish(restored)
     }
@@ -96,6 +104,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setDownloadSafTreeUri(value: String) =
         update { it.copy(lastDownloadSafTreeUri = value) }
 
+    /** Ch5：切换 minibar 风格。 */
+    suspend fun setMiniBarStyle(value: MiniBarStyle) =
+        update { it.copy(miniBarStyle = value) }
+
     private suspend fun update(transform: (AppSettings) -> AppSettings) {
         val next = transform(current)
         publish(next)
@@ -107,6 +119,7 @@ class SettingsStore(private val context: Context) {
             p[KEY_LOUDNESS] = next.loudnessNormalization
             p[KEY_DOWNLOAD_LOCATION] = next.lastDownloadLocation
             p[KEY_DOWNLOAD_SAF_TREE] = next.lastDownloadSafTreeUri
+            p[KEY_MINI_BAR_STYLE] = next.miniBarStyle.name
         }
     }
 
@@ -123,6 +136,7 @@ class SettingsStore(private val context: Context) {
         val KEY_LOUDNESS = booleanPreferencesKey("loudness_normalization")
         val KEY_DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val KEY_DOWNLOAD_SAF_TREE = stringPreferencesKey("download_saf_tree")
+        val KEY_MINI_BAR_STYLE = stringPreferencesKey("mini_bar_style")
         const val KEY_LAST_SESSION = "last_playback_session"
 
         val json = Json { ignoreUnknownKeys = true }

@@ -88,6 +88,8 @@ data class DynamicArchiveStat(
 /** 图文动态（DYNAMIC_TYPE_DRAW）。 */
 @Serializable
 data class DynamicDraw(
+    /** DRAW 的服务端 id（用于评论 oid/type=11）。缺失时回退到 id_str/type=17。 */
+    val id: Long = 0,
     val items: List<DynamicDrawItem> = emptyList(),
 )
 
@@ -119,6 +121,20 @@ data class DynamicOpus(
 data class FollowingData(
     val list: List<FollowingUp> = emptyList(),
 )
+
+/**
+ * `x/relation` 单条关注状态。**字段语义需真机抓包确认**：
+ * - `relation` 通常 1 = 已关注 / 0 = 未关注；但 B 站不同端点可能略有差异
+ * - `attribute` 未明，按"非 1 即未关注"兜底
+ */
+@Serializable
+data class RelationData(
+    val relation: RelationStatus = RelationStatus.UNKNOWN,
+    val attribute: Int = 0,
+)
+
+@Serializable
+enum class RelationStatus { FOLLOWING, NOT_FOLLOWING, UNKNOWN }
 
 @Serializable
 data class FollowingUp(

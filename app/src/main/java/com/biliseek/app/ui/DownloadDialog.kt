@@ -29,7 +29,28 @@ import com.biliseek.app.data.DownloadContent
 import com.biliseek.app.data.DownloadLocation
 import com.biliseek.app.download.DownloadRequest
 import com.biliseek.core.network.dto.SearchVideo
+import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.network.stripHighlight
+
+/**
+ * 下载弹窗的输入。从 SearchVideo 泛化出来：多 P 面板的分 P 与 UP 空间投稿
+ * 也走同一弹窗，cid > 0 时下载精确到分 P（0 = 交给下载器解析第一个分 P）。
+ */
+data class DownloadTarget(
+    val bvid: String,
+    val cid: Long = 0,
+    val title: String,
+    val coverUrl: String,
+    val author: String,
+)
+
+/** SearchVideo → 下载目标（搜索结果单条下载）。 */
+fun SearchVideo.toDownloadTarget(): DownloadTarget = DownloadTarget(
+    bvid = bvid,
+    title = stripHighlight(title),
+    coverUrl = normalizeCoverUrl(pic),
+    author = author,
+)
 
 /**
  * 下载确认面板：内容（只音频 / 视频）+ 保存位置（私有 / 公共 / 自定义目录）。
@@ -40,7 +61,7 @@ import com.biliseek.core.network.stripHighlight
  */
 @Composable
 fun DownloadDialog(
-    video: SearchVideo,
+    target: DownloadTarget,
     settings: AppSettings,
     onDismiss: () -> Unit,
     onConfirm: (DownloadRequest) -> Unit,
@@ -72,7 +93,7 @@ fun DownloadDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    stripHighlight(video.title),
+                    target.title,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -137,11 +158,11 @@ fun DownloadDialog(
                     onRememberLocation(location)
                     onConfirm(
                         DownloadRequest(
-                            bvid = video.bvid,
-                            cid = null,
-                            title = stripHighlight(video.title),
-                            author = video.author,
-                            coverUrl = com.biliseek.core.network.normalizeCoverUrl(video.pic),
+                            bvid = target.bvid,
+                            cid = target.cid.takeIf { it > 0 },
+                            title = target.title,
+                            author = target.author,
+                            coverUrl = target.coverUrl,
                             content = content,
                             location = location,
                             safTreeUri = if (location == DownloadLocation.SAF) safTreeUri else "",

@@ -19,6 +19,7 @@ import com.biliseek.core.player.internal.resolveEffectiveQuality
 import com.biliseek.core.player.internal.shouldRequestLossless
 import com.biliseek.core.player.internal.resolveEnqueueNextIndex
 import com.biliseek.core.player.internal.resolveIndexAfterInsert
+import com.biliseek.core.player.internal.resolveClearedQueue
 import com.biliseek.core.player.internal.resolveManualNextIndex
 import com.biliseek.core.player.internal.resolveStartPosition
 import com.biliseek.core.player.internal.resolveNextIndex
@@ -509,6 +510,38 @@ class PlayerConnection(private val context: Context) {
         val at = resolveEnqueueNextIndex(queueIndex, queue.size)
         queue = queue.toMutableList().apply { add(at, request) }
         queueIndex = resolveIndexAfterInsert(queueIndex, at)
+        pushState()
+    }
+
+    /**
+     * 追加到队列末尾。「加入播放列表」用：不打断当前播放、不重排 [queueIndex]、不自动起播。
+     *
+     * 末尾插入永远在当前项之后，故 [queueIndex] 天然不变（见 [resolveIndexAfterInsert]）。
+     * 空队列时仅把它放进队列（[queueIndex] 保持 -1），待用户从队列面板点选才起播。
+     */
+    fun appendToQueue(request: PlaybackRequest) {
+        if (request !is PlaybackRequest.Bili) return
+        queue = queue + request
+        pushState()
+    }
+
+    /**
+     * 清空队列：保留当前播放、清掉其余。
+     *
+     * 不打断当前播放（主流音乐 App 的"清空列表"行为）。queueIndex 归 0；
+     * 空队列 / 无当前下标时为 no-op。
+     * 实现只动队列结构，不调用 persistQueue——空队列结构简单，会话保存路径
+     * 自动跳过（[saveSession] 在 queue 为空时直接 return）。
+     */
+    fun clearQueue() {
+        val (newSize, newIndex) = resolveClearedQueue(queueIndex, queue.size)
+        if (newSize == queue.size && newIndex == queueIndex) return
+        queue = if (newIndex >= 0 && queueIndex >= 0 && queueIndex < queue.size) {
+            listOf(queue[queueIndex])
+        } else {
+            emptyList()
+        }
+        queueIndex = newIndex
         pushState()
     }
 

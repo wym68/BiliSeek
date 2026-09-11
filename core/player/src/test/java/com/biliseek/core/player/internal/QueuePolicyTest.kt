@@ -101,4 +101,28 @@ class QueuePolicyTest {
         assertNull(resolvePreviousIndex(0, 0, PlayMode.REPEAT_ALL))
         assertNull(resolveManualNextIndex(0, 0, PlayMode.REPEAT_ALL))
     }
+
+    // ── 清空队列（Ch5 §5.1.3 / §5.8）：保留当前播放，清其余；queueIndex 归 0 ──
+
+    @Test
+    fun `清空队列保留当前播放并 queueIndex 归 0`() {
+        val (newSize, newIndex) = resolveClearedQueue(currentIndex = 2, size = 5)
+        assertEquals(1, newSize)
+        assertEquals(0, newIndex)
+    }
+
+    @Test
+    fun `单首队列清空退化为只保留自身`() {
+        val (newSize, newIndex) = resolveClearedQueue(currentIndex = 0, size = 1)
+        assertEquals(1, newSize)
+        assertEquals(0, newIndex)
+    }
+
+    @Test
+    fun `空队列或无效当前下标时全部清空`() {
+        // size=0：无可保留项，全清
+        assertEquals(0 to -1, resolveClearedQueue(currentIndex = -1, size = 0))
+        // 越界（currentIndex >= size）：视为未在播，全部清空
+        assertEquals(0 to -1, resolveClearedQueue(currentIndex = 5, size = 3))
+    }
 }

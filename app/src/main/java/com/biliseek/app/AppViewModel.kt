@@ -81,6 +81,77 @@ import java.time.ZonedDateTime
 /** 一个分 P。多 P 视频点入后展开成列表。 */
 data class PageEntry(val cid: Long, val page: Int, val title: String, val durationSec: Long)
 
+/** 复选模式（Ch3）。搜索结果长按进入，工具栏对选中集批量操作。 */
+sealed interface SelectionMode {
+    data object Off : SelectionMode
+    data class On(val initialBvid: String) : SelectionMode
+}
+
+/** 批量 / 单条动作类型（Ch3）。 */
+enum class PendingAction { AddToPlaylist, AppendToQueue, EnqueueNext, Download }
+
+/**
+ * 通用复选作用域：多 P 面板与 UP 空间投稿各持有一个实例。
+ *
+ * 搜索结果复选（[SelectionMode]）绑定 bvid 与结果列表，保持不动；
+ * 新页面的选择键统一用字符串（多 P 用 cid、UP 空间用 bvid），
+ * 由 VM 在 enter 时互斥复位，避免跨页面残留勾选。
+ */
+class SelectionScope {
+    private val _active = MutableStateFlow(false)
+    val active: StateFlow<Boolean> = _active.asStateFlow()
+
+    private val _selected = MutableStateFlow<Set<String>>(emptySet())
+    val selected: StateFlow<Set<String>> = _selected.asStateFlow()
+
+    fun enter(initial: String) {
+        _active.value = true
+        _selected.value = setOf(initial)
+    }
+
+    fun exit() {
+        _active.value = false
+        _selected.value = emptySet()
+    }
+
+    fun toggle(key: String) {
+        val cur = _selected.value
+        _selected.value = if (key in cur) cur - key else cur + key
+    }
+
+    /** 全选：只覆盖当前已加载的可见项（与搜索结果复选同一纪律）。 */
+    fun selectAll(keys: List<String>) { _selected.value = keys.toSet() }
+
+    fun clear() { _selected.value = emptySet() }
+}
+
+/**
+ * UP 空间投稿 → 搜索结果模型。
+ *
+ * 字段一一对应（length 是时长文本、created 是发布时间戳），映射后 UP 空间的
+ * 单条动作（歌单 / 队列 / 下载 / 链接）全部复用搜索结果那套机制。
+ */
+fun SpaceVideo.toSearchVideo(): SearchVideo = SearchVideo(
+    bvid = bvid,
+    title = title,
+    author = author,
+    duration = length,
+    pic = pic,
+    pubdate = created,
+    play = play,
+)
+
+/**
+ * 单条多 P 视频的分 P 选择态（Ch3）。**仅正常态三点按钮触发**；批量场景取全 P、不经此路径。
+ */
+data class MultiPagePickerState(
+    val bvid: String,
+    val cover: String,
+    val author: String,
+    val pages: List<PageEntry>,
+    val pendingAction: PendingAction,
+)
+
 /** 收藏夹内容条目（可播放形状）。 */
 data class FavoriteTrack(
     val bvid: String,
@@ -134,6 +205,34 @@ data class UpSpaceUiState(
     val dynamic: RemoteListState<DynamicEntry> = RemoteListState.empty(),
     /** 动态视图的 offset 游标（feed/space）。 */
     val dynamicOffset: String = "",
+    /** 关注状态：null=未拉取，true=已关注，false=未关注。乐观更新支持。 */
+    val following: Boolean? = null,
+    /** 关注请求 in-flight（按钮 loading）。 */
+    val followingLoading: Boolean = false,
+)
+
+/** Ch4 动态转发对话框状态。 */
+data class RepostDialogState(
+    val idStr: String,
+    val content: String = "",
+    val isPosting: Boolean = false,
+)
+
+/** Ch4 动态评论对话框状态。 */
+data class CommentDialogState(
+    val idStr: String,
+    val oid: Long,
+    val type: Int,
+    val content: String = "",
+    val isPosting: Boolean = false,
+    /** 评论列表（提交后刷新该列表）。当前实现只展示占位，避免接口泛滥。 */
+    val recentReplies: List<String> = emptyList(),
+)
+
+/** Ch4 图文动态图片全屏预览状态。 */
+data class ImagePreviewState(
+    val pics: List<String>,
+    val initialIndex: Int,
 )
 
 data class SearchUiState(
@@ -153,6 +252,8 @@ data class SearchUiState(
     val pagesOfBvid: String = "",
     /** 展开的多 P 视频封面。分 P 接口不返回封面，只能从点入的搜索结果带过来。 */
     val pagesCover: String = "",
+    /** 展开的多 P 视频 UP 主。加歌单 / 下载 / 播放历史落库要用，同封面一起带过来。 */
+    val pagesAuthor: String = "",
     /** 搜索目标：视频 / UP 主。切换重置页码重搜（M11-D）。 */
     val searchMode: SearchMode = SearchMode.VIDEO,
     /** UP 主搜索结果（searchMode == USER 时使用）。 */
@@ -195,6 +296,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val _playbackStarted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val playbackStarted: SharedFlow<Unit> = _playbackStarted.asSharedFlow()
+
+    /** 瞬时提示（Ch3 批量操作成功等）。UI 侧 collect 后弹 Toast。 */
+    private val _transientMessage = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val transientMessage: SharedFlow<String> = _transientMessage.asSharedFlow()
+
+    private fun emitMessage(text: String) { _transientMessage.tryEmit(text) }
+
+    // ── Ch5 MiniPlayer 状态 ─────────────────────────
+
+    /** 播放列表 sheet 是否打开。 */
+    private val _queueSheetOpen = MutableStateFlow(false)
+    val queueSheetOpen: StateFlow<Boolean> = _queueSheetOpen.asStateFlow()
+
+    fun openQueueSheet() { _queueSheetOpen.value = true }
+    fun closeQueueSheet() { _queueSheetOpen.value = false }
+
+    fun clearQueue() {
+        connection.clearQueue()
+        emitMessage("队列已清空")
+    }
+
+    /** 设置页改 minibar 风格：直接落库，UI 订阅 settings.miniBarStyle 即时切换。 */
+    fun setMiniBarStyle(style: com.biliseek.app.data.MiniBarStyle) = viewModelScope.launch {
+        settingsStore.setMiniBarStyle(style)
+    }
+
+    // ── Ch4 状态 ──────────────────────────────────────
+
+    /** 动态转发对话框。null=关闭。 */
+    private val _repostDialog = MutableStateFlow<RepostDialogState?>(null)
+    val repostDialog: StateFlow<RepostDialogState?> = _repostDialog.asStateFlow()
+
+    /** 动态评论对话框。null=关闭。 */
+    private val _commentDialog = MutableStateFlow<CommentDialogState?>(null)
+    val commentDialog: StateFlow<CommentDialogState?> = _commentDialog.asStateFlow()
+
+    /** 图文动态图片全屏预览。null=关闭。 */
+    private val _previewImage = MutableStateFlow<ImagePreviewState?>(null)
+    val previewImage: StateFlow<ImagePreviewState?> = _previewImage.asStateFlow()
+
+    /** 点赞防抖：记录每个 dyn_id_str 最近一次发起请求的时间戳。 */
+    private val likeRequestGate = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private var pollJob: Job? = null
 
@@ -749,40 +892,278 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _openedPlaylist.value?.let { library.removeFromPlaylist(it.id, trackId) }
     }
 
-    /** 待加入歌单的条目。非空时 UI 弹歌单选择框。 */
-    private val _pendingAdd = MutableStateFlow<SearchVideo?>(null)
-    val pendingAdd: StateFlow<SearchVideo?> = _pendingAdd.asStateFlow()
+    // ── Ch3：复选模式与批量操作 ──────────────────────────
 
-    /** 长按「加入歌单」：先问加到哪个歌单，不再替用户选第一个。 */
-    fun requestAddToPlaylist(video: SearchVideo) { _pendingAdd.value = video }
+    private val _selectionMode = MutableStateFlow<SelectionMode>(SelectionMode.Off)
+    val selectionMode: StateFlow<SelectionMode> = _selectionMode.asStateFlow()
 
-    fun dismissAddToPlaylist() { _pendingAdd.value = null }
+    private val _selectedBvids = MutableStateFlow<Set<String>>(emptySet())
+    val selectedBvids: StateFlow<Set<String>> = _selectedBvids.asStateFlow()
 
-    fun confirmAddToPlaylist(playlistId: Long) {
-        val video = _pendingAdd.value ?: return
-        _pendingAdd.value = null
-        viewModelScope.launch { library.addToPlaylist(playlistId, video.toTrack()) }
+    // 多 P 面板 / UP 空间投稿的复选作用域（与搜索结果复选互斥，enter 时互相复位）
+    val pageSelection = SelectionScope()
+    val upSelection = SelectionScope()
+
+    /** 单条多 P 选择页状态（三点按钮触发）；非空时 UI 渲染 MultiPagePickerScreen。 */
+    private val _multiPagePicker = MutableStateFlow<MultiPagePickerState?>(null)
+    val multiPagePicker: StateFlow<MultiPagePickerState?> = _multiPagePicker.asStateFlow()
+
+    /**
+     * 待加入歌单的条目（一组 track，1 或 N）。非空时 UI 弹歌单选择框。
+     * 单条与批量统一走这一条路径。
+     */
+    private val _pendingBatchAdd = MutableStateFlow<List<TrackEntity>?>(null)
+    val pendingBatchAdd: StateFlow<List<TrackEntity>?> = _pendingBatchAdd.asStateFlow()
+
+    fun enterSelectionMode(initialBvid: String) {
+        // 搜索结果复选与多 P / UP 空间复选互斥，进入时复位另两套
+        pageSelection.exit()
+        upSelection.exit()
+        _selectionMode.value = SelectionMode.On(initialBvid)
+        _selectedBvids.value = setOf(initialBvid)
     }
 
-    /** 「新建歌单」分支：建完直接把待加入的条目放进去。 */
-    fun createPlaylistAndAdd(name: String) {
-        val video = _pendingAdd.value ?: return
-        _pendingAdd.value = null
-        if (name.isBlank()) return
-        viewModelScope.launch {
-            library.addToPlaylist(library.createPlaylist(name), video.toTrack())
+    fun exitSelectionMode() {
+        _selectionMode.value = SelectionMode.Off
+        _selectedBvids.value = emptySet()
+    }
+
+    fun toggleSelection(bvid: String) {
+        val cur = _selectedBvids.value
+        _selectedBvids.value = if (bvid in cur) cur - bvid else cur + bvid
+    }
+
+    /** 全选：只覆盖点击当时已加载的可见项（定案 Ch3-5）。 */
+    fun selectAllVisible() {
+        _selectedBvids.value = _search.value.items.map { it.bvid }.toSet()
+    }
+
+    fun clearSelection() { _selectedBvids.value = emptySet() }
+
+    private fun selectedVideos(): List<SearchVideo> {
+        val sel = _selectedBvids.value
+        return _search.value.items.filter { it.bvid in sel }
+    }
+
+    /**
+     * 把一条搜索结果按**全部分 P**展开为播放请求（Ch3 批量：取全 P、自然顺序）。
+     * 取 pages 失败或单 P 时退化为单条（cid 交由取流层解析）。
+     */
+    private suspend fun expandToRequests(video: SearchVideo): List<PlaybackRequest.Bili> {
+        val pages = network.repository.pages(video.bvid).getOrNull().orEmpty()
+        if (pages.size <= 1) {
+            return listOf(video.toRequest(cid = pages.firstOrNull()?.cid))
+        }
+        return pages.map { p ->
+            PlaybackRequest.Bili(
+                bvid = video.bvid,
+                cid = p.cid,
+                title = "${cleanTitle(video.title)} P${p.page} ${p.part}".trim(),
+                coverUrl = coverOf(video),
+                author = video.author,
+                durationSec = p.duration,
+            )
         }
     }
 
-    private fun SearchVideo.toTrack() = TrackEntity(
+    private fun PlaybackRequest.Bili.toTrackEntity() = TrackEntity(
         bvid = bvid,
-        cid = 0,
-        title = com.biliseek.core.network.stripHighlight(title),
+        cid = cid ?: 0,
+        title = title,
         author = author,
-        coverUrl = coverOf(this),
-        // 搜索结果里的 "4:32" 是入库时唯一能拿到时长的地方
-        durationSec = com.biliseek.core.network.parseDurationText(duration),
+        coverUrl = coverUrl,
+        durationSec = durationSec,
     )
+
+    /** 批量下载请求：用设置里记住的默认，不弹窗；公共目录需权限、批量不走权限弹窗 → 回退私有。 */
+    private fun toBatchDownloadRequest(r: PlaybackRequest.Bili): com.biliseek.app.download.DownloadRequest {
+        val settings = settingsStore.current
+        val location = when (settings.lastDownloadLocation) {
+            com.biliseek.app.data.DownloadLocation.SAF ->
+                if (settings.lastDownloadSafTreeUri.isNotBlank()) com.biliseek.app.data.DownloadLocation.SAF
+                else com.biliseek.app.data.DownloadLocation.PRIVATE
+            com.biliseek.app.data.DownloadLocation.PUBLIC -> com.biliseek.app.data.DownloadLocation.PRIVATE
+            else -> com.biliseek.app.data.DownloadLocation.PRIVATE
+        }
+        return com.biliseek.app.download.DownloadRequest(
+            bvid = r.bvid,
+            cid = r.cid,
+            title = r.title,
+            author = r.author,
+            coverUrl = r.coverUrl,
+            content = com.biliseek.app.data.DownloadContent.AUDIO,
+            location = location,
+            safTreeUri = if (location == com.biliseek.app.data.DownloadLocation.SAF) settings.lastDownloadSafTreeUri else "",
+        )
+    }
+
+    /** 对一组请求执行动作（批量 / 单条选完 P 后共用）。 */
+    private fun execute(action: PendingAction, requests: List<PlaybackRequest.Bili>) {
+        if (requests.isEmpty()) return
+        when (action) {
+            PendingAction.AppendToQueue -> {
+                requests.forEach { connection.appendToQueue(it) }
+                emitMessage("已加入 ${requests.size} 项到播放队列")
+            }
+            // 逆序 enqueueNext：每次都插在当前项之后，逆序入队才能保住自然顺序
+            PendingAction.EnqueueNext -> {
+                requests.asReversed().forEach { connection.enqueueNext(it) }
+                emitMessage("已加入 ${requests.size} 项到下一首播放")
+            }
+            PendingAction.AddToPlaylist -> {
+                _pendingBatchAdd.value = requests.map { it.toTrackEntity() }
+            }
+            PendingAction.Download -> {
+                requests.forEach { downloadManager.enqueue(toBatchDownloadRequest(it)) }
+                emitMessage("已加入 ${requests.size} 项到下载队列")
+            }
+        }
+    }
+
+    /** 批量动作：展开选中集全部 P（自然顺序）后执行。 */
+    private fun runBatch(action: PendingAction) = viewModelScope.launch {
+        val videos = selectedVideos()
+        exitSelectionMode()
+        val requests = videos.flatMap { expandToRequests(it) }
+        execute(action, requests)
+    }
+
+    fun appendSelectionToQueue() = runBatch(PendingAction.AppendToQueue)
+    fun enqueueSelectionNext() = runBatch(PendingAction.EnqueueNext)
+    fun addSelectionToPlaylist() = runBatch(PendingAction.AddToPlaylist)
+    fun downloadSelection() = runBatch(PendingAction.Download)
+
+    // ── 多 P 面板的复选与动作（长按进复选 / 三点单条动作）──────────
+
+    fun enterPageSelection(cid: Long) {
+        exitSelectionMode()
+        upSelection.exit()
+        pageSelection.enter(cid.toString())
+    }
+
+    fun togglePageSelection(cid: Long) = pageSelection.toggle(cid.toString())
+    fun selectAllPages() = pageSelection.selectAll(_search.value.pages.map { it.cid.toString() })
+    fun clearPageSelection() = pageSelection.clear()
+    fun exitPageSelection() = pageSelection.exit()
+
+    /** 多 P 条目 → 播放请求：标题带 P 序号，封面 / UP 主从面板头部状态带。 */
+    private fun PageEntry.toPageRequest(): PlaybackRequest.Bili {
+        val s = _search.value
+        return PlaybackRequest.Bili(
+            bvid = s.pagesOfBvid,
+            cid = cid,
+            title = "P$page $title".trim(),
+            coverUrl = s.pagesCover,
+            author = s.pagesAuthor,
+            durationSec = durationSec,
+        )
+    }
+
+    /** 多 P 面板批量动作：选中 P（保持自然顺序）执行；执行前退出复选。 */
+    fun runPageBatch(action: PendingAction) = viewModelScope.launch {
+        val sel = pageSelection.selected.value
+        val chosen = _search.value.pages.filter { it.cid.toString() in sel }
+        pageSelection.exit()
+        execute(action, chosen.map { it.toPageRequest() })
+    }
+
+    /** 多 P 面板单条动作（三点菜单）。面板里每行就是分 P，不再需要挑 P。 */
+    fun pageSingleAction(entry: PageEntry, action: PendingAction) {
+        execute(action, listOf(entry.toPageRequest()))
+    }
+
+    fun pageVideoUrl(entry: PageEntry) =
+        "https://www.bilibili.com/video/${_search.value.pagesOfBvid}?p=${entry.page}"
+
+    // ── UP 空间投稿的复选与动作 ──────────────────────────
+
+    fun enterUpSelection(bvid: String) {
+        exitSelectionMode()
+        pageSelection.exit()
+        upSelection.enter(bvid)
+    }
+
+    fun toggleUpSelection(bvid: String) = upSelection.toggle(bvid)
+    fun selectAllUp() = upSelection.selectAll(_upSpace.value.posts.items.map { it.bvid })
+    fun clearUpSelection() = upSelection.clear()
+    fun exitUpSelection() = upSelection.exit()
+
+    private fun selectedUpVideos(): List<SearchVideo> {
+        val sel = upSelection.selected.value
+        return _upSpace.value.posts.items.filter { it.bvid in sel }.map { it.toSearchVideo() }
+    }
+
+    /** UP 空间批量动作：选中投稿展开全 P（自然顺序）执行；执行前退出复选。 */
+    fun runUpBatch(action: PendingAction) = viewModelScope.launch {
+        val videos = selectedUpVideos()
+        upSelection.exit()
+        execute(action, videos.flatMap { expandToRequests(it) })
+    }
+
+    /** UP 空间单条三点动作：映射为搜索结果，复用 startSingleAction（多 P 自动弹挑 P 页）。 */
+    fun startUpSingleAction(video: SpaceVideo, action: PendingAction) =
+        startSingleAction(video.toSearchVideo(), action)
+
+    fun upVideoUrl(video: SpaceVideo) = videoUrl(video.toSearchVideo())
+
+    fun dismissBatchAdd() { _pendingBatchAdd.value = null }
+
+    fun confirmAddToPlaylist(playlistId: Long) {
+        val tracks = _pendingBatchAdd.value ?: return
+        _pendingBatchAdd.value = null
+        viewModelScope.launch {
+            tracks.forEach { library.addToPlaylist(playlistId, it) }
+            emitMessage("已加入 ${tracks.size} 项到歌单")
+        }
+    }
+
+    fun createPlaylistAndAdd(name: String) {
+        val tracks = _pendingBatchAdd.value ?: return
+        _pendingBatchAdd.value = null
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val id = library.createPlaylist(name)
+            tracks.forEach { library.addToPlaylist(id, it) }
+            emitMessage("已加入 ${tracks.size} 项到歌单")
+        }
+    }
+
+    // ── 单条三点按钮动作：单 P 直接执行；多 P 进选择页挑 P ──
+
+    fun startSingleAction(video: SearchVideo, action: PendingAction) = viewModelScope.launch {
+        val pages = network.repository.pages(video.bvid).getOrNull().orEmpty()
+        if (pages.size <= 1) {
+            execute(action, listOf(video.toRequest(cid = pages.firstOrNull()?.cid)))
+        } else {
+            _multiPagePicker.value = MultiPagePickerState(
+                bvid = video.bvid,
+                cover = coverOf(video),
+                author = video.author,
+                pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
+                pendingAction = action,
+            )
+        }
+    }
+
+    fun dismissMultiPagePicker() { _multiPagePicker.value = null }
+
+    /** 选择页确认：对选中分 P（保持 pages 自然顺序）执行预选动作。 */
+    fun confirmMultiPagePicker(selectedCids: List<Long>) {
+        val picker = _multiPagePicker.value ?: return
+        _multiPagePicker.value = null
+        val chosen = picker.pages.filter { it.cid in selectedCids.toSet() }
+        val requests = chosen.map { p ->
+            PlaybackRequest.Bili(
+                bvid = picker.bvid,
+                cid = p.cid,
+                title = "P${p.page} ${p.title}".trim(),
+                coverUrl = picker.cover,
+                author = picker.author,
+                durationSec = p.durationSec,
+            )
+        }
+        execute(picker.pendingAction, requests)
+    }
 
     /** 「下一首播放」。不打断正在播的这首。 */
     fun enqueueNext(video: SearchVideo) = connection.enqueueNext(video.toRequest())
@@ -801,6 +1182,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
                     pagesOfBvid = video.bvid,
                     pagesCover = coverOf(video),
+                    pagesAuthor = video.author,
                 )
             }
         }
@@ -849,7 +1231,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
-        network.authGate.start()
         // 续播与位置回写：播放内核不认识数据库，通过回调解耦
         connection.resumePositionProvider = { bvid, cid -> library.resumePosition(bvid, cid) }
         connection.positionRecorder = { bvid, cid, position ->
@@ -899,6 +1280,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             settingsStore.load()
             network.sessionStore.load()
+            // 登录态加载后再启动风控种植：GenWebTicket 需要 bili_jct 作 csrf（登录态下空 csrf → -111）
+            network.authGate.start()
             // 老登录态（升级前登录的）没有用户名/头像，启动时补拉一次（失败不打扰）
             network.loginManager.refreshProfileIfNeeded()
             connection.connect()
@@ -1183,12 +1566,212 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun openUpSpace(user: SearchUser) {
         _upSpace.value = UpSpaceUiState(up = user)
         loadUpPosts(1)
+        loadFollowingState(user.mid)
     }
 
-    fun closeUpSpace() { _upSpace.value = UpSpaceUiState() }
+    fun closeUpSpace() {
+        upSelection.exit()
+        _upSpace.value = UpSpaceUiState()
+    }
+
+    /**
+     * 进空间页时拉一次关注状态。`relation()` 未登录会 -101，
+     * 由 interceptor 链提前抛成 SearchException；runCatching 兜成 null = 未知。
+     */
+    private fun loadFollowingState(mid: Long) = viewModelScope.launch {
+        network.repository.relation(mid).onSuccess { stat ->
+            val following = stat.relation == com.biliseek.core.network.dto.RelationStatus.FOLLOWING
+            _upSpace.value = _upSpace.value.copy(following = following)
+        }
+    }
+
+    /** 关注 / 取关：乐观更新，失败回滚。 */
+    fun toggleRelation(mid: Long, follow: Boolean) = viewModelScope.launch {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再关注")
+            return@launch
+        }
+        val cur = _upSpace.value
+        // 防止双击：true→true 已是最终态，不重复发
+        if (cur.followingLoading) return@launch
+        // 乐观更新
+        _upSpace.value = cur.copy(followingLoading = true, following = follow)
+        network.repository.modifyRelation(mid, follow)
+            .onSuccess {
+                _upSpace.value = _upSpace.value.copy(followingLoading = false)
+                emitMessage(if (follow) "已关注" else "已取消关注")
+            }
+            .onFailure { err ->
+                // 回滚 + 报错提示
+                _upSpace.value = _upSpace.value.copy(followingLoading = false, following = !follow)
+                emitMessage("关注失败：${err.message ?: "未知错误"}")
+            }
+    }
+
+    // ── Ch4 动态互动（点赞 / 转发 / 评论 / 图片预览） ──
+
+    /**
+     * 乐观更新一条动态的 stat.like：用于点赞 +1/-1 双状态。
+     * 同步更新关注流（`_dynamic.feed`）与 UP 空间页（`_upSpace.dynamic`）两个 StateFlow。
+     */
+    private fun patchEntry(idStr: String, transform: (DynamicEntry) -> DynamicEntry) {
+        val dyn = _dynamic.value
+        val idx = dyn.feed.items.indexOfFirst { it.idStr == idStr }
+        if (idx >= 0) {
+            val newItems = dyn.feed.items.toMutableList().also { it[idx] = transform(it[idx]) }
+            _dynamic.value = dyn.copy(feed = dyn.feed.copy(items = newItems))
+        }
+        val space = _upSpace.value
+        val sIdx = space.dynamic.items.indexOfFirst { it.idStr == idStr }
+        if (sIdx >= 0) {
+            val newItems = space.dynamic.items.toMutableList().also { it[sIdx] = transform(it[sIdx]) }
+            _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
+        }
+    }
+
+    /** 点赞：500ms 内只发一次请求；乐观更新；失败回滚。 */
+    fun toggleDynamicLike(idStr: String, like: Boolean) = viewModelScope.launch {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再点赞")
+            return@launch
+        }
+        // 防抖：500ms 闸门
+        val now = System.currentTimeMillis()
+        val last = likeRequestGate[idStr] ?: 0L
+        if (now - last < 500) return@launch
+        likeRequestGate[idStr] = now
+
+        val original = snapshotEntry(idStr)
+        // 乐观更新：status 反转、count ±1
+        patchEntry(idStr) { e ->
+            val stat = e.stat ?: return@patchEntry e
+            e.copy(stat = stat.copy(like = stat.like.copy(
+                count = (stat.like.count + if (like) 1 else -1).coerceAtLeast(0),
+                status = like,
+            )))
+        }
+        network.repository.likeDynamic(idStr, like)
+            .onSuccess { emitMessage(if (like) "已点赞" else "已取消点赞") }
+            .onFailure { err ->
+                // 回滚：把 entry 的 stat 还原
+                original?.let { orig -> patchEntry(idStr) { _ -> orig } }
+                emitMessage("点赞失败：${err.message ?: "未知错误"}")
+            }
+    }
+
+    /** 取一份 entry 快照（用于失败回滚）。 */
+    private fun snapshotEntry(idStr: String): DynamicEntry? {
+        _dynamic.value.feed.items.firstOrNull { it.idStr == idStr }?.let { return it }
+        return _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr }
+    }
+
+    /** 打开转发输入对话框。 */
+    fun openRepostDialog(idStr: String) {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再转发")
+            return
+        }
+        _repostDialog.value = RepostDialogState(idStr = idStr)
+    }
+
+    fun updateRepostContent(text: String) {
+        val cur = _repostDialog.value ?: return
+        _repostDialog.value = cur.copy(content = text)
+    }
+
+    fun dismissRepostDialog() { _repostDialog.value = null }
+
+    /** 提交转发：乐观更新转发数 +1；失败回滚。 */
+    fun submitRepost() = viewModelScope.launch {
+        val cur = _repostDialog.value ?: return@launch
+        if (cur.isPosting) return@launch
+        _repostDialog.value = cur.copy(isPosting = true)
+        // 乐观更新
+        patchEntry(cur.idStr) { e ->
+            val stat = e.stat ?: return@patchEntry e
+            e.copy(stat = stat.copy(forward = stat.forward.copy(count = stat.forward.count + 1)))
+        }
+        network.repository.forwardDynamic(cur.idStr, cur.content)
+            .onSuccess {
+                _repostDialog.value = null
+                emitMessage("已转发")
+            }
+            .onFailure { err ->
+                // 回滚
+                _repostDialog.value = cur.copy(isPosting = false)
+                patchEntry(cur.idStr) { e ->
+                    val stat = e.stat ?: return@patchEntry e
+                    e.copy(stat = stat.copy(forward = stat.forward.copy(
+                        count = (stat.forward.count - 1).coerceAtLeast(0),
+                    )))
+                }
+                emitMessage("转发失败：${err.message ?: "未知错误"}")
+            }
+    }
+
+    /** 打开评论对话框：根据 dynamic entry 计算 oid/type。 */
+    fun openCommentDialog(entry: DynamicEntry) {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再评论")
+            return
+        }
+        val (oid, type) = com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry(
+            idStr = entry.idStr,
+            rawType = entry.rawType,
+            drawId = entry.drawId,
+        )
+        _commentDialog.value = CommentDialogState(
+            idStr = entry.idStr,
+            oid = oid,
+            type = type,
+        )
+    }
+
+    fun updateCommentContent(text: String) {
+        val cur = _commentDialog.value ?: return
+        _commentDialog.value = cur.copy(content = text)
+    }
+
+    fun dismissCommentDialog() { _commentDialog.value = null }
+
+    /** 提交评论：乐观更新评论数 +1；失败回滚。 */
+    fun submitComment() = viewModelScope.launch {
+        val cur = _commentDialog.value ?: return@launch
+        if (cur.isPosting || cur.content.isBlank()) return@launch
+        _commentDialog.value = cur.copy(isPosting = true)
+        patchEntry(cur.idStr) { e ->
+            val stat = e.stat ?: return@patchEntry e
+            e.copy(stat = stat.copy(comment = stat.comment.copy(count = stat.comment.count + 1)))
+        }
+        network.repository.addDynamicReply(cur.oid, cur.type, cur.content)
+            .onSuccess {
+                _commentDialog.value = null
+                emitMessage("评论已发送")
+            }
+            .onFailure { err ->
+                _commentDialog.value = cur.copy(isPosting = false)
+                patchEntry(cur.idStr) { e ->
+                    val stat = e.stat ?: return@patchEntry e
+                    e.copy(stat = stat.copy(comment = stat.comment.copy(
+                        count = (stat.comment.count - 1).coerceAtLeast(0),
+                    )))
+                }
+                emitMessage("评论失败：${err.message ?: "未知错误"}")
+            }
+    }
+
+    /** 打开图片预览（全屏）。 */
+    fun openImagePreview(pics: List<String>, initialIndex: Int = 0) {
+        if (pics.isEmpty()) return
+        _previewImage.value = ImagePreviewState(pics = pics, initialIndex = initialIndex.coerceIn(0, pics.lastIndex))
+    }
+
+    fun dismissImagePreview() { _previewImage.value = null }
 
     /** 投稿 / 动态 视图切换：各视图独立分页状态，互不干扰。 */
     fun setUpSpaceView(view: UpSpaceView) {
+        // 切视图退出投稿复选：另一视图的列表与勾选集无关
+        upSelection.exit()
         val cur = _upSpace.value
         if (cur.view == view) return
         _upSpace.value = cur.copy(view = view)
@@ -1321,6 +1904,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             pages = emptyList(),
                             pagesOfBvid = "",
                             pagesCover = "",
+                            pagesAuthor = "",
                         )
                         play(video.toRequest(cid = pages.firstOrNull()?.cid))
                     } else {
@@ -1330,6 +1914,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             },
                             pagesOfBvid = video.bvid,
                             pagesCover = coverOf(video),
+                            pagesAuthor = video.author,
                         )
                     }
                 }
@@ -1356,6 +1941,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun playPage(bvid: String, entry: PageEntry) {
         val all = _search.value.pages
         val cover = _search.value.pagesCover
+        val author = _search.value.pagesAuthor
         val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
         viewModelScope.launch {
             connection.playQueue(
@@ -1365,6 +1951,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         it.cid,
                         it.title,
                         cover,
+                        author = author,
                         durationSec = it.durationSec,
                     )
                 },
@@ -1527,7 +2114,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissPages() {
-        _search.value = _search.value.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "")
+        pageSelection.exit()
+        _search.value = _search.value.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "", pagesAuthor = "")
     }
 
     /**

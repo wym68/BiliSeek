@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DefaultPresentation
+import com.biliseek.app.data.MiniBarStyle
 import com.biliseek.core.player.AudioQuality
 
 /**
@@ -44,6 +45,8 @@ fun SettingsScreen(
     onAudioQualityChange: (AudioQuality) -> Unit,
     onLoudnessChange: (Boolean) -> Unit,
     accountContent: @Composable () -> Unit,
+    // Ch5
+    onMiniBarStyleChange: (MiniBarStyle) -> Unit = {},
 ) {
     Column(
         Modifier
@@ -95,6 +98,14 @@ fun SettingsScreen(
             description = "把过响的投稿压到接近的响度，避免切歌时忽大忽小",
             checked = settings.loudnessNormalization,
             onCheckedChange = onLoudnessChange,
+        )
+
+        HorizontalDivider()
+        // Ch5 §5.1.4：minibar 风格
+        SectionTitle("迷你播放器")
+        MiniBarStyleChips(
+            current = settings.miniBarStyle,
+            onChange = onMiniBarStyleChange,
         )
 
         HorizontalDivider()
@@ -230,4 +241,35 @@ private fun QualityChip(
         onClick = { onSelect(value) },
         label = { Text(label) },
     )
+}
+
+/** Ch5 §5.1.4：minibar 风格（浮在底部 / 贴底）。 */
+@Composable
+private fun MiniBarStyleChips(
+    current: MiniBarStyle,
+    onChange: (MiniBarStyle) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "迷你播放器样式",
+            style = MaterialTheme.typography.labelLarge,
+        )
+        Text(
+            "浮在底部上 = 圆角 + 阴影（仿 BBPlayer）。贴底 = 圆角顶 + 无阴影。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = current == MiniBarStyle.FLOAT,
+                onClick = { onChange(MiniBarStyle.FLOAT) },
+                label = { Text("浮在底部") },
+            )
+            FilterChip(
+                selected = current == MiniBarStyle.BOTTOM,
+                onClick = { onChange(MiniBarStyle.BOTTOM) },
+                label = { Text("贴底") },
+            )
+        }
+    }
 }

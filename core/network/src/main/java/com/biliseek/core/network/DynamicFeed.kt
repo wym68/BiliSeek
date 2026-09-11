@@ -23,6 +23,13 @@ data class DynamicEntry(
     /** 封面或首图（normalize 后）。 */
     val coverUrl: String,
     /**
+     * 多图：DRAW.items / OPUS.pics / ARTICLE.covers 全集（normalize 后）。
+     * 视频投稿与单图文为空列表；转发里以原动态的多图为准（与封面同源）。
+     */
+    val pics: List<String> = emptyList(),
+    /** DRAW 服务端 id（用于评论 oid/type=11）。非 DRAW 始终 0。 */
+    val drawId: Long = 0,
+    /**
      * 转发 / 评论 / 点赞。转发动态里是**转发者自己的**互动数，与 orig 不同——
      * 与 BiliPai 语义一致："这条转发有多少人转了"是用户的视角，不是原作者的。
      * 接口漏 module_stat 时为 null，UI 据此判断是否渲染底部互动栏。
@@ -71,7 +78,13 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
     val author = item.modules?.author ?: return null
     if (item.idStr.isBlank()) return null
     val major = item.modules?.dynamic?.major
-    val descText = item.modules?.dynamic?.desc?.text.orEmpty()
+    // desc 来源优先级：dynamic.desc.text > opus.summary > article.title
+    // ——OPUS 经常正文空、把全文写在 summary；ARTICLE 没有 summary，回退到 title。
+    val descText = listOf(
+        item.modules?.dynamic?.desc?.text.orEmpty(),
+        major?.opus?.summary.orEmpty(),
+        major?.article?.title.orEmpty(),
+    ).firstOrNull { it.isNotBlank() } ?: ""
     /** 转发者自己的互动数据。转发动态里不要混 orig 的数据（M11-C 决策）。 */
     val stat = item.modules?.stat
 
@@ -86,6 +99,10 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         coverUrl = "",
         stat = stat,
     )
+
+    // 多图抽取：去空 src、normalizeCoverUrl
+    fun normalizeUrls(urls: List<String>): List<String> =
+        urls.mapNotNull { if (it.isBlank()) null else normalizeCoverUrl(it) }
 
     return when (item.type) {
         DynamicItemType.AV -> {
@@ -110,6 +127,13 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
             val orig = item.orig
             val origMajor = orig?.modules?.dynamic?.major
             val origArchive = origMajor?.archive
+            // 转发里多图取自 orig：DRAW / OPUS / ARTICLE 同上规则
+            val origPics = when (orig?.type) {
+                DynamicItemType.DRAW -> normalizeUrls(origMajor?.draw?.items?.map { it.src }.orEmpty())
+                DynamicItemType.OPUS -> normalizeUrls(origMajor?.opus?.pics.orEmpty())
+                DynamicItemType.ARTICLE -> normalizeUrls(origMajor?.article?.covers.orEmpty())
+                else -> emptyList()
+            }
             base.copy(
                 video = if (origArchive != null && origArchive.bvid.isNotBlank()) {
                     DynamicVideo(
@@ -124,27 +148,30 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
                 } else null,
                 coverUrl = when {
                     origArchive != null -> normalizeCoverUrl(origArchive.cover)
-                    else -> origMajor?.draw?.items?.firstOrNull()?.src
-                        ?.let(::normalizeCoverUrl).orEmpty()
+                    else -> origPics.firstOrNull().orEmpty()
                 },
+                pics = origPics,
             )
         }
 
-        DynamicItemType.DRAW -> base.copy(
-            coverUrl = major?.draw?.items?.firstOrNull()?.src
-                ?.let(::normalizeCoverUrl).orEmpty(),
-        )
+        DynamicItemType.DRAW -> {
+            val pics = normalizeUrls(major?.draw?.items?.map { it.src }.orEmpty())
+            base.copy(
+                coverUrl = pics.firstOrNull().orEmpty(),
+                pics = pics,
+                drawId = major?.draw?.id ?: 0L,
+            )
+        }
 
-        DynamicItemType.ARTICLE -> base.copy(
-            coverUrl = major?.article?.covers?.firstOrNull()
-                ?.let(::normalizeCoverUrl).orEmpty(),
-        )
+        DynamicItemType.ARTICLE -> {
+            val pics = normalizeUrls(major?.article?.covers.orEmpty())
+            base.copy(coverUrl = pics.firstOrNull().orEmpty(), pics = pics)
+        }
 
-        DynamicItemType.OPUS -> base.copy(
-            descText = descText.ifBlank { major?.opus?.summary.orEmpty() },
-            coverUrl = major?.opus?.pics?.firstOrNull()
-                ?.let(::normalizeCoverUrl).orEmpty(),
-        )
+        DynamicItemType.OPUS -> {
+            val pics = normalizeUrls(major?.opus?.pics.orEmpty())
+            base.copy(coverUrl = pics.firstOrNull().orEmpty(), pics = pics)
+        }
 
         else -> null
     }

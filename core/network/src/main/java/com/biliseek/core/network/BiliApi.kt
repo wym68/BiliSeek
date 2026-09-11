@@ -17,6 +17,7 @@ import com.biliseek.core.network.dto.FavoriteFolderListData
 import com.biliseek.core.network.dto.FavoriteResourceData
 import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.FollowingData
+import com.biliseek.core.network.dto.RelationData
 import com.biliseek.core.network.dto.UserSearchData
 import com.biliseek.core.network.dto.SpaceArchiveData
 import com.biliseek.core.network.dto.WatchLaterData
@@ -343,6 +344,24 @@ interface BiliApi {
         @Body body: RequestBody,                         // JSON：转发内容 / 原动态 id
         @Header("Referer") referer: String = "https://t.bilibili.com/",
     ): BiliResponse<JsonElement>
+
+    // ── 动态互动（Ch4）───────────────────────────────────
+
+    /**
+     * 动态点赞 / 取消。**up 参数语义未真机验证**：BiliPai 用 up=1 赞 / up=2 取消，B 站部分端点恰好相反。
+     * 上线前需真机抓包确认。
+     */
+    @FormUrlEncoded
+    @POST("x/dynamic/feed/dyn/thumb")
+    suspend fun likeDynamic(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>
+        // dyn_id_str, up(1|2), csrf
+
+    /**
+     * 单个 UP 的关注状态。`relation.attribute` 含义未明，**仅按 1=已关注、其它=未关注**解读。
+     * ⚠️ 真机抓包前不依赖 attribute 的具体含义。
+     */
+    @GET("x/relation")
+    suspend fun relation(@Query("fid") fid: Long): BiliResponse<RelationData>
 
     companion object {
         const val QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
