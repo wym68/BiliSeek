@@ -1747,6 +1747,133 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadComments(reset = true)
     }
 
+    /** 设置回复目标：`rootRpid=null` 表示回复一级评论；非 null 表示回复该一级评论下的楼中楼。 */
+    fun startReplyTo(reply: ReplyItem, rootRpid: Long? = null) {
+        val cur = _commentDialog.value ?: return
+        val (root, parent) = com.biliseek.core.network.internal.resolveReplyRootParent(reply.rpid, rootRpid)
+        _commentDialog.value = cur.copy(
+            replyTarget = CommentReplyTarget(root = root, parent = parent, uname = reply.member.uname),
+        )
+    }
+
+    fun clearReplyTarget() {
+        val cur = _commentDialog.value ?: return
+        _commentDialog.value = cur.copy(replyTarget = null)
+    }
+
+    /** 评论点赞 / 取消：500ms 防抖，乐观更新，失败回滚。`rootRpid` 非 null 表示这是楼中楼里的评论。 */
+    fun toggleCommentLike(reply: ReplyItem, rootRpid: Long? = null) {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再点赞")
+            return
+        }
+        val cur = _commentDialog.value ?: return
+        val like = reply.action != 1
+        val gateKey = "reply:${reply.rpid}"
+        val now = System.currentTimeMillis()
+        val last = likeRequestGate[gateKey] ?: 0L
+        if (now - last < 500) return
+        likeRequestGate[gateKey] = now
+        patchCommentLike(reply.rpid, rootRpid, like)
+        viewModelScope.launch {
+            network.repository.replyAction(cur.oid, cur.type, reply.rpid, like)
+                .onFailure { err ->
+                    patchCommentLike(reply.rpid, rootRpid, !like)
+                    emitMessage("点赞失败：${err.message ?: "未知错误"}")
+                }
+        }
+    }
+
+    /** 乐观更新某条评论（或楼中楼）的点赞态，就地替换列表里的对应条目。 */
+    private fun patchCommentLike(rpid: Long, rootRpid: Long?, like: Boolean) {
+        val cur = _commentDialog.value ?: return
+        fun patchList(items: List<ReplyItem>) = items.map { item ->
+            if (item.rpid == rpid) {
+                item.copy(
+                    like = (item.like + if (like) 1 else -1).coerceAtLeast(0),
+                    action = if (like) 1 else 0,
+                )
+            } else item
+        }
+        if (rootRpid == null) {
+            _commentDialog.value = cur.copy(comments = cur.comments.copy(items = patchList(cur.comments.items)))
+        } else {
+            val subState = cur.expandedSubReplies[rootRpid] ?: return
+            _commentDialog.value = cur.copy(
+                expandedSubReplies = cur.expandedSubReplies + (rootRpid to subState.copy(items = patchList(subState.items))),
+            )
+        }
+    }
+
+    /** 展开楼中楼：第一次点击才发请求，之后复用已加载的状态。 */
+    fun expandSubReplies(reply: ReplyItem) {
+        val cur = _commentDialog.value ?: return
+        if (cur.expandedSubReplies.containsKey(reply.rpid)) return
+        _commentDialog.value = cur.copy(
+            expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
+        )
+        viewModelScope.launch {
+            network.repository.subReplies(cur.oid, cur.type, reply.rpid, page = 1)
+                .onSuccess { page ->
+                    val dialog = _commentDialog.value ?: return@onSuccess
+                    _commentDialog.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to RemoteListState(
+                            items = page.items,
+                            page = 1,
+                            hasMore = page.items.size < page.count,
+                            isLoading = false,
+                        )),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _commentDialog.value ?: return@onFailure
+                    val prev = dialog.expandedSubReplies[reply.rpid] ?: RemoteListState<ReplyItem>()
+                    _commentDialog.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to prev.copy(
+                            isLoading = false,
+                            errorMessage = err.message ?: "楼中楼加载失败",
+                        )),
+                    )
+                }
+        }
+    }
+
+    fun loadMoreSubReplies(rootRpid: Long) {
+        val cur = _commentDialog.value ?: return
+        val state = cur.expandedSubReplies[rootRpid] ?: return
+        if (!state.hasMore || state.isLoading || state.isLoadingMore) return
+        val nextPage = state.page + 1
+        _commentDialog.value = cur.copy(
+            expandedSubReplies = cur.expandedSubReplies + (rootRpid to state.copy(isLoadingMore = true)),
+        )
+        viewModelScope.launch {
+            network.repository.subReplies(cur.oid, cur.type, rootRpid, page = nextPage)
+                .onSuccess { page ->
+                    val dialog = _commentDialog.value ?: return@onSuccess
+                    val prev = dialog.expandedSubReplies[rootRpid] ?: return@onSuccess
+                    val merged = prev.items + page.items
+                    _commentDialog.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
+                            items = merged,
+                            page = nextPage,
+                            hasMore = merged.size < page.count,
+                            isLoadingMore = false,
+                        )),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _commentDialog.value ?: return@onFailure
+                    val prev = dialog.expandedSubReplies[rootRpid] ?: return@onFailure
+                    _commentDialog.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
+                            isLoadingMore = false,
+                            errorMessage = err.message ?: "楼中楼加载失败",
+                        )),
+                    )
+                }
+        }
+    }
+
     /** 提交评论：发新评论或回复 [CommentDialogState.replyTarget]；成功后清空输入框与回复目标并刷新列表首页。 */
     fun submitComment() = viewModelScope.launch {
         val cur = _commentDialog.value ?: return@launch
