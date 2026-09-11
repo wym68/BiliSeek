@@ -786,17 +786,26 @@ class BiliRepository internal constructor(
         ) { f, r -> api.likeDynamic(f) }.map { }
 
     /**
-     * 动态评论。`type` 与 `oid` 由调用方按 [resolveDynamicCommentTarget] 决定
-     * ——DRAW=11+drawId，其他=17+id_str。
+     * 动态评论 / 回复。`type` 与 `oid` 由调用方按 [resolveDynamicCommentTarget] 决定
+     * ——DRAW=11+drawId，其他=17+id_str。`root`/`parent` 为 0 表示发表新的一级评论；
+     * 非 0 表示回复某条评论或楼中楼（语义同 [addReply]）。
      */
-    suspend fun addDynamicReply(oid: Long, type: Int, message: String): Result<Long> =
+    suspend fun addDynamicReply(
+        oid: Long,
+        type: Int,
+        message: String,
+        root: Long = 0,
+        parent: Long = 0,
+    ): Result<Long> =
         writeRequest(
-            payload = mapOf(
-                "oid" to oid.toString(),
-                "type" to type.toString(),
-                "message" to message,
-                "plat" to "1",
-            ),
+            payload = buildMap {
+                put("oid", oid.toString())
+                put("type", type.toString())
+                put("message", message)
+                put("plat", "1")
+                if (root > 0) put("root", root.toString())
+                if (parent > 0) put("parent", parent.toString())
+            },
             referer = "https://t.bilibili.com/",
         ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
 
