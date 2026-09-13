@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.UpSpaceUiState
 import com.biliseek.app.UpSpaceView
+import com.biliseek.app.data.DynamicExpandState
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
@@ -74,8 +75,10 @@ fun UpSpaceScreen(
     onOpenRepost: (String) -> Unit = {},
     onOpenComment: (DynamicEntry) -> Unit = {},
     onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
-    // 图文动态点开看全文（四级降级）
-    onOpenDetail: (DynamicEntry) -> Unit = {},
+    // 头像/昵称跳 UP 主页；正文原地展开/收起（四级降级拉详情）
+    onAuthorClick: (DynamicEntry) -> Unit = {},
+    dynamicExpand: Map<String, DynamicExpandState> = emptyMap(),
+    onToggleExpand: (DynamicEntry) -> Unit = {},
     // 投稿复选与动作
     isSelection: Boolean = false,
     selectedBvids: Set<String> = emptySet(),
@@ -183,7 +186,9 @@ fun UpSpaceScreen(
                 onOpenRepost = onOpenRepost,
                 onOpenComment = onOpenComment,
                 onToggleLike = onToggleLike,
-                onOpenDetail = onOpenDetail,
+                onAuthorClick = onAuthorClick,
+                dynamicExpand = dynamicExpand,
+                onToggleExpand = onToggleExpand,
             )
         }
     }
@@ -367,7 +372,9 @@ private fun UpDynamicList(
     onOpenRepost: (String) -> Unit = {},
     onOpenComment: (DynamicEntry) -> Unit = {},
     onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
-    onOpenDetail: (DynamicEntry) -> Unit = {},
+    onAuthorClick: (DynamicEntry) -> Unit = {},
+    dynamicExpand: Map<String, DynamicExpandState> = emptyMap(),
+    onToggleExpand: (DynamicEntry) -> Unit = {},
 ) {
     when {
         dynamic.isLoading && dynamic.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -388,7 +395,9 @@ private fun UpDynamicList(
                     DynamicCard(
                         entry = entry,
                         onClick = { onEntryClick(entry) },
-                        onDetailClick = { onOpenDetail(entry) },
+                        onAuthorClick = { onAuthorClick(entry) },
+                        expandState = dynamicExpand[entry.idStr],
+                        onToggleExpand = { onToggleExpand(entry) },
                         onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
                         onRepostClick = { onOpenRepost(entry.idStr) },
                         onCommentClick = { onOpenComment(entry) },
