@@ -170,4 +170,23 @@ class DynamicFeedParseTest {
         assertEquals(2, entry.pics.size)
         assertTrue(entry.pics.none { it.isEmpty() })
     }
+
+    @Test
+    fun `module_author mid 映射为 authorMid`() {
+        val data = json.decodeFromString<DynamicFeedData>(
+            """
+            {
+              "items": [{
+                "id_str": "a1", "type": "DYNAMIC_TYPE_AV",
+                "modules": {
+                  "module_author": { "mid": 12345, "name": "UP" },
+                  "module_dynamic": { "major": { "archive": { "bvid": "BV1", "title": "t" } } }
+                }
+              }]
+            }
+            """.trimIndent(),
+        )
+        val entry = parseDynamicItems(data.items)[0]
+        assertEquals(12345L, entry.authorMid)
+    }
 }

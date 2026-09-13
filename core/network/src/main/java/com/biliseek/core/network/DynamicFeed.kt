@@ -43,6 +43,8 @@ data class DynamicEntry(
      * 接口漏 module_stat 时为 null，UI 据此判断是否渲染底部互动栏。
      */
     val stat: DynamicStatModule? = null,
+    /** UP 主 mid，用于头像/昵称点击跳转空间页；来自 `module_author.mid`。 */
+    val authorMid: Long = 0,
 )
 
 data class DynamicVideo(
@@ -115,6 +117,7 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         idStr = item.idStr,
         authorName = author.name,
         authorFace = normalizeCoverUrl(author.face),
+        authorMid = author.mid,
         pubTs = author.pubTs,
         descText = descText,
         rawType = item.type,
