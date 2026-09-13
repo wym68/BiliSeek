@@ -75,8 +75,11 @@ fun DynamicScreen(
     onEntryClick: (DynamicEntry) -> Unit,
     onStartLogin: () -> Unit,
     onCancelLogin: () -> Unit,
-    // 点开图文卡片：四级降级拉详情（可选）
-    onOpenDetail: (DynamicEntry) -> Unit = {},
+    // 头像/昵称跳 UP 主页
+    onAuthorClick: (DynamicEntry) -> Unit = {},
+    // 正文原地展开/收起（四级降级拉详情，按 idStr 独立维护）
+    dynamicExpand: Map<String, DynamicExpandState> = emptyMap(),
+    onToggleExpand: (DynamicEntry) -> Unit = {},
     // Ch4
     onOpenImagePreview: (List<String>, Int) -> Unit = { _, _ -> },
     onOpenRepost: (String) -> Unit = {},
@@ -183,7 +186,9 @@ fun DynamicScreen(
                                 DynamicCard(
                                     entry = entry,
                                     onClick = { onEntryClick(entry) },
-                                    onDetailClick = { onOpenDetail(entry) },
+                                    onAuthorClick = { onAuthorClick(entry) },
+                                    expandState = dynamicExpand[entry.idStr],
+                                    onToggleExpand = { onToggleExpand(entry) },
                                     onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
                                     onRepostClick = { onOpenRepost(entry.idStr) },
                                     onCommentClick = { onOpenComment(entry) },
