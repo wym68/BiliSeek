@@ -49,6 +49,7 @@ import com.biliseek.app.ui.UpSpaceScreen
 import com.biliseek.app.ui.WatchLaterScreen
 import com.biliseek.core.network.sharedTextFrom
 import com.biliseek.core.network.dto.SearchVideo
+import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
@@ -111,7 +112,7 @@ class MainActivity : ComponentActivity() {
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
                 val commentDialog by viewModel.commentDialog.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
-                val dynamicDetail by viewModel.dynamicDetail.collectAsState()
+                val dynamicExpand by viewModel.dynamicExpand.collectAsState()
                 val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
@@ -240,7 +241,13 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenComment = viewModel::openCommentDialog,
                             onToggleLike = viewModel::toggleDynamicLike,
-                            onOpenDetail = viewModel::openDynamicDetail,
+                            onAuthorClick = { entry ->
+                                viewModel.openUpSpace(
+                                    SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
+                                )
+                            },
+                            dynamicExpand = dynamicExpand,
+                            onToggleExpand = viewModel::toggleDynamicExpand,
                         )
                     },
                     // UP 空间页（M11-D）：从搜索页点 UP 结果进入
@@ -276,7 +283,13 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onOpenComment = viewModel::openCommentDialog,
                                 onToggleLike = viewModel::toggleDynamicLike,
-                                onOpenDetail = viewModel::openDynamicDetail,
+                                onAuthorClick = { entry ->
+                                    viewModel.openUpSpace(
+                                        SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
+                                    )
+                                },
+                                dynamicExpand = dynamicExpand,
+                                onToggleExpand = viewModel::toggleDynamicExpand,
                                 // 投稿复选与动作
                                 isSelection = upSelectionActive,
                                 selectedBvids = selectedUpKeys,
@@ -518,15 +531,6 @@ class MainActivity : ComponentActivity() {
                         pics = state.pics,
                         initialIndex = state.initialIndex,
                         onDismiss = viewModel::dismissImagePreview,
-                    )
-                }
-
-                // 图文动态详情弹层（点开看全文，四级降级）
-                dynamicDetail?.let { state ->
-                    com.biliseek.app.ui.components.DynamicDetailSheet(
-                        state = state,
-                        onImageClick = { pics, idx -> viewModel.openImagePreview(pics, idx) },
-                        onDismiss = viewModel::dismissDynamicDetail,
                     )
                 }
 
