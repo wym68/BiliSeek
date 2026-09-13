@@ -38,11 +38,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.DynamicInitState
 import com.biliseek.app.DynamicUiState
+import com.biliseek.app.data.DynamicExpandState
 import com.biliseek.app.LoginPanel
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.DynamicEntry
@@ -267,25 +271,26 @@ private fun DynamicFilterBar(
 }
 
 /** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文用 DrawGrid）。
- * 动态 tab 与 UP 空间页「动态」视图共用（M11-D）。Ch4 接入互动操作。 */
+ * 动态 tab 与 UP 空间页「动态」视图共用（M11-D）。Ch4 接入互动操作。
+ * 点击区域拆成三块独立热区——头像/昵称跳 UP 主页、视频行播放、正文原地展开/收起，
+ * 不再有"整卡可点"的大热区（避免图文动态点空白处误触、视频动态点文字误播放）。 */
 @Composable
 internal fun DynamicCard(
     entry: DynamicEntry,
     onClick: () -> Unit,
-    onDetailClick: () -> Unit = {},
+    onAuthorClick: () -> Unit = {},
+    expandState: DynamicExpandState? = null,
+    onToggleExpand: () -> Unit = {},
     onImageClick: (Int) -> Unit = {},
     onRepostClick: () -> Unit = {},
     onCommentClick: () -> Unit = {},
     onLikeClick: () -> Unit = {},
 ) {
-    // 视频动态点播放（图音）才播；图文/转发点开弹层看全文。
-    val clickable = if (entry.video != null) {
-        Modifier.clickable(onClick = onClick)
-    } else {
-        Modifier.clickable(onClick = onDetailClick)
-    }
-    Column(Modifier.fillMaxWidth().then(clickable).padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        Row(
+            Modifier.clickable(onClick = onAuthorClick),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             AsyncImage(
                 model = entry.authorFace,
                 contentDescription = null,
@@ -307,12 +312,11 @@ internal fun DynamicCard(
         }
 
         if (entry.descText.isNotBlank()) {
-            Text(
-                entry.descText,
-                Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
+            DynamicDescText(
+                text = entry.descText,
+                expandState = expandState,
+                onToggleExpand = onToggleExpand,
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
 
@@ -328,7 +332,7 @@ internal fun DynamicCard(
         val video = entry.video
         if (video != null) {
             Row(
-                Modifier.padding(top = 8.dp).fillMaxWidth(),
+                Modifier.padding(top = 8.dp).fillMaxWidth().clickable(onClick = onClick),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -406,8 +410,8 @@ internal fun DynamicCard(
                 contentScale = ContentScale.Crop,
             )
         }
-        // 无图类型（纯文字 WORD，或 DRAW/OPUS 确实没有配图）：不渲染图片区域，
-        // 文字本身已经可点开看全文（本函数顶部整行绑定了 onDetailClick）。
+        // 无图类型（纯文字 WORD，或 DRAW/OPUS 确实没有配图）：不渲染图片区域。
+        // 文字过长时靠 DynamicDescText 自带的"…展开"看全文，不再有整卡点击兜底。
 
         // Ch4：底部互动按钮
         val stat = entry.stat
@@ -436,6 +440,78 @@ internal fun DynamicCard(
                     label = "点赞",
                     active = stat.like.status,
                     onClick = onLikeClick,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 动态正文：折叠态最多 3 行，溢出时右下角叠一个可点的"…展开"；
+ * 展开态按 [expandState] 显示 loading / 完整正文+"收起" / 失败+重试。
+ */
+@Composable
+private fun DynamicDescText(
+    text: String,
+    expandState: DynamicExpandState?,
+    onToggleExpand: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val style = MaterialTheme.typography.bodyMedium
+
+    if (expandState?.expanded == true) {
+        when {
+            expandState.error != null -> Column(modifier) {
+                Text(text, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "加载失败，点击重试",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp).clickable(onClick = onToggleExpand),
+                )
+            }
+            expandState.entry == null -> Column(modifier) {
+                Text(text, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                CircularProgressIndicator(
+                    Modifier.padding(top = 4.dp).size(14.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+            else -> {
+                val fullText = expandState.entry.descText.ifBlank { text }
+                Text(
+                    buildAnnotatedString {
+                        append(fullText)
+                        append("  ")
+                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("收起") }
+                    },
+                    style = style,
+                    modifier = modifier.clickable(onClick = onToggleExpand),
+                )
+            }
+        }
+        return
+    }
+
+    var overflowing by remember(text) { mutableStateOf(false) }
+    Box(modifier) {
+        Text(
+            text,
+            style = style,
+            maxLines = 3,
+            overflow = TextOverflow.Clip,
+            onTextLayout = { result -> overflowing = result.hasVisualOverflow },
+        )
+        if (overflowing) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier.align(Alignment.BottomEnd).clickable(onClick = onToggleExpand),
+            ) {
+                Text(
+                    "…展开",
+                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    style = style,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
