@@ -6,6 +6,7 @@ import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.DynThumbRequest
 import com.biliseek.core.network.dto.FollowingUp
 import com.biliseek.core.network.dto.RelationData
 import com.biliseek.core.network.dto.SearchUser
@@ -774,7 +775,9 @@ class BiliRepository internal constructor(
         ) { f, _ -> api.reportReply(f) }.map { }
 
     /**
-     * 点赞 / 取消点赞一条动态。`up=1` 点赞、`up=2` 取消（BiliPai 沿用语义，真机上线前需抓包确认）。
+     * 点赞 / 取消点赞一条动态。`up=1` 点赞、`up=2` 取消（已真机验证）。
+     * 该接口要求 JSON body + `csrf` 走 query，`block` 从统一注入 csrf 后的 `fields` 里
+     * 把 csrf 取出来传参数、其余字段拼成请求体——`writeRequest` 的 csrf 注入机制不受影响。
      */
     suspend fun likeDynamic(dynIdStr: String, like: Boolean): Result<Unit> =
         writeRequest(
@@ -783,7 +786,12 @@ class BiliRepository internal constructor(
                 "up" to if (like) "1" else "2",
             ),
             referer = "https://t.bilibili.com/",
-        ) { f, r -> api.likeDynamic(f) }.map { }
+        ) { f, _ ->
+            api.likeDynamic(
+                csrf = f.getValue("csrf"),
+                body = DynThumbRequest(dynIdStr = f.getValue("dyn_id_str"), up = f.getValue("up").toInt()),
+            )
+        }.map { }
 
     /**
      * 动态评论 / 回复。`type` 与 `oid` 由调用方按 [resolveDynamicCommentTarget] 决定

@@ -16,6 +16,7 @@ import com.biliseek.core.network.dto.SearchData
 import com.biliseek.core.network.dto.FavoriteFolderListData
 import com.biliseek.core.network.dto.FavoriteResourceData
 import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.DynThumbRequest
 import com.biliseek.core.network.dto.FollowingData
 import com.biliseek.core.network.dto.RelationData
 import com.biliseek.core.network.dto.UserSearchData
@@ -337,13 +338,14 @@ interface BiliApi {
     // ── 动态互动（Ch4）───────────────────────────────────
 
     /**
-     * 动态点赞 / 取消。**up 参数语义未真机验证**：BiliPai 用 up=1 赞 / up=2 取消，B 站部分端点恰好相反。
-     * 上线前需真机抓包确认。
+     * 动态点赞 / 取消（up=1 赞 / up=2 取消，已真机验证）。该接口要求 JSON body，
+     * `csrf` 走 URL 查询参数——与其余表单写接口的形状不同，不能用 `@FormUrlEncoded`。
      */
-    @FormUrlEncoded
     @POST("x/dynamic/feed/dyn/thumb")
-    suspend fun likeDynamic(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>
-        // dyn_id_str, up(1|2), csrf
+    suspend fun likeDynamic(
+        @Query("csrf") csrf: String,
+        @Body body: DynThumbRequest,
+    ): BiliResponse<JsonElement>
 
     /**
      * 单个 UP 的关注状态。`relation.attribute` 含义未明，**仅按 1=已关注、其它=未关注**解读。

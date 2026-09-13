@@ -29,6 +29,9 @@ data class DynamicEntry(
     val pics: List<String> = emptyList(),
     /** DRAW 服务端 id（用于评论 oid/type=11）。非 DRAW 始终 0。 */
     val drawId: Long = 0,
+    /** 服务端下发的评论区归属（`basic.comment_id_str`/`comment_type`）。缺失时为 0。 */
+    val commentOid: Long = 0,
+    val commentType: Int = 0,
     /**
      * 转发 / 评论 / 点赞。转发动态里是**转发者自己的**互动数，与 orig 不同——
      * 与 BiliPai 语义一致："这条转发有多少人转了"是用户的视角，不是原作者的。
@@ -97,6 +100,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         rawType = item.type,
         video = null,
         coverUrl = "",
+        commentOid = item.basic?.commentIdStr?.toLongOrNull() ?: 0L,
+        commentType = item.basic?.commentType ?: 0,
         stat = stat,
     )
 

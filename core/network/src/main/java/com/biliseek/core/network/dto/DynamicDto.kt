@@ -26,6 +26,15 @@ data class DynamicItem(
     val modules: DynamicModules? = null,
     /** 仅转发（DYNAMIC_TYPE_FORWARD）时存在：内嵌的原动态，结构同 item。 */
     val orig: DynamicItem? = null,
+    /** 服务端权威下发的评论区归属，优先于按 type 猜测的 oid/type 分流规则。 */
+    val basic: DynamicBasic? = null,
+)
+
+/** `items[n].basic` —— 服务端直接下发的评论区 oid/type，见评论区类型代码表。 */
+@Serializable
+data class DynamicBasic(
+    @SerialName("comment_id_str") val commentIdStr: String = "",
+    @SerialName("comment_type") val commentType: Int = 0,
 )
 
 @Serializable
@@ -168,4 +177,11 @@ data class DynamicStatModule(
     val comment: DynamicStatItem = DynamicStatItem(),
     val forward: DynamicStatItem = DynamicStatItem(),
     val like: DynamicStatItem = DynamicStatItem(),
+)
+
+/** `x/dynamic/feed/dyn/thumb` 请求体。该接口要求 JSON body，`csrf` 走 URL 查询参数。 */
+@Serializable
+data class DynThumbRequest(
+    @SerialName("dyn_id_str") val dynIdStr: String,
+    val up: Int,
 )

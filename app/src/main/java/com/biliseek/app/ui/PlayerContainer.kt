@@ -1,9 +1,13 @@
 package com.biliseek.app.ui
 
 import android.view.SurfaceView
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -20,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -242,6 +247,10 @@ private fun MiniPlayer(
         exit = fadeOut(),
         modifier = modifier,
     ) {
+        // 收起态只显示 MiniBarHandle 那根胶囊；每次从 IDLE 重新进入组合都会
+        // 回到 true——新起播默认展开，不沿用上一轮的收起偏好。
+        var revealed by remember { mutableStateOf(true) }
+
         // Ch5 §5.1.4：FLOAT 浮在底部上（圆角 24dp + 左右 16dp + elevation=7）；
         // BOTTOM 贴底（圆角顶 24dp、无阴影）。
         val surfaceModifier = when (miniBarStyle) {
@@ -255,57 +264,111 @@ private fun MiniPlayer(
         }
         Surface(
             tonalElevation = 3.dp,
-            modifier = surfaceModifier
-                .fillMaxWidth()
-                .pointerInput(Unit) {
-                    // 上滑展开
-                    detectVerticalDragGestures { _, dragAmount ->
-                        if (dragAmount < -DRAG_THRESHOLD) onExpand()
+            modifier = surfaceModifier.fillMaxWidth(),
+        ) {
+            AnimatedContent(
+                targetState = revealed,
+                transitionSpec = {
+                    if (targetState) {
+                        (slideInVertically { -it } + fadeIn()) togetherWith
+                            (slideOutVertically { it } + fadeOut())
+                    } else {
+                        (slideInVertically { it } + fadeIn()) togetherWith
+                            (slideOutVertically { -it } + fadeOut())
                     }
                 },
-        ) {
-            Column {
-                // Ch5 §5.1.1：minibar 进度条也可拖（24dp 触摸区 + 2dp 视觉条）
-                com.biliseek.app.ui.components.DraggableProgressBar(
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs,
-                    onSeek = onSeek,
-                    height = 2.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onExpand)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CoverThumbnail(state.coverUrl, width = 56.dp)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            state.title.ifBlank { "BiliSeek" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                label = "minibar-reveal",
+            ) { isRevealed ->
+                if (isRevealed) {
+                    Column {
+                        // 手势区与下方 body 的展开手势完全独立，互不干扰
+                        MiniBarHandle(
+                            onDrag = { dragAmount ->
+                                if (dragAmount > HANDLE_DRAG_THRESHOLD) revealed = false
+                            },
                         )
-                        Text(
-                            formatDuration(state.positionMs) + " / " +
-                                formatDuration(state.durationMs) +
-                                if (state.presentation != PresentationMode.NONE) " · 看" else " · 听",
-                            style = MaterialTheme.typography.labelSmall,
+                        // Ch5 §5.1.1：minibar 进度条也可拖（24dp 触摸区 + 2dp 视觉条）
+                        com.biliseek.app.ui.components.DraggableProgressBar(
+                            positionMs = state.positionMs,
+                            durationMs = state.durationMs,
+                            onSeek = onSeek,
+                            height = 2.dp,
+                            modifier = Modifier.fillMaxWidth(),
                         )
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .pointerInput(Unit) {
+                                    // 上滑展开
+                                    detectVerticalDragGestures { _, dragAmount ->
+                                        if (dragAmount < -DRAG_THRESHOLD) onExpand()
+                                    }
+                                }
+                                .clickable(onClick = onExpand)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            CoverThumbnail(state.coverUrl, width = 56.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    state.title.ifBlank { "BiliSeek" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    formatDuration(state.positionMs) + " / " +
+                                        formatDuration(state.durationMs) +
+                                        if (state.presentation != PresentationMode.NONE) " · 看" else " · 听",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                            // Ch5 §5.1.2：minibar 右侧加播放列表按钮
+                            IconButton(onClick = onTogglePlayPause) {
+                                Text(if (state.isPlaying) "⏸" else "▶")
+                            }
+                            IconButton(onClick = onOpenQueue) {
+                                Text("☰")
+                            }
+                        }
                     }
-                    // Ch5 §5.1.2：minibar 右侧加播放列表按钮
-                    IconButton(onClick = onTogglePlayPause) {
-                        Text(if (state.isPlaying) "⏸" else "▶")
-                    }
-                    IconButton(onClick = onOpenQueue) {
-                        Text("☰")
-                    }
+                } else {
+                    MiniBarHandle(
+                        onDrag = { dragAmount ->
+                            if (dragAmount < -HANDLE_DRAG_THRESHOLD) revealed = true
+                        },
+                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * minibar 顶部的显隐拉手：向下滑收起为纯胶囊，向上滑重新展开。
+ *
+ * 独立的手势区（自己的 pointerInput），与 body 上「上滑跳播放页」的手势
+ * 是两个互不干扰的兄弟节点，不是嵌套关系。
+ */
+@Composable
+private fun MiniBarHandle(onDrag: (Float) -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(24.dp)
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, dragAmount -> onDrag(dragAmount) }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .width(32.dp)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+        )
     }
 }
 
@@ -702,6 +765,7 @@ private val SPEEDS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 private val SLEEP_MINUTES = listOf(15, 30, 60)
 
 private const val DRAG_THRESHOLD = 8f
+private const val HANDLE_DRAG_THRESHOLD = 24f
 
 /** Compose 里拿 Activity：主题包装后 context 往往是 ContextWrapper，得一层层剥。 */
 private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {

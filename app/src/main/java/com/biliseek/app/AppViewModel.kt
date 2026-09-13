@@ -1678,6 +1678,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             idStr = entry.idStr,
             rawType = entry.rawType,
             drawId = entry.drawId,
+            commentOid = entry.commentOid,
+            commentType = entry.commentType,
         )
         _commentDialog.value = CommentDialogState(
             idStr = entry.idStr,

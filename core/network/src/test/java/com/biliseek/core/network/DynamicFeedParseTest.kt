@@ -105,6 +105,47 @@ class DynamicFeedParseTest {
     }
 
     @Test
+    fun `basic 字段映射为 commentOid 与 commentType`() {
+        val data = json.decodeFromString<DynamicFeedData>(
+            """
+            {
+              "items": [{
+                "id_str": "av1", "type": "DYNAMIC_TYPE_AV",
+                "modules": {
+                  "module_author": { "mid": 1, "name": "UP" },
+                  "module_dynamic": { "major": { "archive": { "bvid": "BV1", "title": "t" } } }
+                },
+                "basic": { "comment_id_str": "112981396619958", "comment_type": 1 }
+              }]
+            }
+            """.trimIndent(),
+        )
+        val entry = parseDynamicItems(data.items)[0]
+        assertEquals(112981396619958L, entry.commentOid)
+        assertEquals(1, entry.commentType)
+    }
+
+    @Test
+    fun `basic 字段缺失时 commentOid 与 commentType 为 0`() {
+        val data = json.decodeFromString<DynamicFeedData>(
+            """
+            {
+              "items": [{
+                "id_str": "opus2", "type": "DYNAMIC_TYPE_OPUS",
+                "modules": {
+                  "module_author": { "mid": 1, "name": "UP" },
+                  "module_dynamic": { "major": { "opus": { "summary": "x" } } }
+                }
+              }]
+            }
+            """.trimIndent(),
+        )
+        val entry = parseDynamicItems(data.items)[0]
+        assertEquals(0L, entry.commentOid)
+        assertEquals(0, entry.commentType)
+    }
+
+    @Test
     fun `src 为空白的 DRAW 图被过滤`() {
         val data = json.decodeFromString<DynamicFeedData>(
             """
