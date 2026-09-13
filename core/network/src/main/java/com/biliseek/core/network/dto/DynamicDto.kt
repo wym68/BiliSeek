@@ -23,6 +23,8 @@ data class DynamicFeedData(
 data class DynamicItem(
     @SerialName("id_str") val idStr: String = "",
     val type: String = "",
+    /** feed/detail 为对象；opus/detail 为 MODULE_TYPE_* 数组（见 [DynamicModulesCompatSerializer]）。 */
+    @Serializable(with = DynamicModulesCompatSerializer::class)
     val modules: DynamicModules? = null,
     /** 仅转发（DYNAMIC_TYPE_FORWARD）时存在：内嵌的原动态，结构同 item。 */
     val orig: DynamicItem? = null,
@@ -35,6 +37,23 @@ data class DynamicItem(
 data class DynamicBasic(
     @SerialName("comment_id_str") val commentIdStr: String = "",
     @SerialName("comment_type") val commentType: Int = 0,
+    /** 资源 id；detail 拉取失败时按 rid 兜底（bilipai 四级降级第 4 级）。 */
+    @SerialName("rid_str") val ridStr: String = "",
+)
+
+/** `x/polymer/web-dynamic/v1/detail` / `desktop/v1/detail` / `opus/detail` 的统一响应体。 */
+@Serializable
+data class DynamicDetailData(
+    val item: DynamicItem? = null,
+    /** 仅 opus/detail：专栏类动态的 `{id, type}` 回退信息（type=12 → cv 号）。 */
+    val fallback: DynamicOpusFallback? = null,
+)
+
+/** `opus/detail` 的 fallback 字段。 */
+@Serializable
+data class DynamicOpusFallback(
+    val id: Long = 0,
+    val type: Int = 0,
 )
 
 @Serializable
@@ -120,9 +139,29 @@ data class DynamicArticle(
 /** 图文（新版，DYNAMIC_TYPE_OPUS）。 */
 @Serializable
 data class DynamicOpus(
-    val title: String = "",
-    val summary: String = "",
+    /** 动态标题；B 站无标题时为 null。 */
+    val title: String? = null,
+    /** 文字摘要。文档形态为对象 `{text, rich_text_nodes}`；兼容旧版裸字符串。 */
+    @Serializable(with = OpusSummaryCompatSerializer::class)
+    val summary: DynamicOpusSummary? = null,
+    /** 图片 URL 列表。文档形态元素为对象 `{url,width,height,size}`；兼容旧版字符串数组。 */
+    @Serializable(with = OpusPicsCompatSerializer::class)
     val pics: List<String> = emptyList(),
+)
+
+/** `major.opus.summary` —— 文档形态：`text` 为摘要全文，`rich_text_nodes` 为富文本节点。 */
+@Serializable
+data class DynamicOpusSummary(
+    val text: String = "",
+    @SerialName("rich_text_nodes") val richTextNodes: List<DynamicRichTextNode> = emptyList(),
+)
+
+/** `rich_text_nodes[]` —— 富文本节点。正文兜底拼接用 origText（原始文本，不含表情转义）。 */
+@Serializable
+data class DynamicRichTextNode(
+    val type: String = "",
+    val text: String = "",
+    @SerialName("orig_text") val origText: String = "",
 )
 
 /** `x/relation/followings` —— 关注列表（UP 筛选 chips 的数据源）。 */

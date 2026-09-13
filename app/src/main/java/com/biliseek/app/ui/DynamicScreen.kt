@@ -71,6 +71,8 @@ fun DynamicScreen(
     onEntryClick: (DynamicEntry) -> Unit,
     onStartLogin: () -> Unit,
     onCancelLogin: () -> Unit,
+    // 点开图文卡片：四级降级拉详情（可选）
+    onOpenDetail: (DynamicEntry) -> Unit = {},
     // Ch4
     onOpenImagePreview: (List<String>, Int) -> Unit = { _, _ -> },
     onOpenRepost: (String) -> Unit = {},
@@ -177,6 +179,7 @@ fun DynamicScreen(
                                 DynamicCard(
                                     entry = entry,
                                     onClick = { onEntryClick(entry) },
+                                    onDetailClick = { onOpenDetail(entry) },
                                     onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
                                     onRepostClick = { onOpenRepost(entry.idStr) },
                                     onCommentClick = { onOpenComment(entry) },
@@ -269,12 +272,18 @@ private fun DynamicFilterBar(
 internal fun DynamicCard(
     entry: DynamicEntry,
     onClick: () -> Unit,
+    onDetailClick: () -> Unit = {},
     onImageClick: (Int) -> Unit = {},
     onRepostClick: () -> Unit = {},
     onCommentClick: () -> Unit = {},
     onLikeClick: () -> Unit = {},
 ) {
-    val clickable = if (entry.video != null) Modifier.clickable(onClick = onClick) else Modifier
+    // 视频动态点播放（图音）才播；图文/转发点开弹层看全文。
+    val clickable = if (entry.video != null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier.clickable(onClick = onDetailClick)
+    }
     Column(Modifier.fillMaxWidth().then(clickable).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
@@ -304,6 +313,15 @@ internal fun DynamicCard(
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        // OPUS 图文标题（无标题为空串，不渲染）；转发图文取 orig 的标题
+        if (entry.video == null && entry.opusTitle.isNotBlank()) {
+            Text(
+                entry.opusTitle,
+                Modifier.padding(top = if (entry.descText.isNotBlank()) 8.dp else 0.dp),
+                style = MaterialTheme.typography.titleSmall,
             )
         }
 
@@ -388,6 +406,8 @@ internal fun DynamicCard(
                 contentScale = ContentScale.Crop,
             )
         }
+        // 无图类型（纯文字 WORD，或 DRAW/OPUS 确实没有配图）：不渲染图片区域，
+        // 文字本身已经可点开看全文（本函数顶部整行绑定了 onDetailClick）。
 
         // Ch4：底部互动按钮
         val stat = entry.stat

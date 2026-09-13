@@ -74,6 +74,8 @@ fun UpSpaceScreen(
     onOpenRepost: (String) -> Unit = {},
     onOpenComment: (DynamicEntry) -> Unit = {},
     onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
+    // 图文动态点开看全文（四级降级）
+    onOpenDetail: (DynamicEntry) -> Unit = {},
     // 投稿复选与动作
     isSelection: Boolean = false,
     selectedBvids: Set<String> = emptySet(),
@@ -181,6 +183,7 @@ fun UpSpaceScreen(
                 onOpenRepost = onOpenRepost,
                 onOpenComment = onOpenComment,
                 onToggleLike = onToggleLike,
+                onOpenDetail = onOpenDetail,
             )
         }
     }
@@ -364,6 +367,7 @@ private fun UpDynamicList(
     onOpenRepost: (String) -> Unit = {},
     onOpenComment: (DynamicEntry) -> Unit = {},
     onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
+    onOpenDetail: (DynamicEntry) -> Unit = {},
 ) {
     when {
         dynamic.isLoading && dynamic.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -384,6 +388,7 @@ private fun UpDynamicList(
                     DynamicCard(
                         entry = entry,
                         onClick = { onEntryClick(entry) },
+                        onDetailClick = { onOpenDetail(entry) },
                         onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
                         onRepostClick = { onOpenRepost(entry.idStr) },
                         onCommentClick = { onOpenComment(entry) },

@@ -187,5 +187,5 @@ interface FavoriteFolderDao {
     suspend fun clear()
 }
 
-/** 首页空状态的搜索历史上限，与 BBPlayer 一致。 */
-const val SEARCH_HISTORY_LIMIT = 10
+/** 首页空状态的搜索历史上限。 */
+const val SEARCH_HISTORY_LIMIT = 15

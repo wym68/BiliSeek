@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPInputStream
 
 /**
  * `:core:network` 的装配入口，也是本模块对外的门面。
@@ -31,10 +32,33 @@ class BiliNetwork private constructor(context: Context) {
         .addInterceptor(HeaderInterceptor())
         .apply {
             if (BuildConfig.DEBUG) {
-                addNetworkInterceptor(
+                // 应用拦截器：先读取原始 gzip 字节并打日志，再将 body 替换为解压后的明文，
+                // 让后续的 logging 拦截器看到可读的 JSON。
+                addInterceptor { chain ->
+                    val request = chain.request()
+                    val response = chain.proceed(request)
+                    val body = response.body ?: return@addInterceptor response
+                    if (response.header("Content-Encoding")?.lowercase() == "gzip") {
+                        val bufferedSource = body.source()
+                        bufferedSource.request(Long.MAX_VALUE)
+                        val gzippedBytes = bufferedSource.readByteArray()
+                        val plainBytes = GZIPInputStream(gzippedBytes.inputStream()).readBytes()
+                        android.util.Log.d("BiliSeekHttp", "<< compressed " + gzippedBytes.size + "B → " + plainBytes.size + "B")
+                        val plainBody = okhttp3.ResponseBody.create(
+                            body.contentType(), plainBytes
+                        )
+                        response.newBuilder()
+                            .header("Content-Encoding", "identity")
+                            .body(plainBody)
+                            .build()
+                    } else {
+                        response
+                    }
+                }
+                addInterceptor(
                     okhttp3.logging.HttpLoggingInterceptor { line ->
                         android.util.Log.d("BiliSeekHttp", line)
-                    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.HEADERS },
+                    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY },
                 )
             }
         }

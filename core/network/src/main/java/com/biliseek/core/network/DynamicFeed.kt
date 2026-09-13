@@ -1,5 +1,6 @@
 package com.biliseek.core.network
 
+import android.util.Log
 import com.biliseek.core.network.dto.DynamicItem
 import com.biliseek.core.network.dto.DynamicStatModule
 
@@ -22,6 +23,8 @@ data class DynamicEntry(
     val video: DynamicVideo?,
     /** 封面或首图（normalize 后）。 */
     val coverUrl: String,
+    /** OPUS 图文标题（无标题为空串）。转发取 orig 的标题。 */
+    val opusTitle: String = "",
     /**
      * 多图：DRAW.items / OPUS.pics / ARTICLE.covers 全集（normalize 后）。
      * 视频投稿与单图文为空列表；转发里以原动态的多图为准（与封面同源）。
@@ -32,6 +35,8 @@ data class DynamicEntry(
     /** 服务端下发的评论区归属（`basic.comment_id_str`/`comment_type`）。缺失时为 0。 */
     val commentOid: Long = 0,
     val commentType: Int = 0,
+    /** `basic.rid_str`：详情四级降级第 4 级的 rid 兜底。 */
+    val ridStr: String = "",
     /**
      * 转发 / 评论 / 点赞。转发动态里是**转发者自己的**互动数，与 orig 不同——
      * 与 BiliPai 语义一致："这条转发有多少人转了"是用户的视角，不是原作者的。
@@ -59,6 +64,19 @@ object DynamicItemType {
     const val DRAW = "DYNAMIC_TYPE_DRAW"
     const val ARTICLE = "DYNAMIC_TYPE_ARTICLE"
     const val OPUS = "DYNAMIC_TYPE_OPUS"
+    /** 旧版纯文字动态（无 major），只有 desc.text。 */
+    const val WORD = "DYNAMIC_TYPE_WORD"
+}
+
+/**
+ * OPUS 正文抽取：`summary.text` 优先；为空时拼接 rich_text_nodes
+ * （origText 是原始文本，不含表情图片转义，比 text 更适合纯文本展示）。
+ */
+private fun opusBodyText(opus: com.biliseek.core.network.dto.DynamicOpus?): String {
+    if (opus == null) return ""
+    opus.summary?.text?.takeIf { it.isNotBlank() }?.let { return it }
+    return opus.summary?.richTextNodes.orEmpty()
+        .joinToString("") { node -> node.origText.ifBlank { node.text } }
 }
 
 /**
@@ -66,8 +84,10 @@ object DynamicItemType {
  *
  * 规则：
  * - AV：直接取 major.archive 作视频
- * - FORWARD：取 orig 内嵌的 AV（转发者文案 + 原视频）；orig 是图文则仅展示
+ * - FORWARD：取 orig 内嵌的 AV（转发者文案 + 原视频）；orig 是图文则仅展示，
+ *   转发者与 orig 都有文案时按 `转发者文案\n\n//@原作者 orig文案` 追加
  * - DRAW / ARTICLE / OPUS：图文，仅展示首图，video = null
+ * - WORD：旧版纯文字动态，仅展示 desc.text（空文案丢弃）
  * - 其他类型（live / pgc / ugc_season / music …）：丢弃
  * - 脏数据（无 idStr / 无 author / 无法识别）丢弃
  *
@@ -81,11 +101,11 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
     val author = item.modules?.author ?: return null
     if (item.idStr.isBlank()) return null
     val major = item.modules?.dynamic?.major
-    // desc 来源优先级：dynamic.desc.text > opus.summary > article.title
-    // ——OPUS 经常正文空、把全文写在 summary；ARTICLE 没有 summary，回退到 title。
+    // desc 来源优先级：dynamic.desc.text > opus.summary(rich_text_nodes 兜底) > article.title
+    // ——OPUS 经常正文空、把全文写在 summary；summary.text 为空时退到 rich_text_nodes 拼接。
     val descText = listOf(
         item.modules?.dynamic?.desc?.text.orEmpty(),
-        major?.opus?.summary.orEmpty(),
+        opusBodyText(major?.opus),
         major?.article?.title.orEmpty(),
     ).firstOrNull { it.isNotBlank() } ?: ""
     /** 转发者自己的互动数据。转发动态里不要混 orig 的数据（M11-C 决策）。 */
@@ -102,6 +122,7 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         coverUrl = "",
         commentOid = item.basic?.commentIdStr?.toLongOrNull() ?: 0L,
         commentType = item.basic?.commentType ?: 0,
+        ridStr = item.basic?.ridStr.orEmpty(),
         stat = stat,
     )
 
@@ -132,14 +153,29 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
             val orig = item.orig
             val origMajor = orig?.modules?.dynamic?.major
             val origArchive = origMajor?.archive
-            // 转发里多图取自 orig：DRAW / OPUS / ARTICLE 同上规则
-            val origPics = when (orig?.type) {
-                DynamicItemType.DRAW -> normalizeUrls(origMajor?.draw?.items?.map { it.src }.orEmpty())
-                DynamicItemType.OPUS -> normalizeUrls(origMajor?.opus?.pics.orEmpty())
-                DynamicItemType.ARTICLE -> normalizeUrls(origMajor?.article?.covers.orEmpty())
+            // 转发里多图取自 orig：按 major 里实际非空的子字段判断（而非 orig.type）——
+            // B 站新版图文动态顶层 type 也标 DYNAMIC_TYPE_DRAW，但内容在 major.opus。
+            val origPics = when {
+                origMajor?.opus != null -> normalizeUrls(origMajor.opus.pics)
+                origMajor?.draw != null -> normalizeUrls(origMajor.draw.items.map { it.src })
+                orig?.type == DynamicItemType.ARTICLE -> normalizeUrls(origMajor?.article?.covers.orEmpty())
                 else -> emptyList()
             }
+            // orig 自己的文案：转发者没写文案时用 orig 兜底；两边都有则追加展示。
+            // 原视频标题不进 desc（已在下方视频行渲染），只取图文类文案。
+            val origDescText = listOf(
+                orig?.modules?.dynamic?.desc?.text.orEmpty(),
+                opusBodyText(origMajor?.opus),
+            ).firstOrNull { it.isNotBlank() } ?: ""
+            val forwarderText = item.modules?.dynamic?.desc?.text.orEmpty()
+            val mergedDesc = when {
+                forwarderText.isBlank() -> origDescText
+                origDescText.isBlank() -> forwarderText
+                else -> "$forwarderText\n\n//@${orig?.modules?.author?.name.orEmpty()} $origDescText"
+            }
             base.copy(
+                descText = mergedDesc,
+                opusTitle = origMajor?.opus?.title.orEmpty(),
                 video = if (origArchive != null && origArchive.bvid.isNotBlank()) {
                     DynamicVideo(
                         bvid = origArchive.bvid,
@@ -160,12 +196,24 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         }
 
         DynamicItemType.DRAW -> {
-            val pics = normalizeUrls(major?.draw?.items?.map { it.src }.orEmpty())
-            base.copy(
-                coverUrl = pics.firstOrNull().orEmpty(),
-                pics = pics,
-                drawId = major?.draw?.id ?: 0L,
-            )
+            // B 站新版图文动态顶层 type 仍是 DYNAMIC_TYPE_DRAW，但内容搬到了 major.opus
+            // （major.draw 为 null）——按 major 里实际非空的子字段判断，而非 item.type。
+            val opus = major?.opus
+            if (opus != null) {
+                val pics = normalizeUrls(opus.pics)
+                base.copy(
+                    coverUrl = pics.firstOrNull().orEmpty(),
+                    pics = pics,
+                    opusTitle = opus.title.orEmpty(),
+                )
+            } else {
+                val pics = normalizeUrls(major?.draw?.items?.map { it.src }.orEmpty())
+                base.copy(
+                    coverUrl = pics.firstOrNull().orEmpty(),
+                    pics = pics,
+                    drawId = major?.draw?.id ?: 0L,
+                )
+            }
         }
 
         DynamicItemType.ARTICLE -> {
@@ -175,8 +223,16 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
 
         DynamicItemType.OPUS -> {
             val pics = normalizeUrls(major?.opus?.pics.orEmpty())
-            base.copy(coverUrl = pics.firstOrNull().orEmpty(), pics = pics)
+            base.copy(
+                coverUrl = pics.firstOrNull().orEmpty(),
+                pics = pics,
+                opusTitle = major?.opus?.title.orEmpty(),
+            )
         }
+
+        DynamicItemType.WORD ->
+            // 旧版纯文字动态：无 major 无可播内容，仅当文案非空才保留，避免出空卡片。
+            if (descText.isNotBlank()) base else null
 
         else -> null
     }

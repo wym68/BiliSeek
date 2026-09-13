@@ -240,6 +240,13 @@ data class ImagePreviewState(
     val initialIndex: Int,
 )
 
+/** 图文动态详情弹层状态（点开看全文）。entry=null 且 error=null 表示加载中。 */
+data class DynamicDetailState(
+    val idStr: String,
+    val entry: DynamicEntry? = null,
+    val error: String? = null,
+)
+
 data class SearchUiState(
     val keyword: String = "",
     val items: List<SearchVideo> = emptyList(),
@@ -1695,6 +1702,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissCommentDialog() { _commentDialog.value = null }
+
+    // ── 图文动态详情（点开看全文，四级降级）────────────────
+
+    private val _dynamicDetail = MutableStateFlow<DynamicDetailState?>(null)
+    val dynamicDetail: StateFlow<DynamicDetailState?> = _dynamicDetail.asStateFlow()
+
+    /**
+     * 点开图文动态卡片：按需拉详情（web detail → opus/detail → desktop → rid），
+     * 与 feed 条目合并后展示。请求在 repository 层有 LRU 缓存，重复打开不重复拉。
+     */
+    fun openDynamicDetail(entry: DynamicEntry) {
+        if (_dynamicDetail.value != null) return
+        _dynamicDetail.value = DynamicDetailState(idStr = entry.idStr)
+        viewModelScope.launch {
+            network.repository.dynamicDetail(entry.idStr, seed = entry)
+                .onSuccess { detail ->
+                    // 弹层可能已被关闭/切换，只回写匹配的条目
+                    if (_dynamicDetail.value?.idStr == entry.idStr) {
+                        _dynamicDetail.value = DynamicDetailState(idStr = entry.idStr, entry = detail)
+                    }
+                }
+                .onFailure { e ->
+                    if (_dynamicDetail.value?.idStr == entry.idStr) {
+                        _dynamicDetail.value = DynamicDetailState(
+                            idStr = entry.idStr,
+                            error = e.message ?: "加载失败",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun dismissDynamicDetail() { _dynamicDetail.value = null }
 
     /** 加载评论列表。reset=true 重新拉第 1 页；false 翻页追加。 */
     fun loadComments(reset: Boolean = true) {

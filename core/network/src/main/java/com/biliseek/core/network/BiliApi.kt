@@ -16,6 +16,7 @@ import com.biliseek.core.network.dto.SearchData
 import com.biliseek.core.network.dto.FavoriteFolderListData
 import com.biliseek.core.network.dto.FavoriteResourceData
 import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.DynamicDetailData
 import com.biliseek.core.network.dto.DynThumbRequest
 import com.biliseek.core.network.dto.FollowingData
 import com.biliseek.core.network.dto.RelationData
@@ -44,6 +45,25 @@ import retrofit2.http.POST
 import retrofit2.http.Query
 import retrofit2.http.QueryMap
 import retrofit2.http.Url
+
+/**
+ * 动态流（feed/all、feed/space）的 features 声明，**与官方 web 端对齐**。
+ *
+ * 背景（bilipai 实践，ref/bilipai ApiClient.kt 同常量）：不带这些参数时 B 站返回降级形态，
+ * 新版图文（DYNAMIC_TYPE_OPUS）不下发 summary/正文，动态卡片只剩图片没有文字。
+ * 声明后 feed 直接携带 opus.summary/rich_text_nodes，无需逐条拉详情。
+ */
+internal const val DYNAMIC_FEED_FEATURES =
+    "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard," +
+        "onlyfansAssetsV2,onlyfansQaCard,forwardListHidden,ugcDelete"
+
+/** web detail 的 features（对齐 bilipai DYNAMIC_DETAIL_FEATURES）。 */
+internal const val DYNAMIC_DETAIL_FEATURES =
+    "itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,endFooterHidden,decorationCard," +
+        "onlyfansAssetsV2,ugcDelete,onlyfansQaCard,commentsNewVersion,forwardListHidden,htmlNewStyle"
+
+/** opus/detail 只带 htmlNewStyle（bilipai 注：这样旧专栏才返回完整 paragraphs）。 */
+internal const val OPUS_DETAIL_FEATURES = "htmlNewStyle"
 
 interface BiliApi {
 
@@ -188,11 +208,14 @@ interface BiliApi {
     /**
      * 关注动态流。`type=all`（含图文/转发）或 `type=video`（仅视频投稿）。
      * 需登录态 Cookie；分页用返回的 `offset`。
+     * features/platform 对齐官方 web 端，保证 OPUS 图文下发 summary 正文。
      */
     @GET("x/polymer/web-dynamic/v1/feed/all")
     suspend fun dynamicFeed(
         @Query("type") type: String = "all",
         @Query("offset") offset: String = "",
+        @Query("features") features: String = DYNAMIC_FEED_FEATURES,
+        @Query("platform") platform: String = "web",
     ): BiliResponse<DynamicFeedData>
 
     /** 单个 UP 的空间动态（「按 UP 筛选」与 UP 空间页共用）。未登录必 -352。 */
@@ -200,6 +223,8 @@ interface BiliApi {
     suspend fun dynamicSpace(
         @Query("host_mid") hostMid: Long,
         @Query("offset") offset: String = "",
+        @Query("features") features: String = DYNAMIC_FEED_FEATURES,
+        @Query("platform") platform: String = "web",
     ): BiliResponse<DynamicFeedData>
 
     /** 关注列表（UP 筛选 chips 的数据源）。`ps ≤ 50`。 */
@@ -210,6 +235,30 @@ interface BiliApi {
         @Query("ps") ps: Int = 50,
         @Query("order") order: String = "desc",
     ): BiliResponse<FollowingData>
+
+    // ── 图文动态详情（点开看全文，bilipai 四级降级）────────────────
+
+    /**
+     * 单条动态详情（第 1 级主路径 / 第 4 级 rid 兜底）。
+     * 走 QueryMap + WBI 签名（[BiliRepository] 的 wbiRequest），参数：
+     * id 或 (rid + type=2)、features=[DYNAMIC_DETAIL_FEATURES]、platform=web。
+     */
+    @GET("x/polymer/web-dynamic/v1/detail")
+    suspend fun dynamicDetail(
+        @QueryMap params: Map<String, String>,
+    ): BiliResponse<DynamicDetailData>
+
+    /** 桌面端详情（第 3 级降级）：部分卡片 web 接口字段更完整，desktop 反而空内容。 */
+    @GET("x/polymer/web-dynamic/desktop/v1/detail")
+    suspend fun desktopDynamicDetail(
+        @QueryMap params: Map<String, String>,
+    ): BiliResponse<DynamicDetailData>
+
+    /** 长图文/专栏详情（第 2 级）：需 WBI 签名 + features=htmlNewStyle。 */
+    @GET("x/polymer/web-dynamic/v1/opus/detail")
+    suspend fun opusDetail(
+        @QueryMap params: Map<String, String>,
+    ): BiliResponse<DynamicDetailData>
 
     // ── 合集（M13-N）───────────────────────────────────
 

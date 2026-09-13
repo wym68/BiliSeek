@@ -6,6 +6,7 @@ import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.DynamicItem
 import com.biliseek.core.network.dto.DynThumbRequest
 import com.biliseek.core.network.dto.FollowingUp
 import com.biliseek.core.network.dto.RelationData
@@ -337,6 +338,99 @@ class BiliRepository internal constructor(
             "UP 动态失败：code=${response.code} ${response.message}"
         }
         response.data.toDynamicPage(offset)
+    }
+
+    /**
+     * 图文动态详情（点开看全文）。四级降级对齐 bilipai：
+     * 1. web `v1/detail?id=` 主路径 → 2. `opus/detail`（OPUS/DRAW 时）→
+     * 3. `desktop/v1/detail` 降级（含 WORD 取长文案）→ 4. 按 `basic.rid_str` 再拉。
+     * [seed] 是 feed 卡片条目，用于合并（正文取更长、图片取并集、互动数以 feed 为准）。
+     * 结果进 LRU 缓存，重复打开不重复请求。
+     */
+    suspend fun dynamicDetail(id: String, seed: DynamicEntry?): Result<DynamicEntry> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        val cleanedId = id.trim()
+        require(cleanedId.isNotEmpty()) { "动态 id 为空" }
+
+        dynamicDetailCache[cleanedId]?.let { return@runCatching it }
+
+        val candidates = mutableListOf<DynamicItem>()
+
+        // 1) web detail 主路径
+        fetchWebDetailItem(cleanedId)?.let(candidates::add)
+
+        // 2) opus/detail：web 结果缺内容、本身是 OPUS/DRAW，或 seed 是 OPUS/DRAW 时
+        val webItem = candidates.firstOrNull()
+        val seedNeedsOpus = seed?.rawType == DynamicItemType.OPUS || seed?.rawType == DynamicItemType.DRAW
+        if (webItem == null || !hasRenderableContent(webItem) ||
+            shouldRequestOpusDetail(webItem) || seedNeedsOpus
+        ) {
+            fetchOpusDetailItem(cleanedId)?.let(candidates::add)
+        }
+
+        // 3) desktop detail：仍不可渲染时降级；WORD 纯文字也拉一次取更长文案
+        var resolved = pickBestDetailItem(candidates)
+        if (resolved == null || !hasRenderableContent(resolved) || resolved.type == DynamicItemType.WORD) {
+            fetchDesktopDetailItem(cleanedId)?.let(candidates::add)
+            resolved = pickBestDetailItem(candidates)
+        }
+
+        // 4) rid 兜底：web/opus/desktop 都没拿到可渲染内容时按资源 id 再拉
+        val rid = seed?.ridStr.orEmpty()
+        if ((resolved == null || !hasRenderableContent(resolved)) && rid.isNotBlank()) {
+            fetchWebDetailItemByRid(rid)?.let(candidates::add)
+            resolved = pickBestDetailItem(candidates)
+        }
+
+        val item = resolved ?: error("动态详情为空")
+        mergeDetailItem(item, seed).also { dynamicDetailCache[cleanedId] = it }
+    }
+
+    private suspend fun fetchWebDetailItem(id: String): DynamicItem? =
+        wbiRequest(
+            buildMap {
+                put("id", id)
+                put("features", DYNAMIC_DETAIL_FEATURES)
+                put("platform", "web")
+            },
+        ) { signed -> api.dynamicDetail(signed) }
+            .getOrNull()?.item
+
+    private suspend fun fetchWebDetailItemByRid(rid: String): DynamicItem? =
+        wbiRequest(
+            buildMap {
+                put("rid", rid)
+                put("type", "2")
+                put("features", DYNAMIC_DETAIL_FEATURES)
+                put("platform", "web")
+            },
+        ) { signed -> api.dynamicDetail(signed) }
+            .getOrNull()?.item
+
+    private suspend fun fetchDesktopDetailItem(id: String): DynamicItem? =
+        wbiRequest(
+            buildMap {
+                put("id", id)
+                put("features", DYNAMIC_DETAIL_FEATURES)
+            },
+        ) { signed -> api.desktopDynamicDetail(signed) }
+            .getOrNull()?.item
+
+    private suspend fun fetchOpusDetailItem(id: String): DynamicItem? =
+        wbiRequest(
+            buildMap {
+                put("id", id)
+                put("features", OPUS_DETAIL_FEATURES)
+                put("timezone_offset", "-480")
+                put("platform", "web")
+            },
+        ) { signed -> api.opusDetail(signed) }
+            .getOrNull()?.item
+
+    /** 图文详情 LRU 缓存（容量 32）：点开过的动态重复打开不重复请求。 */
+    private val dynamicDetailCache = object : LinkedHashMap<String, DynamicEntry>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DynamicEntry>): Boolean = size > 32
     }
 
     /** 关注列表（UP 筛选 chips）。必须登录，内存缓存由调用方持有。 */
