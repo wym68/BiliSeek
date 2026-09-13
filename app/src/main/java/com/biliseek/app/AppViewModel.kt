@@ -1711,9 +1711,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun toggleDynamicExpand(entry: DynamicEntry) {
         val idStr = entry.idStr
-        val next = nextDynamicExpandState(_dynamicExpand.value[idStr])
+        val current = _dynamicExpand.value[idStr]
+        val alreadyFetching = current?.expanded == true && current.entry == null && current.error == null
+        val next = nextDynamicExpandState(current)
         _dynamicExpand.value = _dynamicExpand.value + (idStr to next)
-        if (!shouldFetchDynamicDetail(next)) return
+        if (alreadyFetching || !shouldFetchDynamicDetail(next)) return
         viewModelScope.launch {
             network.repository.dynamicDetail(idStr, seed = entry)
                 .onSuccess { detail ->
