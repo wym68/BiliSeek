@@ -53,6 +53,9 @@ import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.CollectedListLoadState
+import com.biliseek.app.data.DynamicExpandState
+import com.biliseek.app.data.nextDynamicExpandState
+import com.biliseek.app.data.shouldFetchDynamicDetail
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.DynamicItemType
@@ -238,13 +241,6 @@ data class CommentDialogState(
 data class ImagePreviewState(
     val pics: List<String>,
     val initialIndex: Int,
-)
-
-/** 图文动态详情弹层状态（点开看全文）。entry=null 且 error=null 表示加载中。 */
-data class DynamicDetailState(
-    val idStr: String,
-    val entry: DynamicEntry? = null,
-    val error: String? = null,
 )
 
 data class SearchUiState(
@@ -1703,38 +1699,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissCommentDialog() { _commentDialog.value = null }
 
-    // ── 图文动态详情（点开看全文，四级降级）────────────────
+    // ── 动态卡片正文原地展开/收起（四级降级拉全文）────────────────
 
-    private val _dynamicDetail = MutableStateFlow<DynamicDetailState?>(null)
-    val dynamicDetail: StateFlow<DynamicDetailState?> = _dynamicDetail.asStateFlow()
+    private val _dynamicExpand = MutableStateFlow<Map<String, DynamicExpandState>>(emptyMap())
+    val dynamicExpand: StateFlow<Map<String, DynamicExpandState>> = _dynamicExpand.asStateFlow()
 
     /**
-     * 点开图文动态卡片：按需拉详情（web detail → opus/detail → desktop → rid），
-     * 与 feed 条目合并后展示。请求在 repository 层有 LRU 缓存，重复打开不重复拉。
+     * 点"展开/收起"：状态转换交给纯函数 [nextDynamicExpandState]，这里只负责按需
+     * 发起网络请求（web detail → opus/detail → desktop → rid，与旧版全文弹层同一路径，
+     * repository 层有 LRU 缓存）。按 idStr 独立维护，允许多张卡片同时展开。
      */
-    fun openDynamicDetail(entry: DynamicEntry) {
-        if (_dynamicDetail.value != null) return
-        _dynamicDetail.value = DynamicDetailState(idStr = entry.idStr)
+    fun toggleDynamicExpand(entry: DynamicEntry) {
+        val idStr = entry.idStr
+        val next = nextDynamicExpandState(_dynamicExpand.value[idStr])
+        _dynamicExpand.value = _dynamicExpand.value + (idStr to next)
+        if (!shouldFetchDynamicDetail(next)) return
         viewModelScope.launch {
-            network.repository.dynamicDetail(entry.idStr, seed = entry)
+            network.repository.dynamicDetail(idStr, seed = entry)
                 .onSuccess { detail ->
-                    // 弹层可能已被关闭/切换，只回写匹配的条目
-                    if (_dynamicDetail.value?.idStr == entry.idStr) {
-                        _dynamicDetail.value = DynamicDetailState(idStr = entry.idStr, entry = detail)
+                    val cur = _dynamicExpand.value[idStr]
+                    if (cur?.expanded == true && cur.entry == null) {
+                        _dynamicExpand.value = _dynamicExpand.value + (idStr to cur.copy(entry = detail))
                     }
                 }
                 .onFailure { e ->
-                    if (_dynamicDetail.value?.idStr == entry.idStr) {
-                        _dynamicDetail.value = DynamicDetailState(
-                            idStr = entry.idStr,
-                            error = e.message ?: "加载失败",
-                        )
+                    val cur = _dynamicExpand.value[idStr]
+                    if (cur?.expanded == true && cur.entry == null) {
+                        _dynamicExpand.value = _dynamicExpand.value + (idStr to cur.copy(error = e.message ?: "加载失败"))
                     }
                 }
         }
     }
-
-    fun dismissDynamicDetail() { _dynamicDetail.value = null }
 
     /** 加载评论列表。reset=true 重新拉第 1 页；false 翻页追加。 */
     fun loadComments(reset: Boolean = true) {
