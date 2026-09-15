@@ -146,6 +146,8 @@ fun SearchScreen(
     onHistoryClick: (String) -> Unit = {},
     onDeleteHistory: (String) -> Unit = {},
     onClearHistory: () -> Unit = {},
+    /** 头像点击（跳转登录账户 UP 主页）。 */
+    onAvatarClick: () -> Unit = {},
     /** 登录态（标题栏显示账号名与头像，BBPlayer 主页风格）。 */
     session: BiliSession = BiliSession.EMPTY,
 ) {
@@ -302,7 +304,10 @@ fun SearchScreen(
                     AsyncImage(
                         model = if (session.isLoggedIn) normalizeCoverUrl(session.face) else null,
                         contentDescription = null,
-                        modifier = Modifier.size(48.dp).clip(CircleShape)
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = session.isLoggedIn) { onAvatarClick() }
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop,
                     )
