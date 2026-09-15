@@ -38,6 +38,7 @@ import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.app.toSearchVideo
 import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.DynamicScreen
+import com.biliseek.app.ui.FollowingListScreen
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
 import com.biliseek.app.ui.LibraryTab
@@ -126,6 +127,10 @@ class MainActivity : ComponentActivity() {
                 var downloadFor by remember { mutableStateOf<com.biliseek.app.ui.DownloadTarget?>(null) }
                 // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
+                // UP 空间页导航信号：AppShell 收到后 push UP_SPACE destination。
+                val openUpSpaceRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+                // 关注列表页导航信号：AppShell 收到后 push FOLLOWING_LIST destination。
+                val openFollowingListRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
                 // 列表 tab 选中的页
@@ -184,6 +189,8 @@ class MainActivity : ComponentActivity() {
                     expansion = expansion,
                     playbackStarted = viewModel.playbackStarted,
                     tabSwitchRequests = tabSwitchRequests,
+                    openUpSpaceRequests = openUpSpaceRequests,
+                    openFollowingListRequests = openFollowingListRequests,
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
                     surfaceView = surfaceView,
@@ -241,16 +248,19 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenComment = viewModel::openCommentDialog,
                             onToggleLike = viewModel::toggleDynamicLike,
+                            onOpenFollowList = {
+                                openFollowingListRequests.tryEmit(Unit)
+                            },
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
                                 )
+                                openUpSpaceRequests.tryEmit(Unit)
                             },
                             dynamicExpand = dynamicExpand,
                             onToggleExpand = viewModel::toggleDynamicExpand,
                         )
                     },
-                    // UP 空间页（M11-D）：从搜索页点 UP 结果进入
                     searchContent = {
                         val dayDate = dayHistoryDate
                         if (dayDate != null) {
@@ -261,53 +271,6 @@ class MainActivity : ComponentActivity() {
                                 entries = dayHistory,
                                 onClose = viewModel::closeDayHistory,
                                 onEntryClick = viewModel::playDayHistoryEntry,
-                            )
-                        } else if (upSpace.up != null) {
-                            // 系统返回手势应收起空间页，而不是弹走导航栈（tab 内状态）
-                            BackHandler(onBack = viewModel::closeUpSpace)
-                            UpSpaceScreen(
-                                state = upSpace,
-                                onClose = viewModel::closeUpSpace,
-                                onViewChange = viewModel::setUpSpaceView,
-                                onPostClick = viewModel::playUpPost,
-                                onLoadMorePosts = viewModel::loadMoreUpPosts,
-                                onRetryPosts = { viewModel.loadUpPosts(1) },
-                                onDynamicClick = viewModel::playDynamic,
-                                onLoadMoreDynamic = viewModel::loadMoreUpDynamic,
-                                // Ch4
-                                onToggleFollow = viewModel::toggleRelation,
-                                onOpenImagePreview = viewModel::openImagePreview,
-                                onOpenRepost = { idStr ->
-                                    copyToClipboard(viewModel.dynamicUrl(idStr))
-                                    viewModel.notifyLinkCopied()
-                                },
-                                onOpenComment = viewModel::openCommentDialog,
-                                onToggleLike = viewModel::toggleDynamicLike,
-                                onAuthorClick = { entry ->
-                                    viewModel.openUpSpace(
-                                        SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
-                                    )
-                                },
-                                dynamicExpand = dynamicExpand,
-                                onToggleExpand = viewModel::toggleDynamicExpand,
-                                // 投稿复选与动作
-                                isSelection = upSelectionActive,
-                                selectedBvids = selectedUpKeys,
-                                isLoggedIn = session.isLoggedIn,
-                                onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
-                                onToggleSelection = viewModel::toggleUpSelection,
-                                onSelectAll = viewModel::selectAllUp,
-                                onClearSelection = viewModel::clearUpSelection,
-                                onExitSelection = viewModel::exitUpSelection,
-                                onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
-                                onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
-                                onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
-                                onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
-                                onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
-                                onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
-                                onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
-                                onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
-                                onPostDownload = { downloadFor = it.toSearchVideo().toDownloadTarget() },
                             )
                         } else {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
@@ -372,7 +335,10 @@ class MainActivity : ComponentActivity() {
                             onOrderChange = { viewModel.setSearchFilters(it, search.duration) },
                             onDurationChange = { viewModel.setSearchFilters(search.order, it) },
                             onModeChange = viewModel::setSearchMode,
-                            onUserClick = viewModel::openUpSpace,
+                            onUserClick = { user ->
+                                viewModel.openUpSpace(user)
+                                openUpSpaceRequests.tryEmit(Unit)
+                            },
                             onRetryUser = viewModel::retryUserSearch,
                             onLoadMoreUsers = viewModel::loadMoreUsers,
                             searchHistory = searchHistory,
@@ -389,7 +355,10 @@ class MainActivity : ComponentActivity() {
                                         onDeleteKeyword = viewModel::deleteSearchKeyword,
                                         onClearHistory = viewModel::clearSearchHistory,
                                         onDayClick = { date -> viewModel.openDayHistory(date) },
-                                        onOpenWatchLater = viewModel::openWatchLater,
+                                        onOpenWatchLater = {
+                                            tabSwitchRequests.tryEmit(Destination.LIBRARY)
+                                            viewModel.openWatchLater()
+                                        },
                                         onOpenRecentPlaylists = { tabSwitchRequests.tryEmit(Destination.LIBRARY) },
                                         isLoggedIn = session.isLoggedIn,
                                         // 搜索历史改为聚焦时才弹出，未聚焦首页不直接显示
@@ -475,6 +444,65 @@ class MainActivity : ComponentActivity() {
                             },
                         )
                     },
+                    upSpaceContent = { onBack ->
+                        BackHandler(onBack = { viewModel.closeUpSpace(); onBack() })
+                        UpSpaceScreen(
+                            state = upSpace,
+                            onClose = { viewModel.closeUpSpace(); onBack() },
+                            onViewChange = viewModel::setUpSpaceView,
+                            onPostClick = viewModel::playUpPost,
+                            onLoadMorePosts = viewModel::loadMoreUpPosts,
+                            onRetryPosts = { viewModel.loadUpPosts(1) },
+                            onDynamicClick = viewModel::playDynamic,
+                            onLoadMoreDynamic = viewModel::loadMoreUpDynamic,
+                            // Ch4
+                            onToggleFollow = viewModel::toggleRelation,
+                            onOpenImagePreview = viewModel::openImagePreview,
+                            onOpenRepost = { idStr ->
+                                copyToClipboard(viewModel.dynamicUrl(idStr))
+                                viewModel.notifyLinkCopied()
+                            },
+                            onOpenComment = viewModel::openCommentDialog,
+                            onToggleLike = viewModel::toggleDynamicLike,
+                            onAuthorClick = { entry ->
+                                viewModel.openUpSpace(
+                                    SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
+                                )
+                            },
+                            dynamicExpand = dynamicExpand,
+                            onToggleExpand = viewModel::toggleDynamicExpand,
+                            // 投稿复选与动作
+                            isSelection = upSelectionActive,
+                            selectedBvids = selectedUpKeys,
+                            isLoggedIn = session.isLoggedIn,
+                            onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
+                            onToggleSelection = viewModel::toggleUpSelection,
+                            onSelectAll = viewModel::selectAllUp,
+                            onClearSelection = viewModel::clearUpSelection,
+                            onExitSelection = viewModel::exitUpSelection,
+                            onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
+                            onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
+                            onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
+                            onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
+                            onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                            onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                            onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                            onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
+                            onPostDownload = { downloadFor = it.toSearchVideo().toDownloadTarget() },
+                        )
+                    },
+                    followingListContent = { onBack ->
+                        BackHandler(onBack = { onBack() })
+                        FollowingListScreen(
+                            followings = dynamic.upChips,
+                            onSelectUp = { up ->
+                                viewModel.openUpSpaceFromFollowing(up)
+                                openUpSpaceRequests.tryEmit(Unit)
+                                onBack()
+                            },
+                            onBack = onBack,
+                        )
+                    },
                 )
 
                 // 流量策略拦下的「切看」。给一次性放行，而不是简单地不响应——
@@ -531,6 +559,7 @@ class MainActivity : ComponentActivity() {
                         pics = state.pics,
                         initialIndex = state.initialIndex,
                         onDismiss = viewModel::dismissImagePreview,
+                        onSaveImage = viewModel::saveImageToAlbum,
                     )
                 }
 

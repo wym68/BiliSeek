@@ -30,7 +30,7 @@ import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
-/** 四个入口。没有推荐页——动态是「你关注的人」，不是算法推荐。 */
+/** 四个入口 + 两个 push 型 destination（Player、UP 空间页）。 */
 enum class Destination(val route: String, val label: String) {
     SEARCH("search", "搜索"),
     DYNAMIC("dynamic", "动态"),
@@ -40,6 +40,9 @@ enum class Destination(val route: String, val label: String) {
     // 与 MiniPlayer（仍在 Scaffold bottomBar 外挂）的区别：player route 负责全屏
     // 展开态的渲染与返回手势，M12-A 之前是手动 expansion 状态机控制。
     PLAYER("player", "播放器"),
+    // UP 空间页：从动态页或搜索页点 UP 主头像/昵称进入，back 返回来源 tab。
+    UP_SPACE("upSpace", "UP主页"),
+    FOLLOWING_LIST("followingList", "关注列表"),
 }
 
 /**
@@ -91,6 +94,15 @@ fun AppShell(
      * 与 [playbackStarted] 同理：AppShell 拥有 navController，响应这里。
      */
     tabSwitchRequests: SharedFlow<Destination> = MutableSharedFlow(),
+    /**
+     * 打开 UP 空间页的信号。AppShell 订阅后 push UP_SPACE destination。
+     * 与 [playbackStarted] 同理：AppShell 拥有 navController，响应这里。
+     */
+    openUpSpaceRequests: SharedFlow<Unit> = MutableSharedFlow(),
+    /**
+     * 打开关注列表页的信号。AppShell 订阅后 push FOLLOWING_LIST destination。
+     */
+    openFollowingListRequests: SharedFlow<Unit> = MutableSharedFlow(),
     /** 当前列表 tab 选中的页。 */
     selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
     /** 列表 tab 切换回调。 */
@@ -99,6 +111,10 @@ fun AppShell(
     dynamicContent: @Composable () -> Unit,
     libraryContent: @Composable (LibraryTab, (LibraryTab) -> Unit) -> Unit,
     settingsContent: @Composable () -> Unit,
+    /** UP 空间页内容。onBack 由 AppShell 传入（navController.popBackStack()）。 */
+    upSpaceContent: @Composable (onBack: () -> Unit) -> Unit = { },
+    /** 关注列表页内容。onBack 由 AppShell 传入（navController.popBackStack()）。 */
+    followingListContent: @Composable (onBack: () -> Unit) -> Unit = { },
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -129,6 +145,24 @@ fun AppShell(
         }
     }
 
+    // UP 空间页导航：收到信号后 push UP_SPACE destination（launchSingleTop 防重复压栈）。
+    LaunchedEffect(openUpSpaceRequests) {
+        openUpSpaceRequests.collect {
+            navController.navigate(Destination.UP_SPACE.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // 关注列表页导航：收到信号后 push FOLLOWING_LIST destination。
+    LaunchedEffect(openFollowingListRequests) {
+        openFollowingListRequests.collect {
+            navController.navigate(Destination.FOLLOWING_LIST.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
@@ -155,8 +189,8 @@ fun AppShell(
                     }
                     NavigationBar {
                         Destination.entries.forEach { dest ->
-                            // PLAYER 入口不在底部导航中点击跳转，仅作为 nav destination 存在
-                            if (dest == Destination.PLAYER) return@forEach
+                            // PLAYER / UP_SPACE / FOLLOWING_LIST 不在底部导航中点击跳转，仅作为 nav destination 存在
+                            if (dest == Destination.PLAYER || dest == Destination.UP_SPACE || dest == Destination.FOLLOWING_LIST) return@forEach
                             NavigationBarItem(
                                 selected = currentRoute?.hierarchy?.any { it.route == dest.route } == true,
                                 onClick = {
@@ -211,6 +245,12 @@ fun AppShell(
                         onEnterFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
                         accent = accent,
                     )
+                }
+                composable(Destination.UP_SPACE.route) {
+                    upSpaceContent({ navController.popBackStack() })
+                }
+                composable(Destination.FOLLOWING_LIST.route) {
+                    followingListContent({ navController.popBackStack() })
                 }
             }
         }

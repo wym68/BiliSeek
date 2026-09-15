@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
@@ -26,6 +25,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -85,6 +85,7 @@ fun DynamicScreen(
     onOpenRepost: (String) -> Unit = {},
     onOpenComment: (DynamicEntry) -> Unit = {},
     onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
+    onOpenFollowList: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var refreshMessage by remember { mutableStateOf<String?>(null) }
@@ -146,6 +147,7 @@ fun DynamicScreen(
                     selectedUpMid = state.selectedUpMid,
                     onTypeFilterChange = onTypeFilterChange,
                     onSelectUp = onSelectUp,
+                    onOpenFollowList = onOpenFollowList,
                 )
 
                 when {
@@ -236,6 +238,7 @@ private fun DynamicFilterBar(
     selectedUpMid: Long?,
     onTypeFilterChange: (String) -> Unit,
     onSelectUp: (FollowingUp?) -> Unit,
+    onOpenFollowList: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -252,23 +255,48 @@ private fun DynamicFilterBar(
         }
 
         if (upChips.isNotEmpty()) {
-            LazyRow(
+            // 标题行：最常访问 + 更多按钮
+            Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                item(key = "all") {
-                    FilterChip(
-                        selected = selectedUpMid == null,
-                        onClick = { onSelectUp(null) },
-                        label = { Text("全部 UP") },
-                    )
+                Text(
+                    "最常访问",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onOpenFollowList) {
+                    Text("更多 >")
                 }
-                items(upChips, key = { it.mid }) { up ->
-                    FilterChip(
-                        selected = selectedUpMid == up.mid,
-                        onClick = { onSelectUp(up) },
-                        label = { Text(up.uname) },
-                    )
+            }
+
+            // UP 头像横滑列表
+            LazyRow(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                items(upChips.take(6)) { up ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onSelectUp(up) },
+                    ) {
+                        AsyncImage(
+                            model = up.face,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Text(
+                            up.uname,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
         }

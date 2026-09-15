@@ -770,11 +770,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val dynamic: StateFlow<DynamicUiState> = _dynamic.asStateFlow()
 
     /** 登录后首次进入动态 tab 时调用：拉关注列表 + 第一页动态。 */
-    fun initDynamic() {
+    fun initDynamic(forceRefresh: Boolean = false) {
         if (!session.value.isLoggedIn) return
         val cur = _dynamic.value
         if (cur.initState is DynamicInitState.Loading) return
-        if (cur.upChips.isNotEmpty() || cur.feed.items.isNotEmpty()) return
+        if (!forceRefresh && (cur.upChips.isNotEmpty() || cur.feed.items.isNotEmpty())) return
         viewModelScope.launch {
             _dynamic.value = cur.copy(initState = DynamicInitState.Loading)
             network.repository.followings()
@@ -811,6 +811,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             feedOffset = "",
         )
         loadDynamicPage(offset = "")
+    }
+
+    /** 强制刷新关注列表（无视缓存），关注/取关成功后调用。 */
+    private fun refreshUpChips() = viewModelScope.launch {
+        network.repository.followings()
+            .onSuccess { ups ->
+                _dynamic.value = _dynamic.value.copy(upChips = ups)
+            }
+    }
+
+    /** 从关注列表页点击 UP 主 → 打开 UP 空间页。 */
+    fun openUpSpaceFromFollowing(up: FollowingUp) {
+        openUpSpace(
+            SearchUser(mid = up.mid, uname = up.uname, upic = up.face)
+        )
     }
 
     /** 加载下一页（继续翻）。 */
@@ -1309,6 +1324,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 connection.saveSession()
             }
         })
+        // 监听登录状态，登录成功后自动刷新动态页关注列表
+        viewModelScope.launch {
+            session.collect { s ->
+                if (s.isLoggedIn) {
+                    initDynamic(forceRefresh = true)
+                }
+            }
+        }
     }
 
     /** content:// 与 file:// 都存在性检查（SAF 走 DocumentsProvider 查询）。 */
@@ -1577,6 +1600,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _upSpace.value = UpSpaceUiState(up = user)
         loadUpPosts(1)
         loadFollowingState(user.mid)
+        // 如果头像或粉丝数为空，从 API 获取完整信息
+        if (user.upic.isBlank() || user.fans == 0L) {
+            loadUserInfo(user.mid)
+        }
+    }
+
+    /** 获取用户完整信息（头像、粉丝数）。 */
+    private fun loadUserInfo(mid: Long) = viewModelScope.launch {
+        network.repository.userCard(mid)
+            .onSuccess { fullUser ->
+                _upSpace.value = _upSpace.value.copy(up = fullUser)
+            }
+            .onFailure { err ->
+                android.util.Log.e("BiliSeekUser", "loadUserInfo failed: ${err.message}")
+            }
     }
 
     fun closeUpSpace() {
@@ -1589,10 +1627,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * 由 interceptor 链提前抛成 SearchException；runCatching 兜成 null = 未知。
      */
     private fun loadFollowingState(mid: Long) = viewModelScope.launch {
-        network.repository.relation(mid).onSuccess { stat ->
-            val following = stat.relation == com.biliseek.core.network.dto.RelationStatus.FOLLOWING
-            _upSpace.value = _upSpace.value.copy(following = following)
-        }
+        android.util.Log.d("BiliSeekRelation", "loadFollowingState: mid=$mid")
+        network.repository.relation(mid)
+            .onSuccess { stat ->
+                android.util.Log.d("BiliSeekRelation", "relation ok: stat=$stat, relationStatus=${stat.relationStatus}, following=${stat.relationStatus == com.biliseek.core.network.dto.RelationStatus.FOLLOWING}")
+                val following = stat.relationStatus == com.biliseek.core.network.dto.RelationStatus.FOLLOWING
+                _upSpace.value = _upSpace.value.copy(following = following)
+            }
+            .onFailure { err ->
+                android.util.Log.e("BiliSeekRelation", "relation FAILED: ${err.javaClass.simpleName}: ${err.message}", err)
+            }
     }
 
     /** 关注 / 取关：乐观更新，失败回滚。 */
@@ -1610,6 +1654,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             .onSuccess {
                 _upSpace.value = _upSpace.value.copy(followingLoading = false)
                 emitMessage(if (follow) "已关注" else "已取消关注")
+                // 关注/取关成功后刷新动态页的关注列表
+                refreshUpChips()
             }
             .onFailure { err ->
                 // 回滚 + 报错提示
@@ -1961,6 +2007,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissImagePreview() { _previewImage.value = null }
+
+    /** 保存当前预览图片到系统相册。 */
+    fun saveImageToAlbum(url: String) {
+        viewModelScope.launch {
+            val result = downloadManager.saveImage(url)
+            val ctx = getApplication<Application>()
+            if (result.isSuccess) {
+                android.widget.Toast.makeText(ctx, "已保存到相册", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(ctx, "保存失败：${result.exceptionOrNull()?.message ?: "未知错误"}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     /** 投稿 / 动态 视图切换：各视图独立分页状态，互不干扰。 */
     fun setUpSpaceView(view: UpSpaceView) {
