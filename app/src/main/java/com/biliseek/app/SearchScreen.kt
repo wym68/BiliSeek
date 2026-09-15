@@ -71,6 +71,7 @@ import com.biliseek.app.data.SearchHistoryEntity
 import com.biliseek.app.ui.CoverThumbnail
 import com.biliseek.app.ui.formatPlayCount
 import com.biliseek.app.ui.formatPubDate
+
 import com.biliseek.app.ui.SearchHistorySection
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.SearchDuration
@@ -803,7 +804,11 @@ private fun ResultRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 封面 64dp 宽（16:9）：够辨认即可，把空间让给标题与元信息（M11 真机反馈）
-        CoverThumbnail(normalizeCoverUrl(video.pic), width = 64.dp)
+        CoverThumbnail(
+            url = normalizeCoverUrl(video.pic),
+            width = 64.dp,
+            badge = if (video.ugcPay == 1) "充电" else null,
+        )
         Column(
             Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
