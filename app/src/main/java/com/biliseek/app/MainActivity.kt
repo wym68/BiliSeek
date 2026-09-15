@@ -345,6 +345,16 @@ class MainActivity : ComponentActivity() {
                             onHistoryClick = viewModel::searchKeyword,
                             onDeleteHistory = viewModel::deleteSearchKeyword,
                             onClearHistory = viewModel::clearSearchHistory,
+                            onAvatarClick = {
+                                viewModel.openUpSpace(
+                                    SearchUser(
+                                        mid = session.dedeUserId.toLongOrNull() ?: 0L,
+                                        uname = session.uname,
+                                        upic = session.face,
+                                    )
+                                )
+                                openUpSpaceRequests.tryEmit(Unit)
+                            },
                             session = session,
                             emptyContent = {
                                 if (showEmptyState) {
