@@ -169,8 +169,8 @@ data class SearchVideo(
     val play: Long = 0,
     val danmaku: Long = 0,
     val pubdate: Long = 0,
-    @SerialName("ugc_pay")
-    val ugcPay: Int = 0,
+    @SerialName("badgepay")
+    val badgePay: Boolean = false,
 )
 
 // ── 登录 ──────────────────────────────────────────────

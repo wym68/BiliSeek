@@ -10,23 +10,23 @@ class SearchVideoTest {
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     @Test
-    fun `ugcPay defaults to 0 when absent`() {
+    fun `badgePay defaults to false when absent`() {
         val raw = """{"bvid":"BV1xx411c7mD","title":"test","author":"UP","mid":123}"""
         val video = json.decodeFromString<SearchVideo>(raw)
-        assertEquals(0, video.ugcPay)
+        assertEquals(false, video.badgePay)
     }
 
     @Test
-    fun `ugcPay parses value of 1`() {
-        val raw = """{"bvid":"BV1xx411c7mD","title":"test","author":"UP","mid":123,"ugc_pay":1}"""
+    fun `badgePay parses value of true`() {
+        val raw = """{"bvid":"BV1xx411c7mD","title":"test","author":"UP","mid":123,"badgepay":true}"""
         val video = json.decodeFromString<SearchVideo>(raw)
-        assertEquals(1, video.ugcPay)
+        assertEquals(true, video.badgePay)
     }
 
     @Test
-    fun `ugcPay parses value of 0`() {
-        val raw = """{"bvid":"BV1xx411c7mD","title":"test","author":"UP","mid":123,"ugc_pay":0}"""
+    fun `badgePay parses value of false`() {
+        val raw = """{"bvid":"BV1xx411c7mD","title":"test","author":"UP","mid":123,"badgepay":false}"""
         val video = json.decodeFromString<SearchVideo>(raw)
-        assertEquals(0, video.ugcPay)
+        assertEquals(false, video.badgePay)
     }
 }

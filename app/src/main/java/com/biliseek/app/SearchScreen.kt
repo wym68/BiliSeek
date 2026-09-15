@@ -807,7 +807,7 @@ private fun ResultRow(
         CoverThumbnail(
             url = normalizeCoverUrl(video.pic),
             width = 64.dp,
-            badge = if (video.ugcPay == 1) "充电" else null,
+            badge = if (video.badgePay) "充电" else null,
         )
         Column(
             Modifier.weight(1f),
