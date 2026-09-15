@@ -142,11 +142,13 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.zxing.core)
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.zoomimage.compose.coil3)
 
     // 封面取色（M12-A）。官方小库，配合 design-system 的策略层
     implementation(libs.palette.ktx)

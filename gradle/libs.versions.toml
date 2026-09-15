@@ -25,6 +25,7 @@ datastore = "1.2.1"
 zxing = "3.5.3"
 room = "2.8.4"
 coil = "3.5.0"
+zoomimage = "1.5.0"
 ksp = "2.3.11"
 
 # 协程
@@ -49,6 +50,7 @@ androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graph
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 
 # Media3
@@ -76,6 +78,9 @@ room-testing = { group = "androidx.room", name = "room-testing", version.ref = "
 # 图片加载。coil-network-okhttp 让封面请求走我们自己的 OkHttp（Referer 注入）
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
+
+# 图片缩放（panpf/zoomimage，集成 Coil 3）
+zoomimage-compose-coil3 = { group = "io.github.panpf.zoomimage", name = "zoomimage-compose-coil3", version.ref = "zoomimage" }
 
 # 封面取色（莫奈取色的「封面」半边，M12-A）。官方小库，正是
 # BBPlayer packages/image-theme-colors 的等价实现；配合设计系统策略层使用
