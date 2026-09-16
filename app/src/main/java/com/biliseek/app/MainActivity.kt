@@ -34,6 +34,8 @@ import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.DayHistoryScreen
 import com.biliseek.app.ui.Destination
 import com.biliseek.app.ui.DownloadDialog
+import com.biliseek.app.ui.MessageCenterScreen
+import com.biliseek.app.ui.PrivateChatScreen
 import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.app.toSearchVideo
 import com.biliseek.app.ui.DownloadsScreen
@@ -123,6 +125,7 @@ class MainActivity : ComponentActivity() {
                 val openedSeries by viewModel.openedSeries.collectAsState()
                 val collectedList by viewModel.collectedList.collectAsState()
                 val collectedListState by viewModel.collectedListState.collectAsState()
+                val unreadCount by viewModel.unreadCount.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置（搜索结果 / 多 P 分 P / UP 投稿共用）
@@ -133,6 +136,19 @@ class MainActivity : ComponentActivity() {
                 val openUpSpaceRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
                 // 关注列表页导航信号：AppShell 收到后 push FOLLOWING_LIST destination。
                 val openFollowingListRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+                // 启动 / 从后台返回时刷新未读小红点。
+                // 使用 `androidx.compose.ui.platform.LocalLifecycleOwner`（compose-ui 自带，
+                // 不引入新依赖）；返回 LifecycleOwner 接口，足够 `lifecycle.addObserver` 使用。
+                val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+                androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                            viewModel.refreshUnreadCount()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
                 // 列表 tab 选中的页
@@ -185,6 +201,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 首次进入也刷新一次未读小红点（LifecycleObserver 只覆盖 ON_RESUME）
+                LaunchedEffect(Unit) {
+                    viewModel.refreshUnreadCount()
+                }
+
                 AppShell(
                     onEnterPip = { enterPip() },
                     playback = playback,
@@ -193,6 +214,8 @@ class MainActivity : ComponentActivity() {
                     tabSwitchRequests = tabSwitchRequests,
                     openUpSpaceRequests = openUpSpaceRequests,
                     openFollowingListRequests = openFollowingListRequests,
+                    openMessagesRequests = viewModel.openMessagesRequests,
+                    openPrivateChatRequests = viewModel.openPrivateChatRequests,
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
                     surfaceView = surfaceView,
@@ -253,6 +276,8 @@ class MainActivity : ComponentActivity() {
                             onOpenFollowList = {
                                 openFollowingListRequests.tryEmit(Unit)
                             },
+                            unreadCount = unreadCount,
+                            onOpenMessages = viewModel::openMessages,
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
@@ -516,6 +541,53 @@ class MainActivity : ComponentActivity() {
                                 onBack()
                             },
                             onBack = onBack,
+                        )
+                    },
+                    messagesContent = { onBack ->
+                        val hub by viewModel.messageHub.collectAsState()
+                        MessageCenterScreen(
+                            hub = hub,
+                            session = session,
+                            loginState = loginState,
+                            unreadCount = unreadCount,
+                            onInit = viewModel::openMessages,
+                            onRetry = viewModel::retryMessageHub,
+                            onClose = {
+                                viewModel.closeMessages()
+                                onBack()
+                            },
+                            onStartLogin = viewModel::startLogin,
+                            onCancelLogin = viewModel::cancelLogin,
+                            onOpenChat = { s ->
+                                viewModel.openPrivateChat(s)
+                            },
+                            onPlayReplyAtItem = viewModel::playReplyAtItem,
+                            onPlayLikeItem = viewModel::playLikeItem,
+                            onOpenFollower = { f ->
+                                viewModel.openFollowerSpace(f)
+                                openUpSpaceRequests.tryEmit(Unit)
+                            },
+                            onSubmitReply = { aid, root, parent, content, onResult ->
+                                viewModel.submitCommentReply(aid, root, parent, content, onResult)
+                            },
+                        )
+                    },
+                    privateChatContent = { talkerId, peerName, peerFace, onBack ->
+                        val chats by viewModel.chatByTalker.collectAsState()
+                        val state = chats[talkerId] ?: com.biliseek.app.AppViewModel.PrivateChatState()
+                        PrivateChatScreen(
+                            peerName = peerName,
+                            peerFace = peerFace,
+                            currentUid = session.dedeUserId.toLongOrNull() ?: 0L,
+                            state = state,
+                            onBack = {
+                                viewModel.closeChat(talkerId)
+                                onBack()
+                            },
+                            onOpen = { viewModel.openChat(talkerId) },
+                            onLoadMore = { viewModel.loadMoreChat(talkerId) },
+                            onDraftChange = { viewModel.updateChatDraft(talkerId, it) },
+                            onSend = { viewModel.sendChatMessage(talkerId) },
                         )
                     },
                 )
