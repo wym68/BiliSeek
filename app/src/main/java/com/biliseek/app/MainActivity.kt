@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                 val loginState by viewModel.loginState.collectAsState()
                 val session by viewModel.session.collectAsState()
                 val playlists by viewModel.playlists.collectAsState()
+                val playlistTrackCounts by viewModel.playlistTrackCounts.collectAsState()
                 val openedPlaylist by viewModel.openedPlaylist.collectAsState()
                 val openedTracks by viewModel.openedTracks.collectAsState()
                 val searchHistory by viewModel.searchHistory.collectAsState()
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
                 val dayHistory by viewModel.dayHistory.collectAsState()
                 val watchLater by viewModel.watchLater.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
+                val deletingFavoriteMediaId by viewModel.deletingFavoriteMediaId.collectAsState()
                 val selectionMode by viewModel.selectionMode.collectAsState()
                 val selectedBvids by viewModel.selectedBvids.collectAsState()
                 val multiPagePicker by viewModel.multiPagePicker.collectAsState()
@@ -531,14 +533,18 @@ class MainActivity : ComponentActivity() {
                 pendingBatchAdd?.let {
                     AddToListPickerDialog(
                         playlists = playlists,
+                        playlistTrackCounts = playlistTrackCounts,
                         favoriteFolders = favoriteFolders,
                         isLoggedIn = session.isLoggedIn,
                         onPickPlaylist = viewModel::confirmAddToPlaylist,
                         onCreatePlaylist = viewModel::createPlaylistAndAdd,
+                        onRenamePlaylist = viewModel::renamePlaylist,
+                        onDeletePlaylist = viewModel::deletePlaylist,
                         onPickFavorite = viewModel::confirmAddToFavoriteFolder,
                         onCreateFavorite = viewModel::createFavoriteFolderAndAdd,
                         onEditFavorite = viewModel::editFavoriteFolder,
                         onDeleteFavorite = viewModel::deleteFavoriteFolder,
+                        deletingFavoriteMediaId = deletingFavoriteMediaId,
                         onDismiss = viewModel::dismissBatchAdd,
                     )
                 }
@@ -573,10 +579,12 @@ class MainActivity : ComponentActivity() {
                         onDismiss = viewModel::dismissCommentDialog,
                     )
                 }
-                previewImage?.let { state ->
+                val currentPreviewImage = previewImage
+                if (currentPreviewImage != null) {
+                    BackHandler(onBack = viewModel::dismissImagePreview)
                     com.biliseek.app.ui.components.ImagePreviewDialog(
-                        pics = state.pics,
-                        initialIndex = state.initialIndex,
+                        pics = currentPreviewImage.pics,
+                        initialIndex = currentPreviewImage.initialIndex,
                         onDismiss = viewModel::dismissImagePreview,
                         onSaveImage = viewModel::saveImageToAlbum,
                     )

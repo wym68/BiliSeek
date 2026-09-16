@@ -14,11 +14,25 @@ data class PlaylistTrack(
     val sortKey: Double,
 )
 
+/** 每个歌单的条目数（目录列表显示用）。 */
+data class PlaylistTrackCount(
+    val playlistId: Long,
+    val trackCount: Int,
+)
+
 @Dao
 interface PlaylistDao {
 
     @Query("SELECT * FROM playlist ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<PlaylistEntity>>
+
+    @Query(
+        """
+        SELECT playlistId, COUNT(*) AS trackCount FROM playlist_track
+        GROUP BY playlistId
+        """,
+    )
+    fun observeTrackCounts(): Flow<List<PlaylistTrackCount>>
 
     @Query("SELECT * FROM playlist WHERE id = :id")
     suspend fun byId(id: Long): PlaylistEntity?
@@ -189,3 +203,16 @@ interface FavoriteFolderDao {
 
 /** 首页空状态的搜索历史上限。 */
 const val SEARCH_HISTORY_LIMIT = 15
+
+@Dao
+interface UpVisitDao {
+
+    @Query("SELECT * FROM up_visit WHERE mid = :mid")
+    suspend fun find(mid: Long): UpVisitEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: UpVisitEntity)
+
+    @Query("SELECT * FROM up_visit ORDER BY visitCount DESC, lastVisitMs DESC")
+    suspend fun all(): List<UpVisitEntity>
+}

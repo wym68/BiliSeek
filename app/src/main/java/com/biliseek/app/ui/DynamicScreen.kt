@@ -1,6 +1,7 @@
 package com.biliseek.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -57,7 +59,8 @@ import com.biliseek.core.network.dto.FollowingUp
 /**
  * 动态 tab（M11-C）。
  *
- * 结构：筛选行（全部/仅视频 + 按 UP 筛选 chips）→ 动态流列表。
+ * 结构：「全部/仅视频」分段筛选（固定）→ 动态流列表；
+ * 「最常访问」头像栏作为列表 header，随滚动向上滑走。
  * 未登录整页引导；视频动态可播，图文动态仅展示（不响应点击）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,11 +146,7 @@ fun DynamicScreen(
             Column(Modifier.fillMaxSize()) {
                 DynamicFilterBar(
                     typeFilter = state.typeFilter,
-                    upChips = state.upChips,
-                    selectedUpMid = state.selectedUpMid,
                     onTypeFilterChange = onTypeFilterChange,
-                    onSelectUp = onSelectUp,
-                    onOpenFollowList = onOpenFollowList,
                 )
 
                 when {
@@ -171,19 +170,41 @@ fun DynamicScreen(
                     }
 
                     state.feed.items.isEmpty() && !state.feed.isLoading -> {
-                        Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            Text(
-                                when (state.feed.errorMessage) {
-                                    null -> "没有动态" + (if (state.selectedUpMid != null) "，换个 UP 看看" else "")
-                                    else -> state.feed.errorMessage
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                        Column(Modifier.fillMaxSize()) {
+                            // 空态下保留「最常访问」，便于切换 UP 筛选
+                            if (state.upChips.isNotEmpty()) {
+                                MostVisitedUpRow(
+                                    upChips = state.upChips,
+                                    selectedUpMid = state.selectedUpMid,
+                                    onSelectUp = onSelectUp,
+                                    onOpenFollowList = onOpenFollowList,
+                                )
+                            }
+                            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                Text(
+                                    when (state.feed.errorMessage) {
+                                        null -> "没有动态" + (if (state.selectedUpMid != null) "，换个 UP 看看" else "")
+                                        else -> state.feed.errorMessage
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         }
                     }
 
                     else -> {
                         LazyColumn(Modifier.fillMaxSize()) {
+                            // 「最常访问」作为列表 header，随滚动向上滑走
+                            if (state.upChips.isNotEmpty()) {
+                                item(key = "most-visited") {
+                                    MostVisitedUpRow(
+                                        upChips = state.upChips,
+                                        selectedUpMid = state.selectedUpMid,
+                                        onSelectUp = onSelectUp,
+                                        onOpenFollowList = onOpenFollowList,
+                                    )
+                                }
+                            }
                             items(state.feed.items, key = { it.idStr }) { entry ->
                                 DynamicCard(
                                     entry = entry,
@@ -230,76 +251,100 @@ fun DynamicScreen(
     }
 }
 
-/** 筛选行：「全部 / 仅视频」分段 + 按 UP 筛选 chips（横向滚动）。 */
+/** 筛选行：「全部 / 仅视频」分段（固定在列表上方）。 */
 @Composable
 private fun DynamicFilterBar(
     typeFilter: String,
+    onTypeFilterChange: (String) -> Unit,
+) {
+    SingleChoiceSegmentedButtonRow(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+    ) {
+        SegmentedButton(
+            selected = typeFilter == DynamicType.ALL,
+            onClick = { onTypeFilterChange(DynamicType.ALL) },
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+        ) { Text("全部") }
+        SegmentedButton(
+            selected = typeFilter == DynamicType.VIDEO,
+            onClick = { onTypeFilterChange(DynamicType.VIDEO) },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+        ) { Text("仅视频") }
+    }
+}
+
+/**
+ * 「最常访问」标题行 + UP 头像横滑列表。作为动态流列表的 header，随滚动向上滑走。
+ *
+ * 点击头像触发筛选；再点已选中的头像 = 取消筛选。昵称宽度对齐头像，避免长昵称撑宽 item。
+ */
+@Composable
+private fun MostVisitedUpRow(
     upChips: List<FollowingUp>,
     selectedUpMid: Long?,
-    onTypeFilterChange: (String) -> Unit,
     onSelectUp: (FollowingUp?) -> Unit,
     onOpenFollowList: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            SegmentedButton(
-                selected = typeFilter == DynamicType.ALL,
-                onClick = { onTypeFilterChange(DynamicType.ALL) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-            ) { Text("全部") }
-            SegmentedButton(
-                selected = typeFilter == DynamicType.VIDEO,
-                onClick = { onTypeFilterChange(DynamicType.VIDEO) },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-            ) { Text("仅视频") }
+    // 标题行：最常访问 + 更多按钮（底部不留距，紧贴头像列表）
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "最常访问",
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = onOpenFollowList) {
+            Text("更多 >")
         }
+    }
 
-        if (upChips.isNotEmpty()) {
-            // 标题行：最常访问 + 更多按钮
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "最常访问",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onOpenFollowList) {
-                    Text("更多 >")
-                }
-            }
-
-            // UP 头像横滑列表
-            LazyRow(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                items(upChips.take(6)) { up ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { onSelectUp(up) },
-                    ) {
-                        AsyncImage(
-                            model = up.face,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            contentScale = ContentScale.Crop,
-                        )
-                        Text(
-                            up.uname,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                }
-            }
+    // UP 头像横滑列表
+    LazyRow(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(upChips.take(10), key = { it.mid }) { up ->
+            UpAvatarChip(
+                up = up,
+                selected = selectedUpMid == up.mid,
+                onClick = { onSelectUp(up) },
+            )
         }
+    }
+}
+
+@Composable
+private fun UpAvatarChip(
+    up: FollowingUp,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(48.dp)
+            .clickable(onClick = onClick),
+    ) {
+        AsyncImage(
+            model = up.face,
+            contentDescription = null,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .let { if (selected) it.border(2.dp, primary, CircleShape) else it },
+            contentScale = ContentScale.Crop,
+        )
+        Text(
+            up.uname,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 

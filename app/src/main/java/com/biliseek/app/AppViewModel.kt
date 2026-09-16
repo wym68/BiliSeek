@@ -312,6 +312,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun emitMessage(text: String) { _transientMessage.tryEmit(text) }
 
+    /** 正在删除的收藏夹 mediaId（清空视频 + 删文件夹的整段过程）。非空 = 忙碌。 */
+    private val _deletingFavoriteMediaId = MutableStateFlow<Long?>(null)
+    val deletingFavoriteMediaId: StateFlow<Long?> = _deletingFavoriteMediaId.asStateFlow()
+
     /** 复制链接后的一次性提示（Toast），走既有 [transientMessage] 管道。 */
     fun notifyLinkCopied() = emitMessage("链接已复制")
 
@@ -367,6 +371,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val playlists = library.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** playlistId → 条目数。加入列表弹窗的歌单行显示用。 */
+    val playlistTrackCounts = library.observePlaylistTrackCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val searchHistory = library.observeSearchHistory()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -781,7 +789,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             network.repository.followings()
                 .onSuccess { ups ->
                     _dynamic.value = _dynamic.value.copy(
-                        upChips = ups,
+                        upChips = mergeUpChips(ups, library.upVisitAll()),
                         initState = DynamicInitState.Idle,
                     )
                     loadDynamicPage(offset = "")
@@ -794,6 +802,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 合并关注列表与本地访问记录，产出「最常访问」栏的展示顺序。 */
+    private suspend fun mergeUpChips(
+        followings: List<FollowingUp>,
+        visits: List<com.biliseek.app.data.UpVisitEntity>,
+    ): List<FollowingUp> = com.biliseek.app.data.UpVisitPolicy.mergeUpChips(followings, visits)
+
+    /** 计一次 UP 访问。失败静默：不影响主流程。 */
+    private fun recordUpVisit(mid: Long) {
+        if (mid <= 0) return
+        viewModelScope.launch { library.recordUpVisit(mid) }
+    }
+
     /** 「全部 / 仅视频」切换：变化必须重置游标重拉第 1 页。 */
     fun setDynamicTypeFilter(type: String) {
         val cur = _dynamic.value
@@ -802,23 +822,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadDynamicPage(offset = "")
     }
 
-    /** 按 UP 筛选：null = 回关注流，非 null = 只看该 UP。切换同样重置游标。 */
+    /**
+ * 按 UP 筛选：null = 回关注流，非 null = 只看该 UP。切换同样重置游标。
+ *
+ * 再点已选中的 UP = 取消筛选（与 B 站 App 行为一致）。
+ */
     fun selectDynamicUp(up: FollowingUp?) {
         val cur = _dynamic.value
-        if (cur.selectedUpMid == up?.mid) return
+        val targetMid = if (up != null && cur.selectedUpMid == up.mid) null else up?.mid
+        if (cur.selectedUpMid == targetMid) return
         _dynamic.value = cur.copy(
-            selectedUpMid = up?.mid,
+            selectedUpMid = targetMid,
             feed = RemoteListState.empty(),
             feedOffset = "",
         )
         loadDynamicPage(offset = "")
+        // 筛选本身就是一次「访问」：计入最常访问（取消筛选不计）。
+        if (up != null && targetMid != null) recordUpVisit(up.mid)
     }
 
     /** 强制刷新关注列表（无视缓存），关注/取关成功后调用。 */
     private fun refreshUpChips() = viewModelScope.launch {
         network.repository.followings()
             .onSuccess { ups ->
-                _dynamic.value = _dynamic.value.copy(upChips = ups)
+                _dynamic.value = _dynamic.value.copy(
+                    upChips = mergeUpChips(ups, library.upVisitAll()),
+                )
             }
     }
 
@@ -977,7 +1006,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (pages.size <= 1) {
             return listOf(video.toRequest(cid = pages.firstOrNull()?.cid))
         }
-        return pages.map { p ->
+return pages.map { p ->
             PlaybackRequest.Bili(
                 bvid = video.bvid,
                 cid = p.cid,
@@ -985,6 +1014,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 coverUrl = coverOf(video),
                 author = video.author,
                 durationSec = p.duration,
+                authorMid = video.mid,
             )
         }
     }
@@ -1236,16 +1266,50 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 删除 B 站收藏夹。收藏夹内的视频不会被删除。 */
+    /** 删除 B 站收藏夹。先把收藏夹内的视频从该收藏夹移除，再删文件夹。 */
     fun deleteFavoriteFolder(mediaId: Long) {
         viewModelScope.launch {
-            network.repository.deleteFavoriteFolder(listOf(mediaId))
-                .onSuccess {
-                    emitMessage("已删除收藏夹")
-                    syncFavoriteFolders()
+            _deletingFavoriteMediaId.value = mediaId
+            try {
+                val bvids = collectAllFavoriteBvids(mediaId)
+                val aids = bvids.mapNotNull { runCatching { bvToAv(it) }.getOrNull() }.distinct()
+                var failed = 0
+                aids.forEach { aid ->
+                    network.repository.dealFavorite(aid, addIds = emptyList(), delIds = listOf(mediaId))
+                        .onFailure { failed++ }
                 }
-                .onFailure { emitMessage("删除失败：${it.message ?: "未知错误"}") }
+                // 全部失败就不删文件夹
+                if (aids.isNotEmpty() && failed == aids.size) {
+                    emitMessage("视频清理失败（$failed/${aids.size}），未删除收藏夹")
+                    return@launch
+                }
+                network.repository.deleteFavoriteFolder(listOf(mediaId))
+                    .onSuccess {
+                        val total = aids.size
+                        when {
+                            failed == 0 -> emitMessage("已删除收藏夹（清理 $total 个视频）")
+                            else -> emitMessage("已删除收藏夹，${total - failed}/$total 个视频已移除")
+                        }
+                        syncFavoriteFolders()
+                    }
+                    .onFailure { emitMessage("删除失败：${it.message ?: "未知错误"}") }
+            } finally {
+                _deletingFavoriteMediaId.value = null
+            }
         }
+    }
+
+    /** 分页拉取收藏夹内全部视频的 bvid。失败/空页就停。 */
+    private suspend fun collectAllFavoriteBvids(mediaId: Long): List<String> {
+        val all = mutableListOf<String>()
+        var page = 1
+        while (true) {
+            val r = network.repository.favoriteResources(mediaId, page, pageSize = 20).getOrNull() ?: break
+            all += r.items.map { it.bvid }.filter { it.isNotBlank() }
+            if (!r.hasMore) break
+            page++
+        }
+        return all
     }
 
     // ── 单条三点按钮动作：单 P 直接执行；多 P 进选择页挑 P ──
@@ -1702,6 +1766,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (user.upic.isBlank() || user.fans == 0L) {
             loadUserInfo(user.mid)
         }
+        // 计一次访问（最常访问排序用）。
+        recordUpVisit(user.mid)
     }
 
     /** 获取用户完整信息（头像、粉丝数）。 */
@@ -2283,6 +2349,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         coverUrl = coverOf(this),
         author = author,
         durationSec = com.biliseek.core.network.parseDurationText(duration),
+        authorMid = mid,
     )
 
     private fun coverOf(video: SearchVideo) =
@@ -2479,6 +2546,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             connection.play(request)
             _playbackStarted.tryEmit(Unit)
+            // 播放即访问：最常访问排序用。authorMid 未填的旧路径（播放历史/收藏夹）跳过。
+            if (request is com.biliseek.core.player.PlaybackRequest.Bili && request.authorMid > 0) {
+                recordUpVisit(request.authorMid)
+            }
         }
     }
 

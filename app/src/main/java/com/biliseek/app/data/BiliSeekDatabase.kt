@@ -16,8 +16,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SearchHistoryEntity::class,
         DownloadEntity::class,
         FavoriteFolderEntity::class,
+        UpVisitEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -27,6 +28,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun downloadDao(): DownloadDao
     abstract fun favoriteFolderDao(): FavoriteFolderDao
+    abstract fun upVisitDao(): UpVisitDao
 
     companion object {
         @Volatile
@@ -39,7 +41,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
 
         /**
@@ -114,6 +116,26 @@ abstract class BiliSeekDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_favorite_folder_mediaId` ON `favorite_folder` (`mediaId`)",
+                )
+            }
+        }
+
+        /**
+         * v4 → v5：新增 UP 主访问计数表。
+         *
+         * 动态页「最常访问」栏的排名依据：筛选/打开空间页/看视频时计数，
+         * 同日去重。只存 mid + 计数，展示资料从关注列表取。
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `up_visit` (
+                        `mid` INTEGER PRIMARY KEY NOT NULL,
+                        `visitCount` INTEGER NOT NULL,
+                        `lastVisitMs` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
                 )
             }
         }

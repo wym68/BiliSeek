@@ -104,6 +104,19 @@ data class SearchHistoryEntity(
 )
 
 /**
+ * UP 主访问计数（动态页「最常访问」栏的排名依据）。
+ *
+ * 只存 mid + 计数；展示用的昵称/头像始终从关注列表（FollowingUp）取。
+ * 同一天内重复访问只更新 [lastVisitMs] 不 +1（同日去重，见 [UpVisitPolicy]）。
+ */
+@Entity(tableName = "up_visit")
+data class UpVisitEntity(
+    @PrimaryKey val mid: Long,
+    val visitCount: Long,
+    val lastVisitMs: Long,
+)
+
+/**
  * 下载记录（M9）。一个 bvid+cid 唯一对应一条下载。
  *
  * 删除语义按 [location] 区分（M9 §9.5）：

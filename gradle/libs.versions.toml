@@ -25,7 +25,7 @@ datastore = "1.2.1"
 zxing = "3.5.3"
 room = "2.8.4"
 coil = "3.5.0"
-zoomimage = "1.5.0"
+zoomimage = "1.6.0"
 ksp = "2.3.11"
 
 # 协程

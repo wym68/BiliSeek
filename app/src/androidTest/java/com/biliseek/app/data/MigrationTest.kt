@@ -189,6 +189,50 @@ class MigrationTest {
             }
     }
 
+    @Test
+    fun migrate4To5_保留既有数据并新增访问计数表() {
+        // 建 v4 库并写入一条收藏夹目录数据（v4 的典型用户数据）
+        helper.createDatabase(TEST_DB, 4).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO favorite_folder (id, mediaId, title, coverUrl, mediaCount, syncedAt)
+                VALUES (1, 3001, '我的收藏', '//i0.hdslb.com/x.jpg', 42, 1000)
+                """.trimIndent(),
+            )
+        }
+
+        // 执行迁移
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            5,
+            true,
+            BiliSeekDatabase.MIGRATION_4_5,
+        )
+
+        // 旧数据完整保留
+        db.query("SELECT mediaId, title FROM favorite_folder WHERE id = 1")
+            .use { cursor ->
+                assertTrue("迁移后旧数据丢失", cursor.moveToFirst())
+                assertEquals(3001L, cursor.getLong(0))
+                assertEquals("我的收藏", cursor.getString(1))
+            }
+
+        // 新表结构正确，且能写入一条访问记录
+        db.execSQL(
+            """
+            INSERT INTO up_visit (mid, visitCount, lastVisitMs)
+            VALUES (12345, 7, 1000)
+            """.trimIndent(),
+        )
+        db.query("SELECT mid, visitCount, lastVisitMs FROM up_visit WHERE mid = 12345")
+            .use { cursor ->
+                assertTrue("访问表写入失败", cursor.moveToFirst())
+                assertEquals(12345L, cursor.getLong(0))
+                assertEquals(7L, cursor.getLong(1))
+                assertEquals(1000L, cursor.getLong(2))
+            }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

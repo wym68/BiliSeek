@@ -69,6 +69,7 @@ import coil3.compose.AsyncImage
 import com.biliseek.app.SearchMode
 import com.biliseek.app.data.SearchHistoryEntity
 import com.biliseek.app.ui.CoverThumbnail
+import com.biliseek.app.ui.formatFans
 import com.biliseek.app.ui.formatPlayCount
 import com.biliseek.app.ui.formatPubDate
 
@@ -186,7 +187,6 @@ fun SearchScreen(
                 "加入队列" to { actionsFor = null; onAppendToQueue(video) },
                 "下一首播放" to { actionsFor = null; onPlayNext(video) },
                 "复制链接" to { actionsFor = null; onCopyLink(video) },
-                "查看分 P" to { actionsFor = null; onShowPages(video) },
                 "下载" to { actionsFor = null; onDownload(video) },
             ),
             onDismiss = { actionsFor = null },
@@ -718,12 +718,6 @@ private fun UserRow(user: SearchUser, onClick: () -> Unit) {
         }
         Text("›", style = MaterialTheme.typography.titleMedium)
     }
-}
-
-private fun formatFans(n: Long): String = when {
-    n >= 100_000_000 -> "%.1f 亿".format(n / 100_000_000.0)
-    n >= 10_000 -> "%.1f 万".format(n / 10_000.0)
-    else -> n.toString()
 }
 
 private val ORDER_OPTIONS = listOf(

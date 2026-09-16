@@ -4,11 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -27,7 +30,8 @@ fun ActionListSheet(
     items: List<Pair<String, () -> Unit>>,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             Text(
                 title,
@@ -37,15 +41,17 @@ fun ActionListSheet(
                 overflow = TextOverflow.Ellipsis,
             )
             HorizontalDivider()
-            items.forEach { (label, action) ->
-                Text(
-                    label,
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { action() }
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+            LazyColumn(Modifier.fillMaxWidth()) {
+                items(items) { (label, action) ->
+                    Text(
+                        label,
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { action() }
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
             }
         }
     }

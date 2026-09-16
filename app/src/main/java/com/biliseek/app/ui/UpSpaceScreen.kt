@@ -225,8 +225,9 @@ private fun UpHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // 粉丝数：从关注列表进入时 fans 暂为 0（userCard 补拉中），先显示占位
                 Text(
-                    up.usign,
+                    if (up.fans > 0) "粉丝 ${formatFans(up.fans)}" else "粉丝加载中…",
                     style = MaterialTheme.typography.labelSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

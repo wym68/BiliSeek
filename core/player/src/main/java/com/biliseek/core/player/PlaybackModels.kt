@@ -61,6 +61,11 @@ sealed interface PlaybackRequest {
          */
         val author: String = "",
         val durationSec: Long = 0,
+        /**
+         * UP 主 mid。默认 0 表示未知（计数挂接点会跳过），
+         * 从 `SearchVideo` / 动态条目等带 mid 的来源填充。
+         */
+        val authorMid: Long = 0,
     ) : PlaybackRequest
 }
 

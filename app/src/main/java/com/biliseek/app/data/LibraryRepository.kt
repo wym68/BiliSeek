@@ -1,6 +1,7 @@
 package com.biliseek.app.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /** 本地库读写。UI 层不直接碰 DAO。 */
 class LibraryRepository(private val db: BiliSeekDatabase) {
@@ -8,10 +9,15 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     private val playlists = db.playlistDao()
     private val history = db.historyDao()
     private val searches = db.searchHistoryDao()
+    private val upVisits = db.upVisitDao()
 
     // ── 歌单 ────────────────────────────────────────────
 
     fun observePlaylists(): Flow<List<PlaylistEntity>> = playlists.observeAll()
+
+    /** playlistId → 条目数。加入列表弹窗的目录行显示用。 */
+    fun observePlaylistTrackCounts(): Flow<Map<Long, Int>> =
+        playlists.observeTrackCounts().map { list -> list.associate { it.playlistId to it.trackCount } }
 
     fun observeTracks(playlistId: Long): Flow<List<PlaylistTrack>> =
         playlists.observeTracks(playlistId)
@@ -193,6 +199,22 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     suspend fun deleteSearch(keyword: String) = searches.delete(keyword)
 
     suspend fun clearSearchHistory() = searches.clear()
+
+    // ── UP 主访问计数（动态页「最常访问」排名） ───────────────
+
+    /** 计一次访问。同日去重，计数策略见 [UpVisitPolicy.nextVisit]。 */
+    suspend fun recordUpVisit(mid: Long) {
+        if (mid <= 0) return
+        runCatching {
+            val prev = upVisits.find(mid)
+            val now = System.currentTimeMillis()
+            upVisits.upsert(UpVisitPolicy.nextVisit(prev, mid, now))
+        }
+    }
+
+    /** 当前所有访问记录。失败返回空表，降级为原关注列表顺序展示。 */
+    suspend fun upVisitAll(): List<UpVisitEntity> =
+        runCatching { upVisits.all() }.getOrDefault(emptyList())
 
     private companion object {
         const val SORT_STEP = 1024.0
