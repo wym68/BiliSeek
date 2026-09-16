@@ -12,6 +12,10 @@ data class BiliResponse<T>(
     val data: T? = null,
 )
 
+/** 占位 data object — 写接口用，data 字段不需要解构。 */
+@Serializable
+data object BiliDtoUnit
+
 // ── 风控凭据 ──────────────────────────────────────────────
 
 /** `x/frontend/finger/spi_v2` —— 服务端下发 buvid。 */
