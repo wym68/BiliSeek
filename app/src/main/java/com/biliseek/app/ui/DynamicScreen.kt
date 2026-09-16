@@ -17,10 +17,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -89,6 +95,9 @@ fun DynamicScreen(
     onOpenComment: (DynamicEntry) -> Unit = {},
     onToggleLike: (String, Boolean) -> Unit = { _, _ -> },
     onOpenFollowList: () -> Unit = {},
+    // 消息中心入口：未读小红点 + 点击回调
+    unreadCount: Int = 0,
+    onOpenMessages: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var refreshMessage by remember { mutableStateOf<String?>(null) }
@@ -147,6 +156,8 @@ fun DynamicScreen(
                 DynamicFilterBar(
                     typeFilter = state.typeFilter,
                     onTypeFilterChange = onTypeFilterChange,
+                    unreadCount = unreadCount,
+                    onOpenMessages = onOpenMessages,
                 )
 
                 when {
@@ -251,25 +262,44 @@ fun DynamicScreen(
     }
 }
 
-/** 筛选行：「全部 / 仅视频」分段（固定在列表上方）。 */
+/** 筛选行：「全部 / 仅视频」分段 + 右侧消息入口图标（带未读小红点）。 */
 @Composable
 private fun DynamicFilterBar(
     typeFilter: String,
     onTypeFilterChange: (String) -> Unit,
+    unreadCount: Int,
+    onOpenMessages: () -> Unit,
 ) {
-    SingleChoiceSegmentedButtonRow(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        SegmentedButton(
-            selected = typeFilter == DynamicType.ALL,
-            onClick = { onTypeFilterChange(DynamicType.ALL) },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-        ) { Text("全部") }
-        SegmentedButton(
-            selected = typeFilter == DynamicType.VIDEO,
-            onClick = { onTypeFilterChange(DynamicType.VIDEO) },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-        ) { Text("仅视频") }
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+            SegmentedButton(
+                selected = typeFilter == DynamicType.ALL,
+                onClick = { onTypeFilterChange(DynamicType.ALL) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("全部") }
+            SegmentedButton(
+                selected = typeFilter == DynamicType.VIDEO,
+                onClick = { onTypeFilterChange(DynamicType.VIDEO) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("仅视频") }
+        }
+        IconButton(onClick = onOpenMessages) {
+            BadgedBox(
+                badge = {
+                    if (unreadCount > 0) {
+                        Badge { Text(minOf(unreadCount, 99).toString()) }
+                    }
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Notifications,
+                    contentDescription = "消息",
+                )
+            }
+        }
     }
 }
 
