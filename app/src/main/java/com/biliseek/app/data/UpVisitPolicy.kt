@@ -28,14 +28,14 @@ object UpVisitPolicy {
      * 合并关注列表与访问计数，产出「最常访问」栏的展示顺序：
      * 1. 有访问记录的关注 UP：visitCount 降序，同次数按 lastVisitMs 降序（最近访问优先）；
      * 2. 未访问过的：保持关注列表原顺序（B 站默认最近关注在前）补齐；
-     * 3. 截到 [limit]。
+     * 3. 可选 [limit] 截断；默认 [Int.MAX_VALUE]（不截，调用方按需 `take()`）。
      *
      * 昵称/头像始终来自关注列表；不在关注列表里的访问记录不参与展示。
      */
     fun mergeUpChips(
         followings: List<FollowingUp>,
         visits: List<UpVisitEntity>,
-        limit: Int = 10,
+        limit: Int = Int.MAX_VALUE,
     ): List<FollowingUp> {
         if (visits.isEmpty()) return followings.take(limit)
         val byMid = visits.associateBy { it.mid }
