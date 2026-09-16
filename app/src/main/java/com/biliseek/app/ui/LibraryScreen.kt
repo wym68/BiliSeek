@@ -2,12 +2,15 @@ package com.biliseek.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +71,7 @@ import com.biliseek.core.player.formatDuration
 import com.biliseek.app.download.DownloadTask
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
     playlists: List<PlaylistEntity>,
@@ -93,6 +97,10 @@ fun LibraryScreen(
     onSyncFavorites: () -> Unit = {},
     onOpenFavorite: (Long, String) -> Unit = { _, _ -> },
     onCloseFavorite: () -> Unit = {},
+    /** 新建 B 站收藏夹（标题, 简介）。 */
+    onCreateFavoriteFolder: (String, String) -> Unit = { _, _ -> },
+    onEditFavoriteFolder: (Long, String) -> Unit = { _, _ -> },
+    onDeleteFavoriteFolder: (Long) -> Unit = {},
     onFavoriteTrackClick: (FavoriteTrack) -> Unit = {},
     onFavoriteLoadMore: (Int) -> Unit = {},
     onStartLogin: () -> Unit = {},
@@ -367,6 +375,13 @@ fun LibraryScreen(
 
             LibraryTab.FAVORITES -> {
                 val favoritesRefreshState = rememberPullToRefreshState()
+                // 收藏夹管理：新建 / 长按菜单 / 编辑 / 删除确认
+                var creatingFavorite by remember { mutableStateOf(false) }
+                var favoriteTitle by remember { mutableStateOf("") }
+                var favoriteIntro by remember { mutableStateOf("") }
+                var folderActionsFor by remember { mutableStateOf<FavoriteFolderEntity?>(null) }
+                var editingFavorite by remember { mutableStateOf<Pair<Long, String>?>(null) }
+                var deletingFavorite by remember { mutableStateOf<Pair<Long, String>?>(null) }
                 PullToRefreshBox(
                     isRefreshing = favoriteSync is SyncState.Syncing,
                     onRefresh = onSyncFavorites,
@@ -389,53 +404,65 @@ fun LibraryScreen(
                                 )
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
-                        } else if (favoriteFolders.isEmpty()) {
-                            item(key = "favorite-empty") {
-                                when (favoriteSync) {
-                                    is SyncState.Syncing -> Unit
-                                    is SyncState.Error -> {
-                                        Text(
-                                            "同步失败：${favoriteSync.message}",
-                                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                            style = MaterialTheme.typography.bodySmall,
-                                        )
-                                    }
-                                    else -> {
-                                        Text(
-                                            "还没有收藏夹，点右上角「同步」从 B 站拉取",
-                                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                            style = MaterialTheme.typography.bodySmall,
-                                        )
-                                    }
-                                }
+                        } else {
+                            item(key = "favorite-create") {
+                                TextButton(
+                                    onClick = { creatingFavorite = true },
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                ) { Text("＋ 新建收藏夹") }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
-                        } else {
-                            items(favoriteFolders, key = { "favorite-${it.mediaId}" }) { folder ->
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onOpenFavorite(folder.mediaId, folder.title) }
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    CoverThumbnail(folder.coverUrl, width = 56.dp)
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            folder.title,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                        Text(
-                                            "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
-                                            style = MaterialTheme.typography.labelSmall,
-                                        )
+                            if (favoriteFolders.isEmpty()) {
+                                item(key = "favorite-empty") {
+                                    when (favoriteSync) {
+                                        is SyncState.Syncing -> Unit
+                                        is SyncState.Error -> {
+                                            Text(
+                                                "同步失败：${favoriteSync.message}",
+                                                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                        else -> {
+                                            Text(
+                                                "还没有收藏夹，点上方「新建收藏夹」或右上角「同步」",
+                                                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
                                     }
-                                    Text("›", style = MaterialTheme.typography.titleMedium)
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            } else {
+                                items(favoriteFolders, key = { "favorite-${it.mediaId}" }) { folder ->
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .combinedClickable(
+                                                onClick = { onOpenFavorite(folder.mediaId, folder.title) },
+                                                onLongClick = { folderActionsFor = folder },
+                                            )
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        CoverThumbnail(folder.coverUrl, width = 56.dp)
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                folder.title,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                "${folder.mediaCount} 个 · ${formatRelativeTime(folder.syncedAt)}同步",
+                                                style = MaterialTheme.typography.labelSmall,
+                                            )
+                                        }
+                                        Text("›", style = MaterialTheme.typography.titleMedium)
+                                    }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                }
                             }
                         }
                     }
@@ -445,6 +472,111 @@ fun LibraryScreen(
                     isError = favoritesRefreshIsError,
                     onDismiss = { favoritesRefreshMessage = null },
                 )
+
+                // 新建收藏夹
+                if (creatingFavorite) {
+                    AlertDialog(
+                        onDismissRequest = { creatingFavorite = false },
+                        title = { Text("新建收藏夹") },
+                        text = {
+                            Column {
+                                OutlinedTextField(
+                                    value = favoriteTitle,
+                                    onValueChange = { favoriteTitle = it },
+                                    singleLine = true,
+                                    label = { Text("标题") },
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = favoriteIntro,
+                                    onValueChange = { favoriteIntro = it },
+                                    label = { Text("简介（可选）") },
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    creatingFavorite = false
+                                    onCreateFavoriteFolder(favoriteTitle, favoriteIntro)
+                                    favoriteTitle = ""
+                                    favoriteIntro = ""
+                                },
+                                enabled = favoriteTitle.isNotBlank(),
+                            ) { Text("创建") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { creatingFavorite = false }) { Text("取消") }
+                        },
+                    )
+                }
+
+                // 长按菜单：编辑 / 删除
+                folderActionsFor?.let { folder ->
+                    ActionListSheet(
+                        title = folder.title,
+                        items = listOf(
+                            "编辑" to {
+                                folderActionsFor = null
+                                editingFavorite = folder.mediaId to folder.title
+                            },
+                            "删除" to {
+                                folderActionsFor = null
+                                deletingFavorite = folder.mediaId to folder.title
+                            },
+                        ),
+                        onDismiss = { folderActionsFor = null },
+                    )
+                }
+
+                // 编辑收藏夹
+                editingFavorite?.let { (mediaId, currentTitle) ->
+                    var editTitle by remember { mutableStateOf(currentTitle) }
+                    AlertDialog(
+                        onDismissRequest = { editingFavorite = null },
+                        title = { Text("编辑收藏夹") },
+                        text = {
+                            OutlinedTextField(
+                                value = editTitle,
+                                onValueChange = { editTitle = it },
+                                singleLine = true,
+                                label = { Text("标题") },
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    editingFavorite = null
+                                    onEditFavoriteFolder(mediaId, editTitle)
+                                },
+                                enabled = editTitle.isNotBlank(),
+                            ) { Text("保存") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { editingFavorite = null }) { Text("取消") }
+                        },
+                    )
+                }
+
+                // 删除收藏夹确认
+                deletingFavorite?.let { (mediaId, title) ->
+                    AlertDialog(
+                        onDismissRequest = { deletingFavorite = null },
+                        title = { Text("删除收藏夹") },
+                        text = { Text("确定删除「$title」？收藏夹内的视频不会被删除。") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                deletingFavorite = null
+                                onDeleteFavoriteFolder(mediaId)
+                            }) {
+                                Text("删除", color = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { deletingFavorite = null }) { Text("取消") }
+                        },
+                    )
+                }
             }
 
             LibraryTab.SERIES -> {

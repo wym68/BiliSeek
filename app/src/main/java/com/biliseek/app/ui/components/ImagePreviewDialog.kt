@@ -33,6 +33,7 @@ fun ImagePreviewDialog(
     pics: List<String>,
     initialIndex: Int = 0,
     onDismiss: () -> Unit,
+    onSaveImage: (String) -> Unit = {},
 ) {
     val state = rememberPagerState(initialPage = initialIndex.coerceIn(0, (pics.size - 1).coerceAtLeast(0))) { pics.size }
     LaunchedEffect(pics.size) { state.scrollToPage(initialIndex.coerceIn(0, pics.lastIndex)) }
@@ -73,7 +74,7 @@ fun ImagePreviewDialog(
                 style = MaterialTheme.typography.titleMedium,
             )
         }
-        // 底部「保存到相册」占位（工单 4.9 #5）
+        // 底部「保存到相册」
         Box(
             Modifier
                 .fillMaxWidth()
@@ -82,9 +83,12 @@ fun ImagePreviewDialog(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                "保存到相册（未实装）",
-                color = Color.White.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.labelSmall,
+                "保存到相册",
+                Modifier
+                    .clickable { onSaveImage(pics[state.currentPage]) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
             )
         }
     }

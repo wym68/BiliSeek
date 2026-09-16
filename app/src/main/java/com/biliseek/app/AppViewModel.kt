@@ -16,6 +16,7 @@ import com.biliseek.core.network.SearchIntent
 import com.biliseek.core.network.SearchOrder
 import com.biliseek.core.network.SearchPage
 import com.biliseek.core.network.avToBv
+import com.biliseek.core.network.bvToAv
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
@@ -931,7 +932,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val multiPagePicker: StateFlow<MultiPagePickerState?> = _multiPagePicker.asStateFlow()
 
     /**
-     * 待加入歌单的条目（一组 track，1 或 N）。非空时 UI 弹歌单选择框。
+     * 待加入列表的条目（一组 track，1 或 N）。非空时 UI 弹加入列表选择框。
      * 单条与批量统一走这一条路径。
      */
     private val _pendingBatchAdd = MutableStateFlow<List<TrackEntity>?>(null)
@@ -1147,6 +1148,103 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val id = library.createPlaylist(name)
             tracks.forEach { library.addToPlaylist(id, it) }
             emitMessage("已加入 ${tracks.size} 项到歌单")
+        }
+    }
+
+    // ── B 站收藏夹：加入 / 新建 / 编辑 / 删除 ──
+    //
+    // dealFavorite 的 rid 要 aid，而待加条目（TrackEntity）只带 bvid——
+    // 用 core/network 的 bvToAv 本地换算（纯算法、有单测），不额外打网络请求。
+    // 多 P 展开后同视频会重复出现，distinct 去重再逐 aid deal。
+
+    /** 把待加条目逐个 deal 进收藏夹；返回 (成功数, 失败数)。 */
+    private suspend fun dealTracksToFolder(tracks: List<TrackEntity>, mediaId: Long): Pair<Int, Int> {
+        val aids = tracks.mapNotNull { runCatching { bvToAv(it.bvid) }.getOrNull() }.distinct()
+        var failed = 0
+        aids.forEach { aid ->
+            network.repository.dealFavorite(aid, listOf(mediaId), emptyList())
+                .onFailure { failed++ }
+        }
+        return (aids.size - failed) to failed
+    }
+
+    /** 加入到已有 B 站收藏夹。 */
+    fun confirmAddToFavoriteFolder(mediaId: Long) {
+        val tracks = _pendingBatchAdd.value ?: return
+        _pendingBatchAdd.value = null
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再收藏")
+            return
+        }
+        viewModelScope.launch {
+            val (ok, failed) = dealTracksToFolder(tracks, mediaId)
+            when {
+                failed == 0 -> emitMessage("已加入 $ok 项到收藏夹")
+                ok == 0 -> emitMessage("收藏失败：网络错误，请稍后再试")
+                else -> emitMessage("已加入 $ok 项，$failed 项失败")
+            }
+        }
+    }
+
+    /** 新建 B 站收藏夹并加入待加条目。 */
+    fun createFavoriteFolderAndAdd(title: String, intro: String = "") {
+        val tracks = _pendingBatchAdd.value ?: return
+        _pendingBatchAdd.value = null
+        if (title.isBlank()) return
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再收藏")
+            return
+        }
+        viewModelScope.launch {
+            network.repository.addFavoriteFolder(title, intro)
+                .onSuccess { mediaId ->
+                    val (ok, failed) = dealTracksToFolder(tracks, mediaId)
+                    when {
+                        failed == 0 -> emitMessage("已创建收藏夹并加入 $ok 项")
+                        ok == 0 -> emitMessage("收藏夹已创建，但视频加入失败")
+                        else -> emitMessage("已创建收藏夹，加入 $ok 项、$failed 项失败")
+                    }
+                    syncFavoriteFolders()
+                }
+                .onFailure { emitMessage("创建收藏夹失败：${it.message ?: "未知错误"}") }
+        }
+    }
+
+    /** 音乐库页新建 B 站收藏夹（不附带加视频）。 */
+    fun createFavoriteFolder(title: String, intro: String = "") {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            network.repository.addFavoriteFolder(title, intro)
+                .onSuccess {
+                    emitMessage("已创建收藏夹")
+                    syncFavoriteFolders()
+                }
+                .onFailure { emitMessage("创建收藏夹失败：${it.message ?: "未知错误"}") }
+        }
+    }
+
+    /** 编辑 B 站收藏夹名称。 */
+    fun editFavoriteFolder(mediaId: Long, newTitle: String) {
+        if (newTitle.isBlank()) return
+        viewModelScope.launch {
+            network.repository.editFavoriteFolder(mediaId, newTitle)
+                .onSuccess {
+                    emitMessage("已修改收藏夹")
+                    syncFavoriteFolders()
+                }
+                .onFailure { emitMessage("编辑失败：${it.message ?: "未知错误"}") }
+        }
+    }
+
+    /** 删除 B 站收藏夹。收藏夹内的视频不会被删除。 */
+    fun deleteFavoriteFolder(mediaId: Long) {
+        viewModelScope.launch {
+            network.repository.deleteFavoriteFolder(listOf(mediaId))
+                .onSuccess {
+                    emitMessage("已删除收藏夹")
+                    syncFavoriteFolders()
+                }
+                .onFailure { emitMessage("删除失败：${it.message ?: "未知错误"}") }
         }
     }
 

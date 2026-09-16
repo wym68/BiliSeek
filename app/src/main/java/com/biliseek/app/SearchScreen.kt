@@ -181,7 +181,7 @@ fun SearchScreen(
         ActionListSheet(
             title = stripHighlight(video.title),
             items = listOf(
-                "加入歌单" to { actionsFor = null; onAddToPlaylist(video) },
+                "加入列表" to { actionsFor = null; onAddToPlaylist(video) },
                 // 加入队列 = 追加到播放队列末尾（多 P 走挑 P 页，默认全选）
                 "加入队列" to { actionsFor = null; onAppendToQueue(video) },
                 "下一首播放" to { actionsFor = null; onPlayNext(video) },
@@ -240,7 +240,7 @@ fun SearchScreen(
                 selectedCount = selectedBvids.size,
                 visibleCount = state.items.size,
                 allSelected = selectedBvids.size == state.items.size && state.items.isNotEmpty(),
-                // 未登录时禁「加入歌单 / 下载」（定案 Ch3-4）
+                // 未登录时禁「加入列表 / 下载」（定案 Ch3-4）
                 canAddToPlaylist = isLoggedIn,
                 canDownload = isLoggedIn,
                 onSelectAll = onSelectAll,
@@ -878,7 +878,7 @@ private fun MultiPagePanel(
         ActionListSheet(
             title = "P${entry.page}  ${entry.title}",
             items = listOf(
-                "加入歌单" to { actionsFor = null; onEntryAddToPlaylist(entry) },
+                "加入列表" to { actionsFor = null; onEntryAddToPlaylist(entry) },
                 "加入队列" to { actionsFor = null; onEntryAppendToQueue(entry) },
                 "下一首播放" to { actionsFor = null; onEntryPlayNext(entry) },
                 "复制链接" to { actionsFor = null; onEntryCopyLink(entry) },

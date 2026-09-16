@@ -16,7 +16,7 @@ import androidx.compose.material3.TextButton
 /**
  * 复选模式工具栏（Ch3，提取为共用组件）。
  *
- * 上行：计数 + 全选/全不选 + 退出；下行：加入歌单 / 加入队列 / 下一首 / 下载。
+ * 上行：计数 + 全选/全不选 + 退出；下行：加入列表 / 加入队列 / 下一首 / 下载。
  * 搜索结果、多 P 面板、UP 空间投稿三处复用，回调由调用方接各自的数据源。
  */
 @Composable
@@ -59,7 +59,7 @@ fun SelectionToolbar(
             Modifier.fillMaxWidth(),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
         ) {
-            ToolbarButton("加入歌单", Modifier.weight(1f), enabled = selectedCount > 0 && canAddToPlaylist, onClick = onAddToPlaylist)
+            ToolbarButton("加入列表", Modifier.weight(1f), enabled = selectedCount > 0 && canAddToPlaylist, onClick = onAddToPlaylist)
             ToolbarButton("加入队列", Modifier.weight(1f), enabled = selectedCount > 0, onClick = onAppendToQueue)
             ToolbarButton("下一首", Modifier.weight(1f), enabled = selectedCount > 0, onClick = onEnqueueNext)
             ToolbarButton("下载", Modifier.weight(1f), enabled = selectedCount > 0 && canDownload, onClick = onDownload)

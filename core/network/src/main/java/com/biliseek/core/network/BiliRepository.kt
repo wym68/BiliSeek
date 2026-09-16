@@ -491,6 +491,26 @@ class BiliRepository internal constructor(
         }
     }
 
+    /** 用户卡片信息（头像、粉丝数等）。无需登录。 */
+    suspend fun userCard(mid: Long): Result<SearchUser> = runCatching {
+        authGate.awaitReady()
+        val response = api.userCard(mid)
+        require(response.code == 0) {
+            "获取用户信息失败：code=${response.code} ${response.message}"
+        }
+        val card = response.data?.card
+        require(card != null) {
+            "获取用户信息失败：card 为空"
+        }
+        SearchUser(
+            mid = card.mid,
+            uname = card.name,
+            upic = card.face,
+            usign = card.sign,
+            fans = card.fans,
+        )
+    }
+
     /** UP 空间投稿的一页。 */
     data class SpaceArchivePage(
         val items: List<SpaceVideo>,
@@ -785,6 +805,43 @@ class BiliRepository internal constructor(
             ),
             idempotentCodes = IdempotentCodes.FAV,
         ) { f, _ -> api.dealFavorite(f) }.map { }
+
+    /** 新建收藏夹，返回新建收藏夹的 media_id。 */
+    suspend fun addFavoriteFolder(
+        title: String,
+        intro: String = "",
+        privacy: Int = 0,
+    ): Result<Long> = writeRequest(
+        payload = buildMap {
+            put("title", title)
+            if (intro.isNotBlank()) put("intro", intro)
+            put("privacy", privacy.toString())
+        },
+    ) { f, _ -> api.addFavoriteFolder(f) }
+        .map { it?.id ?: 0L }
+
+    /** 修改收藏夹标题和简介。 */
+    suspend fun editFavoriteFolder(
+        mediaId: Long,
+        title: String,
+        intro: String = "",
+        privacy: Int = 0,
+    ): Result<Unit> = writeRequest(
+        payload = buildMap {
+            put("media_id", mediaId.toString())
+            put("title", title)
+            put("intro", intro)
+            put("privacy", privacy.toString())
+        },
+    ) { f, _ -> api.editFavoriteFolder(f) }
+        .map { }
+
+    /** 删除收藏夹。收藏夹内的视频不会被删除。 */
+    suspend fun deleteFavoriteFolder(mediaIds: List<Long>): Result<Unit> =
+        writeRequest(
+            payload = mapOf("media_ids" to mediaIds.joinToString(",")),
+        ) { f, _ -> api.deleteFavoriteFolder(f) }
+            .map { }
 
     /** 一键三连。 */
     suspend fun tripleAction(bvid: String): Result<Unit> =

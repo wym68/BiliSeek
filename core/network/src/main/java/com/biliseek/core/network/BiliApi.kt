@@ -13,6 +13,7 @@ import com.biliseek.core.network.dto.QrGenerateData
 import com.biliseek.core.network.dto.QrPollData
 import com.biliseek.core.network.dto.RefreshData
 import com.biliseek.core.network.dto.SearchData
+import com.biliseek.core.network.dto.FavoriteFolderData
 import com.biliseek.core.network.dto.FavoriteFolderListData
 import com.biliseek.core.network.dto.FavoriteResourceData
 import com.biliseek.core.network.dto.DynamicFeedData
@@ -21,6 +22,7 @@ import com.biliseek.core.network.dto.DynThumbRequest
 import com.biliseek.core.network.dto.FollowingData
 import com.biliseek.core.network.dto.RelationData
 import com.biliseek.core.network.dto.UserSearchData
+import com.biliseek.core.network.dto.UserCardData
 import com.biliseek.core.network.dto.SpaceArchiveData
 import com.biliseek.core.network.dto.WatchLaterData
 import com.biliseek.core.network.dto.SeriesArchivesData
@@ -123,6 +125,10 @@ interface BiliApi {
     /** UP 主分类搜索（`search_type=bili_user`，M11-D）。同 URL 不同 DTO。 */
     @GET("x/web-interface/wbi/search/type")
     suspend fun searchUsers(@QueryMap params: Map<String, String>): BiliResponse<UserSearchData>
+
+    /** 用户卡片信息（头像、粉丝数等）。无需 WBI 签名。 */
+    @GET("x/web-interface/card")
+    suspend fun userCard(@Query("mid") mid: Long): BiliResponse<UserCardData>
 
     /**
      * UP 主空间投稿（M11-D）。
@@ -335,6 +341,27 @@ interface BiliApi {
     @POST("x/v3/fav/resource/deal")
     suspend fun dealFavorite(
         @FieldMap fields: Map<String, String>,          // rid(=aid), type(2), add_media_ids, del_media_ids, csrf
+    ): BiliResponse<JsonElement>
+
+    /** 新建收藏夹。返回收藏夹元数据（含新 media_id）。 */
+    @FormUrlEncoded
+    @POST("x/v3/fav/folder/add")
+    suspend fun addFavoriteFolder(
+        @FieldMap fields: Map<String, String>,          // title, intro, privacy, csrf
+    ): BiliResponse<FavoriteFolderData>
+
+    /** 修改收藏夹标题/简介/隐私。 */
+    @FormUrlEncoded
+    @POST("x/v3/fav/folder/edit")
+    suspend fun editFavoriteFolder(
+        @FieldMap fields: Map<String, String>,          // media_id, title, intro, privacy, csrf
+    ): BiliResponse<JsonElement>
+
+    /** 删除收藏夹。media_ids 逗号分隔，支持批量。 */
+    @FormUrlEncoded
+    @POST("x/v3/fav/folder/del")
+    suspend fun deleteFavoriteFolder(
+        @FieldMap fields: Map<String, String>,          // media_ids, csrf
     ): BiliResponse<JsonElement>
 
     @FormUrlEncoded

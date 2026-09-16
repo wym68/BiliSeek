@@ -48,6 +48,24 @@ data class SearchUser(
     val videos: Int = 0,
 )
 
+/** `x/web-interface/card` —— 用户卡片信息（头像、粉丝数等）。 */
+@Serializable
+data class UserCardData(
+    val card: UserCardInfo? = null,
+)
+
+@Serializable
+data class UserCardInfo(
+    val mid: Long = 0,
+    val name: String = "",
+    /** 头像，`//i0.hdslb.com/...` 需补协议。 */
+    val face: String = "",
+    /** 签名。 */
+    val sign: String = "",
+    /** 粉丝数。 */
+    val fans: Long = 0,
+)
+
 /** `x/space/wbi/arc/search` —— UP 主空间投稿（分页）。 */
 @Serializable
 data class SpaceArchiveData(

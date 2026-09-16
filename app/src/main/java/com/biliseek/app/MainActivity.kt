@@ -43,7 +43,7 @@ import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
 import com.biliseek.app.ui.LibraryTab
 import com.biliseek.app.ui.MeteredVideoDialog
-import com.biliseek.app.ui.PlaylistPickerDialog
+import com.biliseek.app.ui.AddToListPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
 import com.biliseek.app.ui.SettingsScreen
 import com.biliseek.app.ui.UpSpaceScreen
@@ -413,6 +413,9 @@ class MainActivity : ComponentActivity() {
                                 onSyncFavorites = viewModel::syncFavoriteFolders,
                                 onOpenFavorite = viewModel::openFavorite,
                                 onCloseFavorite = viewModel::closeFavorite,
+                                onCreateFavoriteFolder = viewModel::createFavoriteFolder,
+                                onEditFavoriteFolder = viewModel::editFavoriteFolder,
+                                onDeleteFavoriteFolder = viewModel::deleteFavoriteFolder,
                                 onFavoriteTrackClick = viewModel::playFavoriteTrack,
                                 onFavoriteLoadMore = viewModel::loadFavoritePage,
                                 onStartLogin = viewModel::startLogin,
@@ -524,12 +527,18 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // 加入歌单不再替用户选第一个：问清楚加到哪儿
+                // 加入列表不再替用户选第一个：问清楚加到哪儿
                 pendingBatchAdd?.let {
-                    PlaylistPickerDialog(
+                    AddToListPickerDialog(
                         playlists = playlists,
-                        onPick = viewModel::confirmAddToPlaylist,
-                        onCreate = viewModel::createPlaylistAndAdd,
+                        favoriteFolders = favoriteFolders,
+                        isLoggedIn = session.isLoggedIn,
+                        onPickPlaylist = viewModel::confirmAddToPlaylist,
+                        onCreatePlaylist = viewModel::createPlaylistAndAdd,
+                        onPickFavorite = viewModel::confirmAddToFavoriteFolder,
+                        onCreateFavorite = viewModel::createFavoriteFolderAndAdd,
+                        onEditFavorite = viewModel::editFavoriteFolder,
+                        onDeleteFavorite = viewModel::deleteFavoriteFolder,
                         onDismiss = viewModel::dismissBatchAdd,
                     )
                 }

@@ -57,7 +57,7 @@ import com.biliseek.core.player.formatDuration
  * Ch4：头部加关注按钮，动态视图接入互动按钮。
  *
  * 投稿视图与搜索结果同一套交互：长按进复选（工具栏批量操作），
- * 右侧三点弹动作菜单（加入歌单 / 加入队列 / 下一首播放 / 复制链接 / 下载）。
+ * 右侧三点弹动作菜单（加入列表 / 加入队列 / 下一首播放 / 复制链接 / 下载）。
  */
 @Composable
 fun UpSpaceScreen(
@@ -108,7 +108,7 @@ fun UpSpaceScreen(
         ActionListSheet(
             title = com.biliseek.core.network.stripHighlight(video.title),
             items = listOf(
-                "加入歌单" to { actionsFor = null; onPostAddToPlaylist(video) },
+                "加入列表" to { actionsFor = null; onPostAddToPlaylist(video) },
                 "加入队列" to { actionsFor = null; onPostAppendToQueue(video) },
                 "下一首播放" to { actionsFor = null; onPostPlayNext(video) },
                 "复制链接" to { actionsFor = null; onPostCopyLink(video) },

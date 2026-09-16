@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
@@ -530,6 +531,68 @@ class DownloadManager private constructor(private val app: Application) {
         } ?: throw IOException("无法打开 SAF 输出流")
         staging.delete()
         return doc.uri
+    }
+
+    // ── 图片保存 ──────────────────────────────────────────
+
+    /**
+     * 保存图片到系统相册（Pictures/BiliSeek/）。
+     * API 29+ 走 MediaStore 无需权限；API 26–28 需 WRITE_EXTERNAL_STORAGE（manifest 已声明）。
+     */
+    suspend fun saveImage(url: String): Result<Uri> = withContext(Dispatchers.IO) {
+        runCatching {
+            val fileName = "BiliSeek_${System.currentTimeMillis()}.jpg"
+            // 1. 下载到临时文件
+            val request = okhttp3.Request.Builder().url(url).build()
+            val staging = File(app.cacheDir, "image_staging/$fileName").apply { parentFile?.mkdirs() }
+            http.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+                resp.body?.byteStream()?.use { input ->
+                    staging.outputStream().use { out -> input.copyTo(out) }
+                } ?: throw IOException("空响应体")
+            }
+            // 2. 写入 MediaStore.Images
+            writeImageToPublic(staging, fileName)
+        }
+    }
+
+    private fun writeImageToPublic(staging: File, fileName: String): Uri {
+        val collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val relative = Environment.DIRECTORY_PICTURES + "/BiliSeek/"
+        val resolver = app.contentResolver
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            resolver.query(
+                collection, arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ?", arrayOf(fileName), null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    resolver.delete(
+                        android.content.ContentUris.withAppendedId(collection, c.getLong(0)), null, null,
+                    )
+                }
+            }
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relative)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        val uri = resolver.insert(collection, values) ?: throw IOException("MediaStore 写入失败")
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "BiliSeek").apply { mkdirs() }
+            val target = File(dir, fileName)
+            staging.copyTo(target, overwrite = true)
+            staging.delete()
+        } else {
+            resolver.openOutputStream(uri, "w")?.use { out -> staging.inputStream().use { it.copyTo(out) } }
+                ?: throw IOException("无法打开 MediaStore 输出流")
+            staging.delete()
+            resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+        }
+        return uri
     }
 
     // ── 工具 ──────────────────────────────────────────────

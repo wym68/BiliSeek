@@ -46,3 +46,17 @@ data class FavoriteUpper(
     val mid: Long = 0,
     val name: String = "",
 )
+
+/** `x/v3/fav/folder/add` —— 新建收藏夹返回的元数据。`id` 即 media_id。 */
+@Serializable
+data class FavoriteFolderData(
+    val id: Long = 0,
+    val fid: Long = 0,
+    val mid: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val intro: String = "",
+    @SerialName("media_count") val mediaCount: Int = 0,
+    @SerialName("ctime") val ctime: Long = 0,
+    @SerialName("mtime") val mtime: Long = 0,
+)

@@ -177,9 +177,20 @@ data class FollowingData(
  */
 @Serializable
 data class RelationData(
-    val relation: RelationStatus = RelationStatus.UNKNOWN,
+    val mid: Long = 0,
     val attribute: Int = 0,
-)
+    val mtime: Long = 0,
+    val tag: String? = null,
+    val special: Int = 0,
+) {
+    /** 从 attribute 字段派生关注状态。 */
+    val relationStatus: RelationStatus
+        get() = when (attribute) {
+            0 -> RelationStatus.NOT_FOLLOWING
+            2, 6 -> RelationStatus.FOLLOWING
+            else -> RelationStatus.UNKNOWN
+        }
+}
 
 @Serializable
 enum class RelationStatus { FOLLOWING, NOT_FOLLOWING, UNKNOWN }

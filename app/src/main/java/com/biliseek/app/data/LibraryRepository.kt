@@ -26,7 +26,7 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
 
     suspend fun deletePlaylist(id: Long) = playlists.delete(id)
 
-    /** 加入歌单。track 已存在时复用，避免重复行。 */
+    /** 加入歌单（本地）。track 已存在时复用，避免重复行。 */
     suspend fun addToPlaylist(playlistId: Long, track: TrackEntity) {
         val existing = playlists.findTrack(track.bvid, track.cid)
         val trackId = existing?.id ?: playlists.insertTrack(track).let { inserted ->
