@@ -19,10 +19,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.biliseek.core.player.PlaybackMode
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
@@ -43,6 +45,16 @@ enum class Destination(val route: String, val label: String) {
     // UP 空间页：从动态页或搜索页点 UP 主头像/昵称进入，back 返回来源 tab。
     UP_SPACE("upSpace", "UP主页"),
     FOLLOWING_LIST("followingList", "关注列表"),
+    /** 消息中心（push，不入底部导航）。 */
+    MESSAGES("messages", "消息"),
+    /** 私信聊天页（push，参数化 talkerId/peerName/peerFace）。 */
+    PRIVATE_CHAT("privateChat/{talkerId}/{peerName}/{peerFace}", "私信"),
+    ;
+
+    companion object {
+        fun privateChatRoute(talkerId: Long, peerName: String, peerFace: String): String =
+            "privateChat/$talkerId/${java.net.URLEncoder.encode(peerName, "UTF-8")}/${java.net.URLEncoder.encode(peerFace, "UTF-8")}"
+    }
 }
 
 /**
@@ -103,6 +115,10 @@ fun AppShell(
      * 打开关注列表页的信号。AppShell 订阅后 push FOLLOWING_LIST destination。
      */
     openFollowingListRequests: SharedFlow<Unit> = MutableSharedFlow(),
+    /** 打开消息中心的信号。AppShell 订阅后 push MESSAGES destination。 */
+    openMessagesRequests: SharedFlow<Unit> = MutableSharedFlow(),
+    /** 进入私信聊天页的信号（参数化）。AppShell 订阅后 push PRIVATE_CHAT destination。 */
+    openPrivateChatRequests: SharedFlow<com.biliseek.app.AppViewModel.PrivateChatNav> = MutableSharedFlow(),
     /** 当前列表 tab 选中的页。 */
     selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
     /** 列表 tab 切换回调。 */
@@ -115,6 +131,10 @@ fun AppShell(
     upSpaceContent: @Composable (onBack: () -> Unit) -> Unit = { },
     /** 关注列表页内容。onBack 由 AppShell 传入（navController.popBackStack()）。 */
     followingListContent: @Composable (onBack: () -> Unit) -> Unit = { },
+    /** 消息中心页内容。onBack 由 AppShell 传入。 */
+    messagesContent: @Composable (onBack: () -> Unit) -> Unit = { },
+    /** 私信聊天页内容。onBack 由 AppShell 传入。 */
+    privateChatContent: @Composable (talkerId: Long, peerName: String, peerFace: String, onBack: () -> Unit) -> Unit = { _, _, _, _ -> },
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -163,6 +183,25 @@ fun AppShell(
         }
     }
 
+    // 消息中心导航：收到信号后 push MESSAGES destination（launchSingleTop 防重复压栈）。
+    LaunchedEffect(openMessagesRequests) {
+        openMessagesRequests.collect {
+            navController.navigate(Destination.MESSAGES.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // 私信聊天导航：参数化路径 + launchSingleTop。
+    LaunchedEffect(openPrivateChatRequests) {
+        openPrivateChatRequests.collect { nav ->
+            val route = Destination.privateChatRoute(nav.talkerId, nav.peerName, nav.peerFace)
+            navController.navigate(route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
@@ -190,7 +229,10 @@ fun AppShell(
                     NavigationBar {
                         Destination.entries.forEach { dest ->
                             // PLAYER / UP_SPACE / FOLLOWING_LIST 不在底部导航中点击跳转，仅作为 nav destination 存在
-                            if (dest == Destination.PLAYER || dest == Destination.UP_SPACE || dest == Destination.FOLLOWING_LIST) return@forEach
+                            if (dest == Destination.PLAYER || dest == Destination.UP_SPACE ||
+                                dest == Destination.FOLLOWING_LIST || dest == Destination.MESSAGES ||
+                                dest == Destination.PRIVATE_CHAT
+                            ) return@forEach
                             NavigationBarItem(
                                 selected = currentRoute?.hierarchy?.any { it.route == dest.route } == true,
                                 onClick = {
@@ -251,6 +293,26 @@ fun AppShell(
                 }
                 composable(Destination.FOLLOWING_LIST.route) {
                     followingListContent({ navController.popBackStack() })
+                }
+                composable(Destination.MESSAGES.route) {
+                    messagesContent({ navController.popBackStack() })
+                }
+                composable(
+                    Destination.PRIVATE_CHAT.route,
+                    arguments = listOf(
+                        navArgument("talkerId") { type = NavType.LongType },
+                        navArgument("peerName") { type = NavType.StringType },
+                        navArgument("peerFace") { type = NavType.StringType },
+                    ),
+                ) { backStackEntry ->
+                    val talkerId = backStackEntry.arguments?.getLong("talkerId") ?: 0L
+                    val peerName = backStackEntry.arguments?.getString("peerName").orEmpty()
+                    val peerFace = backStackEntry.arguments?.getString("peerFace").orEmpty()
+                    privateChatContent(
+                        talkerId,
+                        java.net.URLDecoder.decode(peerName, "UTF-8"),
+                        java.net.URLDecoder.decode(peerFace, "UTF-8"),
+                    ) { navController.popBackStack() }
                 }
             }
         }
