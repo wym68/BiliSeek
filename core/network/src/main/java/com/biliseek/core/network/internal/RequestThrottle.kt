@@ -11,6 +11,8 @@ internal object ThrottleBucket {
     const val SEARCH = "search"
     const val WRITE = "write"
     const val FEED = "feed"
+    /** 消息中心（私信会话/历史/互动 tab）：与 FEED 隔离，避免触发风控 */
+    const val MESSAGE = "message"
 }
 
 /**
