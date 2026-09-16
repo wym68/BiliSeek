@@ -980,6 +980,166 @@ class BiliRepository internal constructor(
         response.data ?: RelationData()
     }
 
+    // ── 消息中心（私信 + 互动消息）──────────────────────────
+
+    /**
+     * 并发拉取消息中心四块数据（回复与@ / 收到喜欢 / 新增粉丝 / 私信会话）。
+     *
+     * 任一块失败不影响其他块——返回的 `MessageHub` 里对应块为 null（UI 显示「该区块加载失败」）。
+     * 整块由 `RequestThrottle.MESSAGE` 桶串行化（一次只发一块），避免触发 B 站风控。
+     */
+    suspend fun messageHub(): Result<MessageHub> = runCatching {
+        val mid = requireLoggedInMid()
+        authGate.awaitReady()
+        val reply = safeCall("回复与@") { api.getMsgfeedReply().data }
+        val like = safeCall("收到喜欢") { api.getMsgfeedLike().data }
+        val follower = safeCall("粉丝") {
+            val resp = api.getFollowers(vmid = mid)
+            require(resp.code == 0) { "粉丝列表失败：code=${resp.code} ${resp.message}" }
+            resp.data
+        }
+        val sessions = safeCall("私信会话") { api.getSessions().data }
+        MessageHub(reply = reply, like = like, follower = follower, sessions = sessions)
+    }
+
+    /** 私信历史消息分页加载。`beginSeqno=0` 拉首屏。 */
+    suspend fun loadMoreSessionMessages(
+        talkerId: Long,
+        beginSeqno: Long,
+    ): Result<com.biliseek.core.network.dto.MessageHistoryData> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.fetchSessionMsgs(talkerId = talkerId, beginSeqno = beginSeqno) }
+        require(response.code == 0) {
+            "私信消息失败：code=${response.code} ${response.message}"
+        }
+        response.data ?: throw IllegalStateException("私信消息 data 为空")
+    }
+
+    /** 发送文本私信。`devId` 取自 `BiliCredentials.bNut`（缺失时 fallback UUID）。 */
+    suspend fun sendPrivateMessage(
+        receiverId: Long,
+        content: String,
+        devId: String,
+    ): Result<Long> = runCatching {
+        requireLoggedInMid()
+        val session = sessionStore.current
+        val senderUid = session.dedeUserId.toLongOrNull()
+            ?: throw IllegalStateException("缺 sender_uid")
+        val timestampSec = System.currentTimeMillis() / 1000L
+        // `msg[content]` 是 JSON 字符串，B 站 Web 客户端格式
+        val contentJson = """{"content":${escapeJsonString(content)}}"""
+        val response = writeRequest(
+            payload = mapOf(
+                "msg[sender_uid]" to senderUid.toString(),
+                "msg[receiver_id]" to receiverId.toString(),
+                "msg[receiver_type]" to "1",
+                "msg[msg_type]" to "1",
+                "msg[content]" to contentJson,
+                "msg[timestamp]" to timestampSec.toString(),
+                "msg[dev_id]" to devId,
+                "msg[new_face_version]" to "1",
+                "csrf_token" to session.biliJct,
+            ),
+        ) { f, _ ->
+            api.postSendMsg(
+                senderUid = f.getValue("msg[sender_uid]").toLong(),
+                receiverId = f.getValue("msg[receiver_id]").toLong(),
+                receiverType = f.getValue("msg[receiver_type]").toInt(),
+                msgType = f.getValue("msg[msg_type]").toInt(),
+                content = f.getValue("msg[content]"),
+                timestamp = f.getValue("msg[timestamp]").toLong(),
+                devId = f.getValue("msg[dev_id]"),
+                newFaceVersion = f.getValue("msg[new_face_version]").toInt(),
+                csrfToken = f.getValue("csrf_token"),
+            )
+        }.getOrThrow()
+        response?.msgSeqno ?: 0L
+    }
+
+    /** 标记会话已读到 `ackSeqno`。 */
+    suspend fun markSessionRead(talkerId: Long, ackSeqno: Long): Result<Unit> = runCatching {
+        requireLoggedInMid()
+        writeRequest(
+            payload = mapOf(
+                "talker_id" to talkerId.toString(),
+                "session_type" to "1",
+                "ack_seqno" to ackSeqno.toString(),
+                "csrf_token" to sessionStore.current.biliJct,
+            ),
+        ) { f, _ ->
+            api.postUpdateAck(
+                talkerId = f.getValue("talker_id").toLong(),
+                sessionType = f.getValue("session_type").toInt(),
+                ackSeqno = f.getValue("ack_seqno").toLong(),
+                csrfToken = f.getValue("csrf_token"),
+            )
+        }
+    }
+
+    /**
+     * 站内回复一条评论（`x/v2/reply/add`）。`root=0/parent=0` 表示发一级评论；
+     * 楼中楼用 `root=一级评论 rpid, parent=被回复评论 rpid`。
+     * `oid` 用 aid、`type=1`（视频评论）。
+     */
+    suspend fun postCommentReply(
+        aid: Long,
+        root: Long,
+        parent: Long,
+        content: String,
+    ): Result<Long> = runCatching {
+        requireLoggedInMid()
+        writeRequest(
+            payload = buildMap {
+                put("oid", aid.toString())
+                put("type", "1")
+                put("root", root.toString())
+                put("parent", parent.toString())
+                put("message", content)
+                put("plat", "1")
+            },
+        ) { f, _ -> api.addReply(f) }
+            .getOrThrow()
+            ?.rpid ?: 0L
+    }
+
+    /**
+     * 入口未读小红点：互动未读 + 私信未读。
+     * `api.bilibili.com x/msgfeed/unread` + `api.vc.bilibili.com session_svr/single_unread`。
+     * 失败时返回 0，UI 不报错（小红点是 best-effort）。
+     */
+    suspend fun messageUnread(): Int = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val msgfeed = runCatching { api.getMsgfeedUnread().data }.getOrNull()
+        val session = runCatching { api.getSessionUnread().data }.getOrNull()
+        (msgfeed?.let { it.at + it.reply + it.like } ?: 0) +
+            (session?.let { it.unfollowUnread + it.followUnread } ?: 0)
+    }.getOrDefault(0)
+
+    /** 把会话列表 + 历史消息 + 互动列表都视为「消息中心」，集中放在一个数据类返回。 */
+    data class MessageHub(
+        val reply: com.biliseek.core.network.dto.ReplyFeedData?,
+        val like: com.biliseek.core.network.dto.LikeFeedData?,
+        val follower: com.biliseek.core.network.dto.FollowersData?,
+        val sessions: com.biliseek.core.network.dto.SessionListData?,
+    )
+
+    /** 包裹一个会 throw 的调用，把异常转成 null（局部错误隔离）。
+     *  `block` 在调用处展开，可以调用 suspend 函数。 */
+    private inline fun <T> safeCall(label: String, block: () -> T?): T? = try {
+        block()
+    } catch (e: Exception) {
+        android.util.Log.w(TAG, "$label 失败：${e.message}")
+        null
+    }
+
     private companion object {
         const val TAG = "BiliSeekRepo"
 
@@ -987,6 +1147,26 @@ class BiliRepository internal constructor(
         const val SEARCH_MIN_INTERVAL_MS = 800L
         const val FEED_MIN_INTERVAL_MS = 600L
         const val WRITE_MIN_INTERVAL_MS = 1_000L
+        /** 消息中心限速：B 站私信接口对连发敏感，按 800ms/req 起步。 */
+        const val MESSAGE_MIN_INTERVAL_MS = 800L
         const val THROTTLE_JITTER_MS = 300L
     }
+}
+
+/** 把字符串里的 `"` 与换行转义为 JSON 安全形式。文件级（顶层）函数 —— 比 private member
+ *  更容易在单测里通过 reflection 调到。 */
+internal fun escapeJsonString(s: String): String {
+    val sb = StringBuilder("\"")
+    for (c in s) {
+        when (c) {
+            '"' -> sb.append("\\\"")
+            '\\' -> sb.append("\\\\")
+            '\n' -> sb.append("\\n")
+            '\r' -> sb.append("\\r")
+            '\t' -> sb.append("\\t")
+            else -> if (c.code < 0x20) sb.append("\\u%04x".format(c.code)) else sb.append(c)
+        }
+    }
+    sb.append("\"")
+    return sb.toString()
 }
