@@ -19,6 +19,18 @@ sealed interface TrackListId {
 
     /** 合集（M13-N）：订阅合集分页拉取。 */
     data class Series(val seriesId: Long) : TrackListId
+
+    /** 消息中心·回复与@ tab。 */
+    data object MessageReply : TrackListId
+
+    /** 消息中心·收到喜欢 tab。 */
+    data object MessageLike : TrackListId
+
+    /** 消息中心·新增粉丝 tab。 */
+    data object MessageFollower : TrackListId
+
+    /** 消息中心·私信会话列表。 */
+    data object PrivateSession : TrackListId
 }
 
 /**
