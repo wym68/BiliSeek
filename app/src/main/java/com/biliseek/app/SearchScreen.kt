@@ -98,6 +98,8 @@ fun SearchScreen(
     onDownload: (SearchVideo) -> Unit = {},
     /** 单条追加到播放队列末尾（三点菜单「加入队列」）。 */
     onAppendToQueue: (SearchVideo) -> Unit = {},
+    /** 查看UP主主页。 */
+    onViewUpOwner: (SearchVideo) -> Unit = {},
     onLoadMore: () -> Unit,
     onPageClick: (PageEntry) -> Unit,
     /** 多 P 面板：复选与动作回调 */
@@ -186,6 +188,7 @@ fun SearchScreen(
                 // 加入队列 = 追加到播放队列末尾（多 P 走挑 P 页，默认全选）
                 "加入队列" to { actionsFor = null; onAppendToQueue(video) },
                 "下一首播放" to { actionsFor = null; onPlayNext(video) },
+                "查看UP主" to { actionsFor = null; onViewUpOwner(video) },
                 "复制链接" to { actionsFor = null; onCopyLink(video) },
                 "下载" to { actionsFor = null; onDownload(video) },
             ),

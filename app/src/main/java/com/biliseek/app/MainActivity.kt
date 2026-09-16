@@ -317,6 +317,12 @@ class MainActivity : ComponentActivity() {
                             onCopyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
                             onShowPages = viewModel::showPages,
                             onDownload = { downloadFor = it.toDownloadTarget() },
+                            onViewUpOwner = { video ->
+                                viewModel.openUpSpace(
+                                    SearchUser(mid = video.mid, uname = video.author),
+                                )
+                                openUpSpaceRequests.tryEmit(Unit)
+                            },
                             onLoadMore = viewModel::loadMore,
                             onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
                             onDismissPages = viewModel::dismissPages,
@@ -550,7 +556,7 @@ class MainActivity : ComponentActivity() {
                             session = session,
                             loginState = loginState,
                             unreadCount = unreadCount,
-                            onInit = viewModel::openMessages,
+                            onInit = viewModel::retryMessageHub,
                             onRetry = viewModel::retryMessageHub,
                             onClose = {
                                 viewModel.closeMessages()
