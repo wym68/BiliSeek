@@ -2580,4 +2580,325 @@ return pages.map { p ->
         connection.release()
         super.onCleared()
     }
+
+    // ── 消息中心（私信 + 互动消息）──────────────────────────
+
+    /** 消息中心聚合状态：四个 tab 各自的 RemoteListState + 一组会话列表。 */
+    private val _messageHub = MutableStateFlow(MessageHubState())
+    val messageHub: StateFlow<MessageHubState> = _messageHub.asStateFlow()
+
+    /** 入口未读小红点（best-effort）。 */
+    private val _unreadCount = MutableStateFlow(0)
+    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+
+    /** 打开消息中心的信号。 */
+    private val _openMessagesRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openMessagesRequests: SharedFlow<Unit> = _openMessagesRequests.asSharedFlow()
+
+    /** 进入私信聊天页的信号。 */
+    private val _openPrivateChatRequests = MutableSharedFlow<PrivateChatNav>(extraBufferCapacity = 1)
+    val openPrivateChatRequests: SharedFlow<PrivateChatNav> = _openPrivateChatRequests.asSharedFlow()
+
+    /** 当前聊天页状态（key = talkerId）。 */
+    private val _chatByTalker = MutableStateFlow<Map<Long, PrivateChatState>>(emptyMap())
+    val chatByTalker: StateFlow<Map<Long, PrivateChatState>> = _chatByTalker.asStateFlow()
+
+    fun openMessages() {
+        if (!session.value.isLoggedIn) {
+            _messageHub.value = MessageHubState()
+            return
+        }
+        loadMessageHub()
+        _openMessagesRequests.tryEmit(Unit)
+    }
+
+    fun closeMessages() { _messageHub.value = MessageHubState() }
+
+    fun retryMessageHub() = loadMessageHub()
+
+    private fun loadMessageHub() {
+        _messageHub.value = _messageHub.value.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            network.repository.messageHub()
+                .onSuccess { hub ->
+                    val cur = _messageHub.value
+                    _messageHub.value = cur.copy(
+                        reply = RemoteListState(
+                            id = TrackListId.MessageReply,
+                            title = "回复与@",
+                            items = hub.reply?.items.orEmpty(),
+                            hasMore = (hub.reply?.hasMore ?: 0) == 1,
+                            isLoading = false,
+                            errorMessage = if (hub.reply == null) "回复与@加载失败" else null,
+                        ),
+                        like = RemoteListState(
+                            id = TrackListId.MessageLike,
+                            title = "收到喜欢",
+                            items = hub.like?.items.orEmpty(),
+                            hasMore = (hub.like?.hasMore ?: 0) == 1,
+                            isLoading = false,
+                            errorMessage = if (hub.like == null) "收到喜欢加载失败" else null,
+                        ),
+                        follower = RemoteListState(
+                            id = TrackListId.MessageFollower,
+                            title = "新增粉丝",
+                            items = hub.follower?.list.orEmpty(),
+                            hasMore = false,
+                            isLoading = false,
+                            errorMessage = if (hub.follower == null) "新增粉丝加载失败" else null,
+                        ),
+                        sessions = RemoteListState(
+                            id = TrackListId.PrivateSession,
+                            title = "私信",
+                            items = hub.sessions?.sessionList.orEmpty(),
+                            hasMore = (hub.sessions?.hasMore ?: 0) == 1,
+                            isLoading = false,
+                            errorMessage = if (hub.sessions == null) "私信会话加载失败" else null,
+                        ),
+                    )
+                }
+                .onFailure { e ->
+                    _messageHub.value = _messageHub.value.copy(
+                        isLoading = false,
+                        errorMessage = e.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /** 点动态页入口图标 / 列表 tab 切换时调用。best-effort，失败不抛。 */
+    fun refreshUnreadCount() {
+        if (!session.value.isLoggedIn) {
+            _unreadCount.value = 0
+            return
+        }
+        viewModelScope.launch {
+            _unreadCount.value = network.repository.messageUnread()
+        }
+    }
+
+    /** 点会话条目：跳到聊天页。 */
+    fun openPrivateChat(session: com.biliseek.core.network.dto.Session) {
+        val peerName = session.accountInfo?.name.orEmpty().ifBlank { "用户${session.talkerId}" }
+        val peerFace = session.accountInfo?.face.orEmpty()
+        _openPrivateChatRequests.tryEmit(
+            PrivateChatNav(talkerId = session.talkerId, peerName = peerName, peerFace = peerFace),
+        )
+    }
+
+    /** 进入聊天页 → 拉首屏 + 标记已读。 */
+    fun openChat(talkerId: Long) {
+        ensureChatState(talkerId)
+        loadChatPage(talkerId, beginSeqno = 0L, isLoadMore = false)
+    }
+
+    /** 上滑加载更早消息。 */
+    fun loadMoreChat(talkerId: Long) {
+        val s = _chatByTalker.value[talkerId] ?: return
+        if (s.isLoadingMore || !s.hasMore) return
+        val nextBegin = (s.minSeqno - 1).coerceAtLeast(0L)
+        loadChatPage(talkerId, beginSeqno = nextBegin, isLoadMore = true)
+    }
+
+    private fun loadChatPage(talkerId: Long, beginSeqno: Long, isLoadMore: Boolean) {
+        val cur = ensureChatState(talkerId)
+        if (!isLoadMore) {
+            updateChat(talkerId) { it.copy(isLoading = true, errorMessage = null) }
+        } else {
+            updateChat(talkerId) { it.copy(isLoadingMore = true, errorMessage = null) }
+        }
+        viewModelScope.launch {
+            network.repository.loadMoreSessionMessages(talkerId, beginSeqno)
+                .onSuccess { data ->
+                    val newMessages = data.messages.sortedBy { it.msgSeqno }
+                    val merged = if (isLoadMore) cur.messages + newMessages else newMessages
+                    updateChat(talkerId) {
+                        it.copy(
+                            messages = merged,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            minSeqno = data.minSeqno.takeIf { v -> v > 0 } ?: it.minSeqno,
+                            maxSeqno = data.maxSeqno.takeIf { v -> v > it.maxSeqno } ?: it.maxSeqno,
+                            hasMore = data.hasMore == 1,
+                            errorMessage = null,
+                        )
+                    }
+                    // 首屏加载完成后立即标记已读
+                    if (!isLoadMore && data.maxSeqno > 0L) {
+                        network.repository.markSessionRead(talkerId, data.maxSeqno)
+                        refreshUnreadCount()
+                    }
+                }
+                .onFailure { e ->
+                    updateChat(talkerId) {
+                        it.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = e.message ?: "加载失败",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun updateChatDraft(talkerId: Long, draft: String) {
+        updateChat(talkerId) { it.copy(draft = draft) }
+    }
+
+    fun sendChatMessage(talkerId: Long) {
+        val cur = _chatByTalker.value[talkerId] ?: return
+        val text = cur.draft.trim()
+        if (text.isEmpty() || cur.isSending) return
+        updateChat(talkerId) { it.copy(isSending = true, errorMessage = null) }
+        viewModelScope.launch {
+            val session = this@AppViewModel.session.value
+            val devId = session.biliJct.ifBlank { java.util.UUID.randomUUID().toString() }
+            network.repository.sendPrivateMessage(
+                receiverId = talkerId,
+                content = text,
+                devId = devId,
+            )
+                .onSuccess { seqno ->
+                    val now = System.currentTimeMillis() / 1000L
+                    val optimistic = com.biliseek.core.network.dto.PrivateMessage(
+                        senderUid = session.dedeUserId.toLongOrNull() ?: 0L,
+                        receiverId = talkerId,
+                        msgType = 1,
+                        content = """{"content":"${escapeForLocal(text)}"}""",
+                        timestamp = now,
+                        msgSeqno = seqno,
+                    )
+                    updateChat(talkerId) {
+                        it.copy(
+                            messages = it.messages + optimistic,
+                            draft = "",
+                            isSending = false,
+                            maxSeqno = maxOf(it.maxSeqno, seqno),
+                            errorMessage = null,
+                        )
+                    }
+                    emitMessage("已发送")
+                }
+                .onFailure { e ->
+                    updateChat(talkerId) { it.copy(isSending = false, errorMessage = e.message ?: "发送失败") }
+                    emitMessage("发送失败：${e.message ?: ""}")
+                }
+        }
+    }
+
+    fun closeChat(talkerId: Long) {
+        _chatByTalker.value = _chatByTalker.value - talkerId
+    }
+
+    /** 点回复与@ 条目：跳转到对应视频（business_id=1 视频，5 动态本期不支持）。 */
+    fun playReplyAtItem(item: com.biliseek.core.network.dto.ReplyAtItem) {
+        if (item.businessId == 1 && item.sourceId > 0L) {
+            val bvid = avToBv(item.sourceId)
+            play(
+                PlaybackRequest.Bili(
+                    bvid = bvid,
+                    cid = null,
+                    title = item.sourceContent.ifBlank { "评论的视频" },
+                    coverUrl = "",
+                    author = item.user?.name.orEmpty(),
+                    durationSec = 0L,
+                ),
+            )
+        }
+    }
+
+    fun playLikeItem(item: com.biliseek.core.network.dto.LikeItem) {
+        if (item.sourceId > 0L) {
+            val bvid = avToBv(item.sourceId)
+            play(
+                PlaybackRequest.Bili(
+                    bvid = bvid,
+                    cid = null,
+                    title = item.title.ifBlank { "收到喜欢的视频" },
+                    coverUrl = "",
+                    author = item.user?.name.orEmpty(),
+                    durationSec = 0L,
+                ),
+            )
+        }
+    }
+
+    fun openFollowerSpace(item: com.biliseek.core.network.dto.FollowerEntry) {
+        openUpSpace(
+            SearchUser(
+                mid = item.mid,
+                uname = item.uname,
+                upic = item.face,
+            ),
+        )
+        // UP 空间跳转由调用方持有 openUpSpaceRequests 信号触发（与现有约定一致）。
+    }
+
+    /** 在站内向一条评论发回复。 */
+    fun submitCommentReply(
+        aid: Long,
+        root: Long,
+        parent: Long,
+        content: String,
+        onResult: (Boolean, String?) -> Unit = { _, _ -> },
+    ) {
+        viewModelScope.launch {
+            network.repository.postCommentReply(aid, root, parent, content)
+                .onSuccess {
+                    emitMessage("已回复")
+                    onResult(true, null)
+                }
+                .onFailure { e ->
+                    emitMessage("回复失败：${e.message ?: ""}")
+                    onResult(false, e.message)
+                }
+        }
+    }
+
+    private fun ensureChatState(talkerId: Long): PrivateChatState =
+        _chatByTalker.value[talkerId] ?: PrivateChatState().also {
+            _chatByTalker.value = _chatByTalker.value + (talkerId to it)
+        }
+
+    private fun updateChat(talkerId: Long, reduce: (PrivateChatState) -> PrivateChatState) {
+        _chatByTalker.value = _chatByTalker.value.toMutableMap().apply {
+            val cur = this[talkerId] ?: return
+            this[talkerId] = reduce(cur)
+        }
+    }
+
+    private fun escapeForLocal(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+
+    // ── 状态数据类 ─────────────────────────────────
+
+    /** 消息中心四个 tab 状态聚合。 */
+    data class MessageHubState(
+        val reply: RemoteListState<com.biliseek.core.network.dto.ReplyAtItem> = RemoteListState(id = TrackListId.MessageReply, title = "回复与@"),
+        val like: RemoteListState<com.biliseek.core.network.dto.LikeItem> = RemoteListState(id = TrackListId.MessageLike, title = "收到喜欢"),
+        val follower: RemoteListState<com.biliseek.core.network.dto.FollowerEntry> = RemoteListState(id = TrackListId.MessageFollower, title = "新增粉丝"),
+        val sessions: RemoteListState<com.biliseek.core.network.dto.Session> = RemoteListState(id = TrackListId.PrivateSession, title = "私信"),
+        val isLoading: Boolean = false,
+        val errorMessage: String? = null,
+    )
+
+    /** 聊天页状态。 */
+    data class PrivateChatState(
+        val messages: List<com.biliseek.core.network.dto.PrivateMessage> = emptyList(),
+        val draft: String = "",
+        val isLoading: Boolean = false,
+        val isLoadingMore: Boolean = false,
+        val isSending: Boolean = false,
+        val hasMore: Boolean = false,
+        val minSeqno: Long = 0L,
+        val maxSeqno: Long = 0L,
+        val errorMessage: String? = null,
+    )
+
+    /** 私信聊天路由参数。 */
+    data class PrivateChatNav(
+        val talkerId: Long,
+        val peerName: String,
+        val peerFace: String,
+    )
 }
