@@ -5,6 +5,7 @@ import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.NavData
 import com.biliseek.core.network.dto.ReplyData
 import com.biliseek.core.network.dto.PageItem
+import com.biliseek.core.network.dto.VideoViewInfo
 import com.biliseek.core.network.dto.PlayUrlData
 import com.biliseek.core.network.dto.SpiData
 import com.biliseek.core.network.dto.TicketData
@@ -105,6 +106,10 @@ interface BiliApi {
     /** 分 P 列表。cid 未知时先调此接口取第一个 P。 */
     @GET("x/player/pagelist")
     suspend fun getPageList(@Query("bvid") bvid: String): BiliResponse<List<PageItem>>
+
+    /** 视频详情。公开只读接口，无需 WBI 签名。 */
+    @GET("x/web-interface/view")
+    suspend fun getVideoView(@Query("bvid") bvid: String): BiliResponse<VideoViewInfo>
 
     /**
      * 取流地址。参数需 WBI 签名，用 [WbiSigner.sign] 在调用点签好后整表传入。

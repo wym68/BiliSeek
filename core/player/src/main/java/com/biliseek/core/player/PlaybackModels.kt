@@ -160,6 +160,12 @@ data class PlaybackState(
     val qualityFallback: QualityFallback = QualityFallback.NONE,
     /** 当前在播的是本地已下载文件。音质行显示「本地文件」而不是谎报档位。 */
     val isOffline: Boolean = false,
+    /**
+     * 视频原始宽高比（宽/高，已计入 `pixelWidthHeightRatio`）。null 表示还没拿到
+     * 首帧尺寸，或当前是纯音频。UI 用它按比例显示画面，不做拉伸变形；
+     * 全屏时也用它判断该转横屏还是保持竖屏。
+     */
+    val videoAspectRatio: Float? = null,
 ) {
     /** 定时器是否已设置——两种终止条件任一生效即为真。 */
     val sleepTimerActive: Boolean

@@ -68,6 +68,24 @@ data class PageItem(
     val duration: Long = 0,
 )
 
+/**
+ * `x/web-interface/view` —— 视频详情。目前只用于播放页"查看作者"缺 UP 主 mid 时
+ * 现查一次兜底（历史记录/收藏夹/本地播放列表起播的视频不一定带 authorMid）。
+ */
+@Serializable
+data class VideoViewInfo(
+    val bvid: String = "",
+    val aid: Long = 0,
+    val owner: VideoOwner? = null,
+)
+
+@Serializable
+data class VideoOwner(
+    val mid: Long = 0,
+    val name: String = "",
+    val face: String = "",
+)
+
 /** `x/player/wbi/playurl` */
 @Serializable
 data class PlayUrlData(

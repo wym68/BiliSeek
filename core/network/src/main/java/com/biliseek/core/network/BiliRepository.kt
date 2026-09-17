@@ -2,6 +2,7 @@ package com.biliseek.core.network
 
 import android.util.Log
 import com.biliseek.core.network.dto.PageItem
+import com.biliseek.core.network.dto.VideoViewInfo
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
 import com.biliseek.core.network.dto.FavoriteMedia
@@ -170,6 +171,14 @@ class BiliRepository internal constructor(
         val response = api.getPageList(bvid)
         require(response.code == 0) { "pagelist 失败：code=${response.code} ${response.message}" }
         response.data.orEmpty()
+    }
+
+    /** 视频详情。目前只用于播放页"查看作者"在 authorMid 缺失时现查一次兜底。 */
+    suspend fun videoView(bvid: String): Result<VideoViewInfo> = runCatching {
+        authGate.awaitReady()
+        val response = api.getVideoView(bvid)
+        require(response.code == 0) { "视频详情失败：code=${response.code} ${response.message}" }
+        response.data ?: error("视频详情为空")
     }
 
     // ── 收藏夹（M11）──────────────────────────────────────

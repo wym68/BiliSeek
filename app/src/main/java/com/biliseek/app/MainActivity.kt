@@ -25,9 +25,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
@@ -119,6 +121,8 @@ class MainActivity : ComponentActivity() {
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
                 val commentDialog by viewModel.commentDialog.collectAsState()
+                val playerComment by viewModel.playerComment.collectAsState()
+                val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
                 val dynamicExpand by viewModel.dynamicExpand.collectAsState()
                 val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
@@ -130,6 +134,7 @@ class MainActivity : ComponentActivity() {
                 val collectedListState by viewModel.collectedListState.collectAsState()
                 val unreadSummary by viewModel.unreadSummary.collectAsState()
 
+                val coroutineScope = rememberCoroutineScope()
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置（搜索结果 / 多 P 分 P / UP 投稿共用）
                 var downloadFor by remember { mutableStateOf<com.biliseek.app.ui.DownloadTarget?>(null) }
@@ -254,8 +259,24 @@ class MainActivity : ComponentActivity() {
                     onSetSpeed = viewModel::setSpeed,
                     onSetSleepTimer = viewModel::setSleepTimer,
                     onRetryPlayback = viewModel::retryPlayback,
-                    onQueueSkipTo = viewModel::queueSkipTo,
                     onOpenQueue = viewModel::openQueueSheet,
+                    onOpenComments = viewModel::openPlayerComment,
+                    onShare = {
+                        viewModel.currentVideoUrl()?.let { url ->
+                            copyToClipboard(url)
+                            viewModel.notifyLinkCopied()
+                        }
+                    },
+                    onOpenAddToList = viewModel::openPlayerAddToList,
+                    onOpenUpSpace = {
+                        coroutineScope.launch {
+                            if (viewModel.resolvePlayerAuthor()) {
+                                openUpSpaceRequests.tryEmit(Unit)
+                            }
+                        }
+                    },
+                    danmakuEnabled = danmakuEnabled,
+                    onDanmakuToggle = viewModel::toggleDanmaku,
                     miniBarStyle = settings.miniBarStyle,
                     dynamicContent = {
                         DynamicScreen(
@@ -686,6 +707,28 @@ class MainActivity : ComponentActivity() {
                         onClearReplyTarget = viewModel::clearReplyTarget,
                         onSubmit = viewModel::submitComment,
                         onDismiss = viewModel::dismissCommentDialog,
+                    )
+                }
+
+                // 播放页评论区
+                playerComment?.let { state ->
+                    com.biliseek.app.ui.components.DynamicCommentDialog(
+                        comments = state.comments,
+                        sort = state.sort,
+                        replyTargetUname = state.replyTarget?.uname,
+                        content = state.content,
+                        isPosting = state.isPosting,
+                        expandedSubReplies = state.expandedSubReplies,
+                        onSortChange = viewModel::setPlayerCommentSort,
+                        onLoadMore = viewModel::loadMorePlayerComments,
+                        onLike = { reply, root -> viewModel.togglePlayerCommentLike(reply, root) },
+                        onReply = { reply, root -> viewModel.startPlayerReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel::expandPlayerSubReplies,
+                        onLoadMoreSubReplies = viewModel::loadMorePlayerSubReplies,
+                        onContentChange = viewModel::updatePlayerCommentContent,
+                        onClearReplyTarget = viewModel::clearPlayerReplyTarget,
+                        onSubmit = viewModel::submitPlayerComment,
+                        onDismiss = viewModel::dismissPlayerComment,
                     )
                 }
                 val currentPreviewImage = previewImage

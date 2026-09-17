@@ -15,7 +15,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -96,9 +98,20 @@ fun AppShell(
     onSetSpeed: (Float) -> Unit = {},
     onSetSleepTimer: (Long) -> Unit = {},
     onRetryPlayback: () -> Unit = {},
-    onQueueSkipTo: (Int) -> Unit = {},
-    /** Ch5：打开播放列表 sheet。 */
+    /** 打开播放列表 sheet。 */
     onOpenQueue: () -> Unit = {},
+    /** 打开评论区。 */
+    onOpenComments: () -> Unit = {},
+    /** 分享当前视频。 */
+    onShare: () -> Unit = {},
+    /** 添加到列表（B站收藏夹 / 本地歌单二选一，走 AddToListPickerDialog）。 */
+    onOpenAddToList: () -> Unit = {},
+    /** 打开 UP 空间页。 */
+    onOpenUpSpace: () -> Unit = {},
+    /** 全屏弹幕开关状态。 */
+    danmakuEnabled: Boolean = false,
+    /** 全屏弹幕开关切换。 */
+    onDanmakuToggle: () -> Unit = {},
     /** Ch5：minibar 风格（FLOAT/BOTTOM）。 */
     miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
     /**
@@ -315,10 +328,30 @@ fun AppShell(
                     val accent = remember(palette.dominant, darkTheme, surface) {
                         AdaptiveAccentColorPolicy.resolve(palette.dominant, darkTheme, surface)
                     }
+
+                    // z-ordering fix: 如果当前处于视频模式，先切回音频模式
+                    // （触发 clearVideoSurface），等状态更新后再 popBackStack。
+                    // 否则 SurfaceView 的 surface 在 exit 动画期间仍被 SurfaceFlinger
+                    // 合成，覆盖整个屏幕。
+                    var pendingCollapse by remember { mutableStateOf(false) }
+                    LaunchedEffect(playback.presentation) {
+                        if (pendingCollapse && playback.presentation == PresentationMode.NONE) {
+                            pendingCollapse = false
+                            navController.popBackStack()
+                        }
+                    }
+
                     PlayerScreen(
                         state = playback,
                         surfaceView = surfaceView,
-                        onCollapse = { navController.popBackStack() },
+                        onCollapse = {
+                            if (playback.presentation != PresentationMode.NONE) {
+                                onPresentationChange(PresentationMode.NONE, null)
+                                pendingCollapse = true
+                            } else {
+                                navController.popBackStack()
+                            }
+                        },
                         onTogglePlayPause = onTogglePlayPause,
                         onPresentationChange = onPresentationChange,
                         onEnterPip = onEnterPip,
@@ -329,9 +362,14 @@ fun AppShell(
                         onSetSpeed = onSetSpeed,
                         onSetSleepTimer = onSetSleepTimer,
                         onRetryPlayback = onRetryPlayback,
-                        onQueueSkipTo = onQueueSkipTo,
                         onEnterFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
+                        onOpenQueue = onOpenQueue,
+                        onOpenComments = onOpenComments,
+                        onShare = onShare,
+                        onOpenAddToList = onOpenAddToList,
+                        onOpenUpSpace = onOpenUpSpace,
                         accent = accent,
+                        isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN,
                     )
                 }
                 composable(Destination.UP_SPACE.route) {
@@ -377,7 +415,16 @@ fun AppShell(
         if (expansion == PlayerExpansion.FULLSCREEN) {
             FullscreenPlayerOverlay(
                 surfaceView = surfaceView,
+                state = playback,
+                danmakuEnabled = danmakuEnabled,
+                onDanmakuToggle = onDanmakuToggle,
                 onExit = { onExpansionChange(PlayerExpansion.EXPANDED) },
+                onTogglePlayPause = onTogglePlayPause,
+                onSeek = onSeek,
+                onSkipPrevious = onSkipPrevious,
+                onSkipNext = onSkipNext,
+                hasPrevious = playback.hasPrevious,
+                hasNext = playback.hasNext,
             )
         }
     }

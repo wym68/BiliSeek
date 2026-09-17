@@ -2981,4 +2981,333 @@ return pages.map { p ->
         val peerName: String,
         val peerFace: String,
     )
+
+    // ── 播放页：评论区、弹幕开关、分享 ──
+
+    /**
+     * 播放页评论区专用状态。视频评论 oid=aid, type=1；
+     * 复用 [BiliRepository.comments] 与现有评论列表 UI。
+     */
+    data class PlayerCommentState(
+        val bvid: String = "",
+        val aid: Long = 0L,
+        val oid: Long = 0L,
+        val type: Int = 1,
+        val sort: Int = 1,
+        val content: String = "",
+        val isPosting: Boolean = false,
+        val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
+        val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
+        val replyTarget: CommentReplyTarget? = null,
+    )
+
+    private val _playerComment = MutableStateFlow<PlayerCommentState?>(null)
+
+    /** 打开播放页评论区对话框。 */
+    fun openPlayerComment() {
+        val s = connection.state.value
+        val bvid = s.bvid
+        if (bvid.isBlank()) return
+        val aid = com.biliseek.core.network.bvToAv(bvid)
+        if (aid <= 0L) {
+            emitMessage("无法解析视频 ID")
+            return
+        }
+        _playerComment.value = PlayerCommentState(
+            bvid = bvid,
+            aid = aid,
+            oid = aid,
+            type = 1,
+        )
+        loadPlayerComments(reset = true)
+    }
+
+    fun dismissPlayerComment() {
+        _playerComment.value = null
+    }
+
+    fun updatePlayerCommentContent(text: String) {
+        val cur = _playerComment.value ?: return
+        _playerComment.value = cur.copy(content = text)
+    }
+
+    fun setPlayerCommentSort(sort: Int) {
+        val cur = _playerComment.value ?: return
+        if (cur.sort == sort) return
+        _playerComment.value = cur.copy(sort = sort, comments = RemoteListState.empty())
+        loadPlayerComments(reset = true)
+    }
+
+    fun loadMorePlayerComments() {
+        val cur = _playerComment.value ?: return
+        if (!cur.comments.hasMore) return
+        loadPlayerComments(reset = false)
+    }
+
+    private fun loadPlayerComments(reset: Boolean = true) {
+        val cur = _playerComment.value ?: return
+        val base = if (reset) RemoteListState.empty<ReplyItem>() else cur.comments
+        if (base.isLoading || base.isLoadingMore) return
+        val nextPage = if (reset) 1 else base.page + 1
+        val loadingMore = !reset
+        _playerComment.value = cur.copy(
+            comments = base.copy(isLoading = !loadingMore, isLoadingMore = loadingMore, errorMessage = null),
+        )
+        viewModelScope.launch {
+            network.repository.comments(cur.oid, cur.type, nextPage, cur.sort)
+                .onSuccess { page ->
+                    val dialog = _playerComment.value ?: return@onSuccess
+                    val mergedItems = if (reset) page.items else dialog.comments.items + page.items
+                    _playerComment.value = dialog.copy(
+                        comments = dialog.comments.copy(
+                            items = mergedItems,
+                            page = nextPage,
+                            hasMore = mergedItems.size < page.count,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = null,
+                        ),
+                    )
+                }
+                .onFailure { e ->
+                    val dialog = _playerComment.value ?: return@onFailure
+                    _playerComment.value = dialog.copy(
+                        comments = dialog.comments.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = e.message ?: "加载失败",
+                        ),
+                    )
+                }
+        }
+    }
+
+    fun startPlayerReplyTo(reply: ReplyItem, root: Long? = null) {
+        val cur = _playerComment.value ?: return
+        val (r, p) = com.biliseek.core.network.internal.resolveReplyRootParent(reply.rpid, root)
+        _playerComment.value = cur.copy(
+            replyTarget = CommentReplyTarget(root = r, parent = p, uname = reply.member.uname),
+        )
+    }
+
+    fun clearPlayerReplyTarget() {
+        val cur = _playerComment.value ?: return
+        _playerComment.value = cur.copy(replyTarget = null)
+    }
+
+    fun togglePlayerCommentLike(reply: ReplyItem, root: Long? = null) {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再点赞")
+            return
+        }
+        val cur = _playerComment.value ?: return
+        val like = reply.action != 1
+        val gateKey = "player_reply:${reply.rpid}"
+        val now = System.currentTimeMillis()
+        val last = likeRequestGate[gateKey] ?: 0L
+        if (now - last < 500) return
+        likeRequestGate[gateKey] = now
+        patchPlayerCommentLike(reply.rpid, root, like)
+        viewModelScope.launch {
+            network.repository.replyAction(cur.oid, cur.type, reply.rpid, like)
+                .onFailure { err ->
+                    patchPlayerCommentLike(reply.rpid, root, !like)
+                    emitMessage("点赞失败：${err.message ?: "未知错误"}")
+                }
+        }
+    }
+
+    private fun patchPlayerCommentLike(rpid: Long, root: Long?, like: Boolean) {
+        val cur = _playerComment.value ?: return
+        fun patchList(items: List<ReplyItem>) = items.map { item ->
+            if (item.rpid == rpid) {
+                item.copy(
+                    like = (item.like + if (like) 1 else -1).coerceAtLeast(0),
+                    action = if (like) 1 else 0,
+                )
+            } else item
+        }
+        if (root == null) {
+            _playerComment.value = cur.copy(comments = cur.comments.copy(items = patchList(cur.comments.items)))
+        } else {
+            val subState = cur.expandedSubReplies[root] ?: return
+            _playerComment.value = cur.copy(
+                expandedSubReplies = cur.expandedSubReplies + (root to subState.copy(items = patchList(subState.items))),
+            )
+        }
+    }
+
+    fun expandPlayerSubReplies(reply: ReplyItem) {
+        val cur = _playerComment.value ?: return
+        if (cur.expandedSubReplies.containsKey(reply.rpid)) return
+        _playerComment.value = cur.copy(
+            expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
+        )
+        viewModelScope.launch {
+            network.repository.subReplies(cur.oid, cur.type, reply.rpid, page = 1)
+                .onSuccess { page ->
+                    val dialog = _playerComment.value ?: return@onSuccess
+                    _playerComment.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to RemoteListState(
+                            items = page.items,
+                            page = 1,
+                            hasMore = page.items.size < page.count,
+                            isLoading = false,
+                        )),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _playerComment.value ?: return@onFailure
+                    val prev = dialog.expandedSubReplies[reply.rpid] ?: RemoteListState<ReplyItem>()
+                    _playerComment.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to prev.copy(
+                            isLoading = false,
+                            errorMessage = err.message ?: "楼中楼加载失败",
+                        )),
+                    )
+                }
+        }
+    }
+
+    fun loadMorePlayerSubReplies(root: Long) {
+        val cur = _playerComment.value ?: return
+        val state = cur.expandedSubReplies[root] ?: return
+        if (!state.hasMore || state.isLoading || state.isLoadingMore) return
+        val nextPage = state.page + 1
+        _playerComment.value = cur.copy(
+            expandedSubReplies = cur.expandedSubReplies + (root to state.copy(isLoadingMore = true)),
+        )
+        viewModelScope.launch {
+            network.repository.subReplies(cur.oid, cur.type, root, page = nextPage)
+                .onSuccess { page ->
+                    val dialog = _playerComment.value ?: return@onSuccess
+                    val prev = dialog.expandedSubReplies[root] ?: return@onSuccess
+                    val merged = prev.items + page.items
+                    _playerComment.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (root to prev.copy(
+                            items = merged,
+                            page = nextPage,
+                            hasMore = merged.size < page.count,
+                            isLoadingMore = false,
+                        )),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _playerComment.value ?: return@onFailure
+                    val prev = dialog.expandedSubReplies[root] ?: return@onFailure
+                    _playerComment.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (root to prev.copy(
+                            isLoadingMore = false,
+                            errorMessage = err.message ?: "楼中楼加载失败",
+                        )),
+                    )
+                }
+        }
+    }
+
+    fun submitPlayerComment() = viewModelScope.launch {
+        val cur = _playerComment.value ?: return@launch
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再评论")
+            return@launch
+        }
+        if (cur.isPosting || cur.content.isBlank()) return@launch
+        _playerComment.value = cur.copy(isPosting = true)
+        val target = cur.replyTarget
+        network.repository.addDynamicReply(
+            oid = cur.oid,
+            type = cur.type,
+            message = cur.content,
+            root = target?.root ?: 0L,
+            parent = target?.parent ?: 0L,
+        )
+            .onSuccess {
+                val dialog = _playerComment.value
+                if (dialog != null) {
+                    _playerComment.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
+                }
+                emitMessage("评论已发送")
+                loadPlayerComments(reset = true)
+            }
+            .onFailure { err ->
+                _playerComment.value = _playerComment.value?.copy(isPosting = false)
+                emitMessage("评论失败：${err.message ?: "未知错误"}")
+            }
+    }
+
+    /** 播放页评论区状态（暴露给 UI）。 */
+    val playerComment: StateFlow<PlayerCommentState?> = _playerComment.asStateFlow()
+
+    // ── 全屏弹幕开关（UI 占位） ──
+
+    private val _danmakuEnabled = MutableStateFlow(false)
+    val danmakuEnabled: StateFlow<Boolean> = _danmakuEnabled.asStateFlow()
+
+    fun toggleDanmaku() {
+        _danmakuEnabled.value = !_danmakuEnabled.value
+    }
+
+    // ── 分享 ──
+
+    /** 获取当前播放视频的 B站链接。 */
+    fun currentVideoUrl(): String? {
+        val bvid = connection.state.value.bvid
+        if (bvid.isBlank()) return null
+        return "https://www.bilibili.com/video/$bvid"
+    }
+
+    // ── 播放页：添加到列表 / 查看作者 ──
+
+    /** 当前播放条目（带 author/authorMid），拿不到就是 null。 */
+    private fun currentPlayingTrack(): PlaybackRequest.Bili? {
+        val s = connection.state.value
+        return s.queue.getOrNull(s.queueIndex) as? PlaybackRequest.Bili
+    }
+
+    /**
+     * 播放页"添加到列表"：拼一个 [SearchVideo] 复用搜索页同款链路
+     * （[startSingleAction] 判断单P/多P，落地到 [AddToListPickerDialog]，
+     * 一个弹窗里同时可选 B站收藏夹 / 本地歌单，不需要另外做"合并"）。
+     */
+    fun openPlayerAddToList() {
+        val track = currentPlayingTrack()
+        if (track == null || track.bvid.isBlank()) {
+            emitMessage("无法获取视频信息")
+            return
+        }
+        startSingleAction(
+            SearchVideo(
+                bvid = track.bvid,
+                title = track.title,
+                author = track.author,
+                mid = track.authorMid,
+                pic = track.coverUrl,
+            ),
+            PendingAction.AddToPlaylist,
+        )
+    }
+
+    /**
+     * 播放页"查看作者"：优先用队列条目自带的 authorMid（搜索起播必有）；
+     * 缺失时（历史记录/收藏夹/本地播放列表起播，未必带 authorMid）现查一次
+     * 视频详情兜底。返回 true 才应该真正触发导航。
+     */
+    suspend fun resolvePlayerAuthor(): Boolean {
+        val track = currentPlayingTrack()
+        if (track == null || track.bvid.isBlank()) {
+            emitMessage("无法获取UP主信息")
+            return false
+        }
+        if (track.authorMid > 0) {
+            openUpSpace(SearchUser(mid = track.authorMid, uname = track.author))
+            return true
+        }
+        val owner = network.repository.videoView(track.bvid).getOrNull()?.owner
+        if (owner == null || owner.mid <= 0) {
+            emitMessage("无法获取UP主信息")
+            return false
+        }
+        openUpSpace(SearchUser(mid = owner.mid, uname = owner.name))
+        return true
+    }
 }

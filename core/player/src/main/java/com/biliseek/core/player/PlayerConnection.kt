@@ -74,6 +74,17 @@ class PlayerConnection(private val context: Context) {
     private var queueIndex: Int = -1
     private var playMode: PlayMode = PlayMode.SEQUENTIAL
 
+    /**
+     * 每次 [play] 真正开始加载一条新内容就自增，跟"第几首"完全脱钩。
+     *
+     * 不能用 [queueIndex] 或 `controller.currentMediaItemIndex` 关联"这份
+     * videoSize 是不是当前这首歌解出来的"——单曲起播（非队列翻页）时
+     * [queueIndex] 会被无条件写死成 0，两首互不相关的歌 [queueIndex] 可能
+     * 完全相同；`currentMediaItemIndex` 则因为切歌走的是 `setMediaItem()`
+     * 整体替换单 item，永远是 0。只有这个自增计数器能保证「每次起播都换一个新值」。
+     */
+    private var trackGeneration = 0
+
     /** 已从持久化恢复队列（尚未起播）。用于 pushState 中 hasMedia 判断，
      *  以及 togglePlayPause 时改走「取流续播」而非直接 play controller。 */
     private var hasRestoredQueue: Boolean = false
@@ -150,6 +161,12 @@ class PlayerConnection(private val context: Context) {
     private var bufferingEvents = 0
     private var seekDiscontinuities = 0
 
+    // videoSize 只在 onVideoSizeChanged 真正解出新尺寸时更新，绑定当时的
+    // trackGeneration——pushState() 靠它判断这份尺寸是不是当前这首歌解出来的，
+    // 对不上就是上一首的陈旧值，不能用（详见 [trackGeneration] 的说明）。
+    private var lastVideoSizeGeneration = -1
+    private var lastVideoAspectRatio: Float? = null
+
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (recording && playbackState == Player.STATE_BUFFERING) bufferingEvents++
@@ -182,6 +199,18 @@ class PlayerConnection(private val context: Context) {
         }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) = pushState()
+
+        // 拿到首帧尺寸后立刻推一次 state，UI 靠它判断按原始比例显示画面、
+        // 全屏该转横屏还是保持竖屏——不等下一次 250ms 轮询。
+        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+            lastVideoSizeGeneration = trackGeneration
+            lastVideoAspectRatio = if (videoSize.width > 0 && videoSize.height > 0) {
+                videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+            } else {
+                null
+            }
+            pushState()
+        }
     }
 
     /**
@@ -298,6 +327,8 @@ class PlayerConnection(private val context: Context) {
             queue = listOf(request)
             queueIndex = 0
         }
+        // 新内容开始加载，跟之前解出的 videoSize 划清界限（见 trackGeneration 说明）。
+        trackGeneration++
         // 用户开始播放，清除恢复队列标志
         hasRestoredQueue = false
         _state.value = _state.value.copy(isResolving = true, error = null)
@@ -752,6 +783,14 @@ class PlayerConnection(private val context: Context) {
         }
         // 从当前队列条目推导元数据
         val currentTrack = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili
+        // 只用 onVideoSizeChanged 当时记下来的值，且要求 trackGeneration 对得上当前
+        // 这次起播——c.videoSize 本身是活的、随时可能还没刷新，靠它现算容易在切歌
+        // 瞬间读到上一首的陈旧尺寸。
+        val videoAspectRatio = if (lastVideoSizeGeneration == trackGeneration) {
+            lastVideoAspectRatio
+        } else {
+            null
+        }
         _state.value = _state.value.copy(
             mode = resolvePlaybackMode(presentation, hasMedia),
             presentation = presentation,
@@ -772,6 +811,7 @@ class PlayerConnection(private val context: Context) {
             speed = c.playbackParameters.speed,
             audioQuality = effective.quality,
             qualityFallback = effective.fallback,
+            videoAspectRatio = videoAspectRatio,
         )
         recordPositionIfNeeded()
     }

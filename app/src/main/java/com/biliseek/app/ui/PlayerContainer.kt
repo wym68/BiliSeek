@@ -10,35 +10,69 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ModeComment
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.outlined.Sms
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderColors
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,20 +84,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil3.compose.AsyncImage
+import com.biliseek.core.player.PlayMode
 import com.biliseek.core.player.PlaybackState
-import com.biliseek.core.player.AudioQuality
 import com.biliseek.core.player.PresentationMode
-import com.biliseek.core.player.QualityFallback
 import com.biliseek.core.player.formatDuration
 import com.biliseek.designsystem.theme.AccentDecision
 import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
 import com.biliseek.designsystem.theme.CoverPalette
-import androidx.compose.foundation.isSystemInDarkTheme
 
 /**
  * 播放器容器的展开程度。
@@ -74,27 +114,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
  */
 enum class PlayerExpansion { COLLAPSED, EXPANDED, FULLSCREEN }
 
-/**
- * 展开播放器控制区的一项。
- *
- * 控制区由**动作列表驱动渲染**，不是写死的 Row。后续「歌词」「音质」「下载」
- * 只需往列表里追加一项，布局代码不动——这是《功能优化篇》§3.5 要求的扩展位。
- */
-data class PlayerAction(
-    val key: String,
-    val label: String,
-    val enabled: Boolean = true,
-    /** 主要动作用实心按钮，其余用描边按钮。 */
-    val primary: Boolean = false,
-    val onClick: () -> Unit,
-)
-
-/**
- * 常驻播放器容器。
- *
- * 见《架构设计篇》§7.2：**挂在 NavHost 之外**，页面切换时不重建，播放不中断。
- * 从听 → 看 → 全屏全程不动导航栈，「退回听」始终是一步可逆的状态变更。
- */
 @Composable
 fun PlayerContainer(
     state: PlaybackState,
@@ -110,18 +129,14 @@ fun PlayerContainer(
     onCyclePlayMode: () -> Unit = {},
     onSeek: (Long) -> Unit = {},
     onSetSpeed: (Float) -> Unit = {},
-    /** 0 取消、负数表示「播完当前」、正数为倒计时毫秒。 */
     onSetSleepTimer: (Long) -> Unit = {},
     onRetryPlayback: () -> Unit = {},
-    onQueueSkipTo: (Int) -> Unit = {},
-    // Ch5
     onOpenQueue: () -> Unit = {},
+    onOpenComments: () -> Unit = {},
+    onShare: () -> Unit = {},
+    onOpenAddToList: () -> Unit = {},
+    onOpenUpSpace: () -> Unit = {},
     miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
-    /**
-     * 点 MiniPlayer 跳到 player route。由 AppShell 提供（调 navController.navigate）。
-     * 不在此处设 onExpansionChange(EXPANDED)：M12-A 之后 EXPANDED 不再是 UI 状态，
-     * 设了反而会让 AppShell 误判 MiniPlayer 不该渲染。
-     */
     onExpand: () -> Unit = {},
 ) {
     when (expansion) {
@@ -139,14 +154,10 @@ fun PlayerContainer(
                 modifier = modifier,
             )
         }
-        // 全屏时这一份不渲染：SurfaceView 只能有一个父容器，
-        // 两处同时挂会抛 "already has a parent"。全屏那份由 AppShell 的 overlay 负责
         PlayerExpansion.FULLSCREEN -> Unit
         PlayerExpansion.EXPANDED -> {
             val palette = rememberCoverPalette(state.coverUrl)
             val accent = rememberAccentDecision(palette)
-            // EXPANDED 是临时 alias，仅为兼容旧的本地调用点。
-            // AppShell 的 PLAYER destination 改用 [PlayerScreen] 顶层函数。
             PlayerScreen(
                 state = state,
                 surfaceView = surfaceView,
@@ -161,8 +172,12 @@ fun PlayerContainer(
                 onSetSpeed = onSetSpeed,
                 onSetSleepTimer = onSetSleepTimer,
                 onRetryPlayback = onRetryPlayback,
-                onQueueSkipTo = onQueueSkipTo,
                 onEnterFullscreen = { onExpansionChange(PlayerExpansion.FULLSCREEN) },
+                onOpenQueue = onOpenQueue,
+                onOpenComments = onOpenComments,
+                onShare = onShare,
+                onOpenAddToList = onOpenAddToList,
+                onOpenUpSpace = onOpenUpSpace,
                 accent = accent,
                 modifier = modifier,
             )
@@ -170,11 +185,6 @@ fun PlayerContainer(
     }
 }
 
-/**
- * 封面取色决策（Compose 状态）。
- *
- * keyed by 主色 + 主题：换歌 / 切亮暗都重算；其余重组直接复用。
- */
 @Composable
 private fun rememberAccentDecision(palette: CoverPalette): AccentDecision {
     val darkTheme = isSystemInDarkTheme()
@@ -187,44 +197,248 @@ private fun rememberAccentDecision(palette: CoverPalette): AccentDecision {
 /**
  * 全屏播放层。
  *
- * 提升为 Scaffold 之上的 overlay（见《架构设计篇》§7.2），
- * 底部导航与页面栈原样不动，退出即销毁——不必逐个恢复被藏起来的东西。
+ * 调研依据：BiliPai `FullscreenPlayerOverlay`（4 秒自动隐藏、`originalOrientation` 保存恢复、
+ * `LifecycleEventObserver` ON_RESUME 重应用 immersive、`FLAG_KEEP_SCREEN_ON`）。
+ *
+ * 底部控制行：左侧弹幕开关（UI 占位）、右侧退出全屏。
  */
+private const val AUTO_HIDE_DELAY_MS = 4000L
+
 @Composable
 fun FullscreenPlayerOverlay(
     surfaceView: SurfaceView,
+    state: PlaybackState,
+    danmakuEnabled: Boolean,
+    onDanmakuToggle: () -> Unit,
     onExit: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    // 返回键在 overlay 内部处理：Compose 的 BackHandler 后注册者优先，
-    // 这里比 AppShell 的那个先收到——全屏下按一次即退出（M9 打磨项）。
-    // 早期实现依赖 AppShell 的外层 BackHandler，首次按键被系统栏的
-    // 临时显示逻辑吞掉，表现为要按两次。
     androidx.activity.compose.BackHandler { onExit() }
 
-    // 沉浸由 overlay 自己开关：进入时藏系统栏，退出时恢复。
-    // 放在这里而不是 Activity 里，是因为「退出即销毁」保证了恢复一定会执行
-    val view = androidx.compose.ui.platform.LocalView.current
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        val window = view.context.findActivity()?.window
-        val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    val view = LocalView.current
+    val haptic = LocalHapticFeedback.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // 未知宽高比时按 16:9 兜底（沿用原来的强制横屏行为）；已知的话竖屏视频
+    // 强制竖屏、横屏视频强制横屏，而不是不分青红皂白全部转横屏。用"分类"
+    // （而不是原始比例值）做 key，避免同一视频轻微的比例浮动反复重进这个 effect。
+    val isPortraitVideo = (state.videoAspectRatio ?: (16f / 9f)) < 1f
+
+    DisposableEffect(isPortraitVideo) {
+        val activity = view.context.findActivity()
+        val window = activity?.window
+        val controller = window?.let {
+            androidx.core.view.WindowCompat.getInsetsController(it, view)
+        }
+        val originalOrientation = activity?.requestedOrientation
+
         controller?.apply {
-            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat
-                .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
-        onDispose { controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+        activity?.requestedOrientation = if (isPortraitVideo) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        } else {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+
+        onDispose {
+            controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            if (activity != null && originalOrientation != null) {
+                activity.requestedOrientation = originalOrientation
+            }
+        }
+    }
+
+    DisposableEffect(view) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val window = view.context.findActivity()?.window
+                val controller = window?.let {
+                    androidx.core.view.WindowCompat.getInsetsController(it, view)
+                }
+                controller?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(controlsVisible, lastInteractionTime) {
+        if (controlsVisible && state.isPlaying) {
+            kotlinx.coroutines.delay(AUTO_HIDE_DELAY_MS)
+            if (System.currentTimeMillis() - lastInteractionTime >= AUTO_HIDE_DELAY_MS) {
+                controlsVisible = false
+            }
+        }
+    }
+
+    DisposableEffect(state.isPlaying) {
+        val activity = view.context.findActivity()
+        if (state.isPlaying) {
+            activity?.window?.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        }
+        onDispose {
+            activity?.window?.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        }
     }
 
     Surface(color = Color.Black, modifier = modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            PlayerSurface(surfaceView, Modifier.fillMaxSize())
-            // 退出按钮压在画面上，位置固定——手势退出正是当初出问题的地方
-            TextButton(
-                onClick = onExit,
-                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        controlsVisible = !controlsVisible
+                        lastInteractionTime = System.currentTimeMillis()
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            PlayerSurface(surfaceView, videoSurfaceModifier(state.videoAspectRatio))
+
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(200)),
+                exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(300)),
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Text("退出全屏", color = Color.White)
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.6f),
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.6f),
+                                ),
+                            )
+                        )
+                        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                lastInteractionTime = System.currentTimeMillis()
+                                onExit()
+                            },
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回",
+                                tint = Color.White,
+                            )
+                        }
+                        Text(
+                            state.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                        )
+                    }
+
+                    Column {
+                        ProgressBar(
+                            state,
+                            onSeek,
+                            sliderColors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color.White,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                            ),
+                            labelColor = Color.White,
+                            compact = true,
+                        )
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    onDanmakuToggle()
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = if (danmakuEnabled) {
+                                        Icons.Filled.Sms
+                                    } else {
+                                        Icons.Outlined.Sms
+                                    },
+                                    contentDescription = "弹幕开关",
+                                    tint = if (danmakuEnabled) Color.White
+                                           else Color.White.copy(alpha = 0.5f),
+                                )
+                            }
+
+                            PlayerControlBar(
+                                isPlaying = state.isPlaying,
+                                isAudioMode = false,
+                                onTogglePlayPause = {
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    onTogglePlayPause()
+                                },
+                                onSkipPrevious = {
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    onSkipPrevious()
+                                },
+                                onSkipNext = {
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    onSkipNext()
+                                },
+                                onSwitchMode = {},
+                                hasPrevious = hasPrevious,
+                                hasNext = hasNext,
+                                showModeSwitch = false,
+                                iconColor = Color.White,
+                                buttonSize = 36.dp,
+                                iconSize = 22.dp,
+                                mainButtonSize = 44.dp,
+                                mainIconSize = 22.dp,
+                                spacing = 16.dp,
+                                verticalPadding = 4.dp,
+                                fillWidth = false,
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    lastInteractionTime = System.currentTimeMillis()
+                                    onExit()
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Filled.FullscreenExit,
+                                    contentDescription = "退出全屏",
+                                    tint = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -247,12 +461,8 @@ private fun MiniPlayer(
         exit = fadeOut(),
         modifier = modifier,
     ) {
-        // 收起态只显示 MiniBarHandle 那根胶囊；每次从 IDLE 重新进入组合都会
-        // 回到 true——新起播默认展开，不沿用上一轮的收起偏好。
         var revealed by remember { mutableStateOf(true) }
 
-        // Ch5 §5.1.4：FLOAT 浮在底部上（圆角 24dp + 左右 16dp + elevation=7）；
-        // BOTTOM 贴底（圆角顶 24dp、无阴影）。
         val surfaceModifier = when (miniBarStyle) {
             com.biliseek.app.data.MiniBarStyle.FLOAT -> Modifier
                 .padding(horizontal = 16.dp)
@@ -281,13 +491,11 @@ private fun MiniPlayer(
             ) { isRevealed ->
                 if (isRevealed) {
                     Column {
-                        // 手势区与下方 body 的展开手势完全独立，互不干扰
                         MiniBarHandle(
                             onDrag = { dragAmount ->
                                 if (dragAmount > HANDLE_DRAG_THRESHOLD) revealed = false
                             },
                         )
-                        // Ch5 §5.1.1：minibar 进度条也可拖（24dp 触摸区 + 2dp 视觉条）
                         com.biliseek.app.ui.components.DraggableProgressBar(
                             positionMs = state.positionMs,
                             durationMs = state.durationMs,
@@ -298,13 +506,12 @@ private fun MiniPlayer(
                         Row(
                             Modifier
                                 .fillMaxWidth()
+                                .clickable(onClick = onExpand)
                                 .pointerInput(Unit) {
-                                    // 上滑展开
                                     detectVerticalDragGestures { _, dragAmount ->
                                         if (dragAmount < -DRAG_THRESHOLD) onExpand()
                                     }
                                 }
-                                .clickable(onClick = onExpand)
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -324,7 +531,6 @@ private fun MiniPlayer(
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }
-                            // Ch5 §5.1.2：minibar 右侧加播放列表按钮
                             IconButton(onClick = onTogglePlayPause) {
                                 Text(if (state.isPlaying) "⏸" else "▶")
                             }
@@ -345,12 +551,6 @@ private fun MiniPlayer(
     }
 }
 
-/**
- * minibar 顶部的显隐拉手：向下滑收起为纯胶囊，向上滑重新展开。
- *
- * 独立的手势区（自己的 pointerInput），与 body 上「上滑跳播放页」的手势
- * 是两个互不干扰的兄弟节点，不是嵌套关系。
- */
 @Composable
 private fun MiniBarHandle(onDrag: (Float) -> Unit, modifier: Modifier = Modifier) {
     Box(
@@ -372,17 +572,14 @@ private fun MiniBarHandle(onDrag: (Float) -> Unit, modifier: Modifier = Modifier
     }
 }
 
-@Composable
 /**
  * 展开态播放器。
  *
- * 顶层可独立 compose 的函数：M12-A 重构后它被 NavHost 的 PLAYER destination 直接调用，
- * 不再嵌在 [PlayerContainer] 内部。MiniPlayer（COLLAPSED）仍走 [PlayerContainer]，
- * 但 EXPANDED 已经成为 nav 栈的一等公民——back 由 NavController 接管。
+ * 顶层可独立 compose 的函数：M12-A 重构后它被 NavHost 的 PLAYER destination 直接调用。
  *
- * 为什么拆出来：[PlayerContainer] 同时承担 MiniPlayer / Fullscreen overlay 的渲染，
- * 把 EXPANDED 抽走后三者解耦，单元测试与状态 hoisting 都更干净。
+ * 音视频模式统一 16:9 CoverArea 容器尺寸，布局完全一致，只有 CoverArea 内容不同。
  */
+@Composable
 fun PlayerScreen(
     state: PlaybackState,
     surfaceView: SurfaceView,
@@ -397,69 +594,62 @@ fun PlayerScreen(
     onSetSpeed: (Float) -> Unit,
     onSetSleepTimer: (Long) -> Unit,
     onRetryPlayback: () -> Unit,
-    onQueueSkipTo: (Int) -> Unit,
     onEnterFullscreen: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenComments: () -> Unit,
+    onShare: () -> Unit,
+    onOpenAddToList: () -> Unit,
+    onOpenUpSpace: () -> Unit,
     accent: AccentDecision,
     modifier: Modifier = Modifier,
+    // 全屏 overlay 是否处于激活状态：激活时 CoverArea 让出 SurfaceView 的挂载权，
+    // 避免和 FullscreenPlayerOverlay 同时持有同一个 view（见 PlayerSurface.kt 的说明）。
+    isFullscreenActive: Boolean = false,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    val isAudio = state.presentation == PresentationMode.NONE
+
     Box(
         modifier
             .fillMaxSize()
-            // 展开播放器要避让状态栏（M9 打磨项）。全屏 overlay 保持不吃 insets——
-            // 那是有意的沉浸，别一起改了
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            // M12-A 莫奈取色：背景为封面主色渐变（无封面时纯表面色，与默认一致）
+            // 不再自己加 windowInsetsPadding：AppShell 里的 Scaffold 没有覆盖
+            // contentWindowInsets，Material3 默认值是 safeDrawing，NavHost 传给
+            // 这里的内容区已经把状态栏高度让出来了。这里如果再加一层，状态栏高度
+            // 会被算两遍，顶部空出一大截。
+            // 音频/视频模式背景统一用封面取色渐变——视频模式不整页变黑，
+            // 只有 CoverArea 内部（视频帧本身的 letterbox）是黑底，其余顶部栏/
+            // 标题/进度条/控制条/底栏都应该跟音频模式长一样。
             .background(
-                Brush.verticalGradient(listOf(accent.gradientTop, accent.gradientBottom)),
+                Brush.verticalGradient(listOf(accent.gradientTop, accent.gradientBottom))
             ),
     ) {
-        // 对比度不足时叠一层向表面色收敛的 scrim，保住文字可读（M12 A-2 判据）
         accent.scrim?.let { scrim ->
             Box(Modifier.fillMaxSize().background(scrim))
         }
+
+        // 顶部栏 → CoverArea → 标题/进度条/控制条/底栏，统一放进同一条纵向流里、
+        // 始终显示——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
+        // 不再各自作为 Box 的平级子项——否则它们会叠在一起画（曾经的重叠 bug）。
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onCollapse) { Text("▾") }
-                Text("正在播放", style = MaterialTheme.typography.titleSmall)
-                Text("")
-            }
+            PlayerTopBar(
+                onCollapse = onCollapse,
+                onOpenMenu = { showMenu = true },
+            )
 
-            // 封面区原地展开为视频，页面不跳转
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (state.presentation == PresentationMode.NONE) {
-                    if (state.coverUrl.isNotBlank()) {
-                        AsyncImage(
-                            model = state.coverUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    if (state.isResolving) {
-                        Text("取流中…", color = Color.White)
-                    } else if (state.coverUrl.isBlank()) {
-                        Text("纯音频模式", color = Color.White)
-                    }
-                } else {
-                    PlayerSurface(surfaceView, Modifier.fillMaxSize())
-                }
-            }
+            CoverArea(
+                coverUrl = state.coverUrl,
+                presentation = state.presentation,
+                surfaceView = if (!isAudio) surfaceView else null,
+                isResolving = state.isResolving,
+                onEnterFullscreen = onEnterFullscreen,
+                isFullscreenActive = isFullscreenActive,
+                videoAspectRatio = state.videoAspectRatio,
+            )
 
             Text(
                 state.title.ifBlank { "BiliSeek" },
@@ -470,42 +660,149 @@ fun PlayerScreen(
 
             ProgressBar(state, onSeek)
 
-            PlayerActionRow(
-                buildPlayerActions(
-                    state = state,
-                    surfaceView = surfaceView,
-                    onTogglePlayPause = onTogglePlayPause,
-                    onPresentationChange = onPresentationChange,
-                    onSkipPrevious = onSkipPrevious,
-                    onSkipNext = onSkipNext,
-                    onCyclePlayMode = onCyclePlayMode,
-                    onEnterPip = onEnterPip,
-                    onEnterFullscreen = onEnterFullscreen,
-                ),
+            PlayerControlBar(
+                isPlaying = state.isPlaying,
+                isAudioMode = isAudio,
+                onTogglePlayPause = onTogglePlayPause,
+                onSkipPrevious = onSkipPrevious,
+                onSkipNext = onSkipNext,
+                onSwitchMode = {
+                    if (isAudio) {
+                        onPresentationChange(PresentationMode.INLINE, surfaceView)
+                    } else {
+                        onPresentationChange(PresentationMode.NONE, null)
+                    }
+                },
+                hasPrevious = state.hasPrevious,
+                hasNext = state.hasNext,
             )
 
-            SpeedRow(state.speed, onSetSpeed)
-            QualityLine(state)
-            SleepTimerRow(state, onSetSleepTimer)
+            PlayerBottomBar(
+                playMode = state.playMode,
+                onCyclePlayMode = onCyclePlayMode,
+                onOpenQueue = onOpenQueue,
+                onOpenComments = onOpenComments,
+            )
 
-            if (state.queue.size > 1) {
-                QueuePanel(state, onQueueSkipTo)
-            }
-
-            // 取流失败不是死路：队列与下标都还在，重放即可
             state.error?.let {
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        "取流失败：$it",
-                        Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Red,
-                    )
+                    Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = Color.Red)
                     Button(onClick = onRetryPlayback) { Text("重试") }
+                }
+            }
+        }
+
+        if (showMenu) {
+            PlayerMoreMenuSheet(
+                state = state,
+                onDismiss = { showMenu = false },
+                onSetSpeed = onSetSpeed,
+                onSetSleepTimer = onSetSleepTimer,
+                onDownload = {},
+                onAddToList = onOpenAddToList,
+                onViewAuthor = onOpenUpSpace,
+                onShare = onShare,
+            )
+        }
+    }
+}
+
+/**
+ * 播放页顶部栏：收起 + 标题 + 三点菜单。
+ */
+@Composable
+private fun PlayerTopBar(
+    onCollapse: () -> Unit,
+    onOpenMenu: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onCollapse) {
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "收起")
+        }
+        Text("正在播放", style = MaterialTheme.typography.titleSmall)
+        IconButton(onClick = onOpenMenu) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "菜单")
+        }
+    }
+}
+
+/**
+ * 封面/视频区。音视频模式统一 16:9 容器，圆角差异化（音频 16dp，视频 8dp）。
+ * 视频模式下右下角可显示全屏入口按钮（控制层可见时）。
+ */
+@Composable
+private fun CoverArea(
+    coverUrl: String,
+    presentation: PresentationMode,
+    surfaceView: SurfaceView?,
+    isResolving: Boolean,
+    onEnterFullscreen: () -> Unit,
+    modifier: Modifier = Modifier,
+    // 全屏 overlay 激活时，SurfaceView 的挂载权完全交给 FullscreenPlayerOverlay；
+    // 这里必须让路，否则同一个 SurfaceView 被两处 AndroidView 同时争抢父容器，
+    // 退出全屏后内联视频区会拿不回 view，黑屏。
+    isFullscreenActive: Boolean = false,
+    // 视频原始宽高比：按原比例居中显示，不拉伸变形，多出来的地方露黑边。
+    videoAspectRatio: Float? = null,
+) {
+    val isAudio = presentation == PresentationMode.NONE
+    val cornerRadius = if (isAudio) 16.dp else 8.dp
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(cornerRadius))
+            .aspectRatio(16f / 9f)
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (isAudio) {
+            if (coverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (isResolving) {
+                CircularProgressIndicator(color = Color.White)
+            } else if (coverUrl.isBlank()) {
+                Icon(
+                    Icons.Filled.MusicNote,
+                    contentDescription = null,
+                    tint = Color.Gray,
+                    modifier = Modifier.size(64.dp),
+                )
+            }
+        } else {
+            if (!isFullscreenActive) {
+                surfaceView?.let { PlayerSurface(it, videoSurfaceModifier(videoAspectRatio)) }
+            }
+
+            // 控制层常显，全屏入口按钮跟着一直显示，不再跟"点击唤起"挂钩。
+            Surface(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.5f),
+            ) {
+                IconButton(onClick = onEnterFullscreen) {
+                    Icon(
+                        imageVector = Icons.Filled.Fullscreen,
+                        contentDescription = "全屏",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
@@ -513,33 +810,152 @@ fun PlayerScreen(
 }
 
 /**
- * 当前**实际生效**的音质，以及没按用户所选生效时的原因。
+ * 播放控制条：上一首 / 播放 / 下一首 + 模式切换按钮。
  *
- * 显示生效值而不是设置值：用户选了无损却拿不到时，界面若还写着「无损」，
- * 那是在骗人；而悄悄降级不吭声，用户会以为无损功能坏了。
+ * 调研要点（BBPlayer 参考）：
+ * - Optimistic UI：点击立即翻转本地显示状态，prop 变化自动覆盖（`remember(isPlaying)`）
+ * - Haptics：传输控制 LongPress / 模式切换 Confirm
+ * - Skip 禁用态：!hasPrevious/hasNext 时透明度 0.38f + 不响应点击
  */
 @Composable
-private fun QualityLine(state: PlaybackState) {
-    if (state.mode == com.biliseek.core.player.PlaybackMode.IDLE) return
-    // 本地文件没有音质档位：如实说「本地文件」，不谎报「自动」
-    if (state.isOffline) {
-        Text("音质：本地文件", style = MaterialTheme.typography.labelSmall)
-        return
+private fun PlayerControlBar(
+    isPlaying: Boolean,
+    isAudioMode: Boolean,
+    onTogglePlayPause: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSwitchMode: () -> Unit,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
+    modifier: Modifier = Modifier,
+    // 全屏控制层没有听/看切换的概念，复用本组件但不渲染右侧模式切换按钮。
+    showModeSwitch: Boolean = true,
+    // 上一首/下一首图标颜色：全屏黑底下默认的 onSurface 太暗，调用方传白色。
+    iconColor: Color = MaterialTheme.colorScheme.onSurface,
+    // 全屏下默认尺寸太大太占地方，调用方可以整体传一份更小的。
+    buttonSize: Dp = 48.dp,
+    iconSize: Dp = 32.dp,
+    mainButtonSize: Dp = 56.dp,
+    mainIconSize: Dp = 32.dp,
+    spacing: Dp = 24.dp,
+    verticalPadding: Dp = 16.dp,
+    // 独占一整行时（正常播放页）要 fillMaxWidth 才能靠 Arrangement.Center 居中；
+    // 嵌套在别的 Row 里由外层 SpaceBetween 负责居中时（全屏控制层），
+    // fillMaxWidth 反而会把外层其他兄弟节点的空间占满，必须关掉，让本组件
+    // 只按内容大小占位。
+    fillWidth: Boolean = true,
+) {
+    var optimisticPlaying by remember(isPlaying) { mutableStateOf(isPlaying) }
+    val displayPlaying = optimisticPlaying
+    val haptic = LocalHapticFeedback.current
+
+    Row(
+        modifier.then(if (fillWidth) Modifier.fillMaxWidth() else Modifier).padding(vertical = verticalPadding),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onSkipPrevious()
+            },
+            modifier = Modifier.size(buttonSize),
+            enabled = hasPrevious,
+        ) {
+            Icon(
+                Icons.Filled.SkipPrevious,
+                contentDescription = "上一首",
+                modifier = Modifier.size(iconSize),
+                tint = if (hasPrevious) iconColor else iconColor.copy(alpha = 0.38f),
+            )
+        }
+        Spacer(Modifier.width(spacing))
+        FilledIconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                optimisticPlaying = !optimisticPlaying
+                onTogglePlayPause()
+            },
+            modifier = Modifier.size(mainButtonSize),
+            shape = CircleShape,
+        ) {
+            Icon(
+                if (displayPlaying) Icons.Filled.Pause else Icons.Filled.PlayCircle,
+                contentDescription = if (displayPlaying) "暂停" else "播放",
+                modifier = Modifier.size(mainIconSize),
+                tint = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+        Spacer(Modifier.width(spacing))
+        IconButton(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onSkipNext()
+            },
+            modifier = Modifier.size(buttonSize),
+            enabled = hasNext,
+        ) {
+            Icon(
+                Icons.Filled.SkipNext,
+                contentDescription = "下一首",
+                modifier = Modifier.size(iconSize),
+                tint = if (hasNext) iconColor else iconColor.copy(alpha = 0.38f),
+            )
+        }
+        if (showModeSwitch) {
+            Spacer(Modifier.width(16.dp))
+            TextButton(onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                onSwitchMode()
+            }) {
+                if (isAudioMode) {
+                    Icon(Icons.Filled.PlayCircle, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("看")
+                } else {
+                    Icon(Icons.Filled.Headphones, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("退回听")
+                }
+            }
+        }
     }
-    val quality = when (state.audioQuality) {
-        AudioQuality.AUTO -> "自动"
-        AudioQuality.LOSSLESS -> "无损"
-        AudioQuality.SAVER -> "省流量"
+}
+
+/**
+ * 底栏：随机播放 / 评论 / 播放列表。
+ */
+@Composable
+private fun PlayerBottomBar(
+    playMode: PlayMode,
+    onCyclePlayMode: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenComments: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        IconButton(onClick = onCyclePlayMode) {
+            Icon(
+                when (playMode) {
+                    PlayMode.SHUFFLE -> Icons.Filled.Shuffle
+                    PlayMode.REPEAT_ONE -> Icons.Filled.RepeatOne
+                    else -> Icons.Filled.Repeat
+                },
+                contentDescription = "播放模式",
+                tint = if (playMode != PlayMode.SEQUENTIAL) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onOpenComments) {
+            Icon(Icons.Filled.ModeComment, contentDescription = "评论")
+        }
+        IconButton(onClick = onOpenQueue) {
+            Icon(Icons.Filled.QueueMusic, contentDescription = "播放列表")
+        }
     }
-    val reason = when (state.qualityFallback) {
-        QualityFallback.NONE -> ""
-        QualityFallback.UNAVAILABLE -> "（本视频无无损音轨，或账号无权限）"
-        QualityFallback.SPEED_INCOMPATIBLE -> "（倍速超过 1.5×，已回退）"
-    }
-    Text(
-        "音质：$quality$reason",
-        style = MaterialTheme.typography.labelSmall,
-    )
 }
 
 /**
@@ -548,8 +964,17 @@ private fun QualityLine(state: PlaybackState) {
  * **拖动期间必须用本地状态。** 250ms 的 `pushState()` 轮询会不停推来播放器的真实位置，
  * 若 `Slider` 直接绑 `state.positionMs`，手指还没松开就会被拽回去。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProgressBar(state: PlaybackState, onSeek: (Long) -> Unit) {
+private fun ProgressBar(
+    state: PlaybackState,
+    onSeek: (Long) -> Unit,
+    // 全屏黑底下默认配色（蓝色滑块 + 深色文字）太扎眼，调用方按需覆盖。
+    sliderColors: SliderColors = SliderDefaults.colors(),
+    labelColor: Color = Color.Unspecified,
+    // 全屏下默认的轨道粗细 + 圆点大小太显眼，调用方可以要一份更细的。
+    compact: Boolean = false,
+) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
@@ -561,7 +986,6 @@ private fun ProgressBar(state: PlaybackState, onSeek: (Long) -> Unit) {
         Slider(
             value = value,
             onValueChange = {
-                // 只改本地，不下发 seek——否则每一帧都是一次跳转
                 dragging = true
                 dragValue = it
             },
@@ -571,195 +995,253 @@ private fun ProgressBar(state: PlaybackState, onSeek: (Long) -> Unit) {
             },
             valueRange = 0f..max,
             enabled = duration > 0,
+            colors = sliderColors,
+            thumb = {
+                Box(
+                    Modifier
+                        .size(if (compact) 10.dp else 20.dp)
+                        .background(sliderColors.thumbColor, CircleShape),
+                )
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    colors = sliderColors,
+                    modifier = Modifier.height(if (compact) 2.dp else 4.dp),
+                )
+            },
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration(value.toLong()), style = MaterialTheme.typography.labelSmall)
-            Text(formatDuration(duration), style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
-
-private fun buildPlayerActions(
-    state: PlaybackState,
-    surfaceView: SurfaceView,
-    onTogglePlayPause: () -> Unit,
-    onPresentationChange: (PresentationMode, SurfaceView?) -> Unit,
-    onSkipPrevious: () -> Unit,
-    onSkipNext: () -> Unit,
-    onCyclePlayMode: () -> Unit,
-    onEnterPip: () -> Unit,
-    onEnterFullscreen: () -> Unit,
-): List<PlayerAction> = buildList {
-    add(
-        PlayerAction(
-            key = "play",
-            label = if (state.isPlaying) "暂停" else "播放",
-            onClick = onTogglePlayPause,
-        ),
-    )
-    add(
-        if (state.presentation == PresentationMode.NONE) {
-            PlayerAction("presentation", "切「看」", primary = true) {
-                onPresentationChange(PresentationMode.INLINE, surfaceView)
-            }
-        } else {
-            PlayerAction("presentation", "退回「听」", primary = true) {
-                onPresentationChange(PresentationMode.NONE, null)
-            }
-        },
-    )
-    add(PlayerAction("previous", "上一首", enabled = state.hasPrevious, onClick = onSkipPrevious))
-    add(PlayerAction("next", "下一首", enabled = state.hasNext, onClick = onSkipNext))
-    add(
-        PlayerAction(
-            key = "playMode",
-            label = when (state.playMode) {
-                com.biliseek.core.player.PlayMode.SEQUENTIAL -> "顺序"
-                com.biliseek.core.player.PlayMode.REPEAT_ALL -> "列表循环"
-                com.biliseek.core.player.PlayMode.REPEAT_ONE -> "单曲"
-                com.biliseek.core.player.PlayMode.SHUFFLE -> "随机"
-            },
-            onClick = onCyclePlayMode,
-        ),
-    )
-    if (state.presentation != PresentationMode.NONE) {
-        add(PlayerAction("fullscreen", "全屏", onClick = onEnterFullscreen))
-        add(PlayerAction("pip", "画中画", onClick = onEnterPip))
-    }
-    // 后续「歌词」「下载」在此追加即可，无需改动布局
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PlayerActionRow(actions: List<PlayerAction>) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        actions.forEach { action ->
-            if (action.primary) {
-                Button(onClick = action.onClick, enabled = action.enabled) { Text(action.label) }
-            } else {
-                OutlinedButton(onClick = action.onClick, enabled = action.enabled) {
-                    Text(action.label)
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SpeedRow(current: Float, onSetSpeed: (Float) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("倍速", style = MaterialTheme.typography.labelMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SPEEDS.forEach { speed ->
-                FilterChip(
-                    // 浮点相等不可靠，比差值
-                    selected = kotlin.math.abs(current - speed) < 0.01f,
-                    onClick = { onSetSpeed(speed) },
-                    label = { Text("${speed}×") },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SleepTimerRow(state: PlaybackState, onSetSleepTimer: (Long) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                buildString {
-                    append("睡眠定时")
-                    state.sleepTimerRemainingMs?.let { append(" · 剩余 ${formatDuration(it)}") }
-                    if (state.sleepTimerEndOfTrack) append(" · 播完当前")
-                },
-                style = MaterialTheme.typography.labelMedium,
-            )
-            if (state.sleepTimerActive) {
-                TextButton(onClick = { onSetSleepTimer(0) }) { Text("取消") }
-            }
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SLEEP_MINUTES.forEach { minutes ->
-                FilterChip(
-                    selected = false,
-                    onClick = { onSetSleepTimer(minutes * 60_000L) },
-                    label = { Text("$minutes 分钟") },
-                )
-            }
-            FilterChip(
-                selected = state.sleepTimerEndOfTrack,
-                onClick = { onSetSleepTimer(-1) },
-                label = { Text("播完当前") },
-            )
+            Text(formatDuration(value.toLong()), style = MaterialTheme.typography.labelSmall, color = labelColor)
+            Text(formatDuration(duration), style = MaterialTheme.typography.labelSmall, color = labelColor)
         }
     }
 }
 
 /**
- * 队列面板。
+ * 三点菜单 ModalBottomSheet（BBPlayer `PlayerFunctionalMenu` 同款架构）。
  *
- * 早期只有一行「队列 N / M」——知道自己在队列里，却看不见队列有什么、也跳不过去。
- * 默认收起：多 P 视频动辄几十上百条，展开后会把控制区顶出屏幕。
+ * 调研要点：
+ * - 顶部高频方块按钮（倍速/定时/下载）+ Divider + 低频列表项
+ * - Curried closer：所有菜单项先 onDismiss 再执行动作（避免 sheet 动画冲突）
+ * - Haptics：菜单项点击触发 LongPress
  */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun QueuePanel(state: PlaybackState, onSkipTo: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
+private fun PlayerMoreMenuSheet(
+    state: PlaybackState,
+    onDismiss: () -> Unit,
+    onSetSpeed: (Float) -> Unit,
+    onSetSleepTimer: (Long) -> Unit,
+    onDownload: () -> Unit,
+    onAddToList: () -> Unit,
+    onViewAuthor: () -> Unit,
+    onShare: () -> Unit,
+) {
+    var showSpeedSheet by remember { mutableStateOf(false) }
+    var showTimerSheet by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+    fun closeThen(action: () -> Unit) {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        onDismiss()
+        action()
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                "队列 ${state.queueIndex + 1} / ${state.queue.size}",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "收起" else "展开")
-            }
-        }
-        if (!expanded) return@Column
-
-        state.queue.forEachIndexed { index, request ->
-            val current = index == state.queueIndex
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { onSkipTo(index) }
-                    .padding(vertical = 8.dp),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    "${index + 1}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                MenuQuickButton(
+                    icon = Icons.Filled.Speed,
+                    label = "倍速",
+                    onClick = { showSpeedSheet = true },
+                    modifier = Modifier.weight(1f),
                 )
-                Text(
-                    request.title.ifBlank { "未命名" },
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (current) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
+                MenuQuickButton(
+                    icon = Icons.Filled.Timer,
+                    label = "定时关闭",
+                    onClick = { showTimerSheet = true },
+                    modifier = Modifier.weight(1f),
                 )
-                if (current) {
-                    Text("正在播放", style = MaterialTheme.typography.labelSmall)
+                MenuQuickButton(
+                    icon = Icons.Filled.Download,
+                    label = "下载",
+                    onClick = { closeThen(onDownload) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+            MenuItemRow(Icons.Filled.PlaylistAdd, "添加到列表") { closeThen(onAddToList) }
+            MenuItemRow(Icons.Filled.Person, "查看作者") { closeThen(onViewAuthor) }
+            MenuItemRow(Icons.Filled.Share, "分享") { closeThen(onShare) }
+        }
+    }
+
+    if (showSpeedSheet) {
+        SpeedSelectionSheet(
+            currentSpeed = state.speed,
+            onSpeedSelected = { onSetSpeed(it); showSpeedSheet = false },
+            onDismiss = { showSpeedSheet = false },
+        )
+    }
+
+    if (showTimerSheet) {
+        TimerSelectionSheet(
+            isActive = state.sleepTimerActive,
+            remainingMs = state.sleepTimerRemainingMs,
+            endOfTrack = state.sleepTimerEndOfTrack,
+            onSetTimer = { onSetSleepTimer(it); showTimerSheet = false },
+            onDismiss = { showTimerSheet = false },
+        )
+    }
+}
+
+@Composable
+private fun MenuQuickButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(vertical = 16.dp),
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun MenuItemRow(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun SpeedSelectionSheet(
+    currentSpeed: Float,
+    onSpeedSelected: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("倍速播放", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SPEEDS.forEach { speed ->
+                    FilterChip(
+                        selected = kotlin.math.abs(currentSpeed - speed) < 0.01f,
+                        onClick = { onSpeedSelected(speed) },
+                        label = { Text("${speed}×") },
+                    )
                 }
             }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun TimerSelectionSheet(
+    isActive: Boolean,
+    remainingMs: Long?,
+    endOfTrack: Boolean,
+    onSetTimer: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("定时关闭", style = MaterialTheme.typography.titleMedium)
+                if (isActive) {
+                    TextButton(onClick = { onSetTimer(0) }) { Text("取消") }
+                }
+            }
+            if (isActive) {
+                Text(
+                    buildString {
+                        append("剩余 ")
+                        remainingMs?.let { append(formatDuration(it)) }
+                        if (endOfTrack) append(" · 播完当前")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SLEEP_MINUTES.forEach { minutes ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onSetTimer(minutes * 60_000L) },
+                        label = { Text("$minutes 分钟") },
+                    )
+                }
+                FilterChip(
+                    selected = endOfTrack,
+                    onClick = { onSetTimer(-1) },
+                    label = { Text("播完当前") },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 视频按原始宽高比居中显示、不拉伸——比例未知时（还没拿到首帧尺寸）先铺满兜底，
+ * 拿到之后立刻纠正。内联 CoverArea 和全屏 overlay 共用同一份逻辑。
+ */
+private fun videoSurfaceModifier(videoAspectRatio: Float?): Modifier =
+    if (videoAspectRatio != null && videoAspectRatio > 0f) {
+        Modifier.aspectRatio(videoAspectRatio)
+    } else {
+        Modifier.fillMaxSize()
+    }
 
 private val SPEEDS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 private val SLEEP_MINUTES = listOf(15, 30, 60)
