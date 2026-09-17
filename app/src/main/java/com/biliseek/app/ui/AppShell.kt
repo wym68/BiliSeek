@@ -47,6 +47,12 @@ enum class Destination(val route: String, val label: String) {
     FOLLOWING_LIST("followingList", "关注列表"),
     /** 消息中心（push，不入底部导航）。 */
     MESSAGES("messages", "消息"),
+    /** 回复与@ 子页面（push，从消息中心图标进入）。 */
+    MESSAGE_REPLY("messageReply", "回复与@"),
+    /** 收到喜欢 子页面（push）。 */
+    MESSAGE_LIKE("messageLike", "收到喜欢"),
+    /** 新增粉丝 子页面（push）。 */
+    MESSAGE_FOLLOWER("messageFollower", "新增粉丝"),
     /** 私信聊天页（push，参数化 talkerId/peerName/peerFace）。 */
     PRIVATE_CHAT("privateChat/{talkerId}/{peerName}/{peerFace}", "私信"),
     ;
@@ -117,6 +123,12 @@ fun AppShell(
     openFollowingListRequests: SharedFlow<Unit> = MutableSharedFlow(),
     /** 打开消息中心的信号。AppShell 订阅后 push MESSAGES destination。 */
     openMessagesRequests: SharedFlow<Unit> = MutableSharedFlow(),
+    /** 打开"回复与@"子页面的信号。AppShell 订阅后 push MESSAGE_REPLY destination。 */
+    openReplyFeedRequests: SharedFlow<Unit> = MutableSharedFlow(),
+    /** 打开"收到喜欢"子页面的信号。AppShell 订阅后 push MESSAGE_LIKE destination。 */
+    openLikeFeedRequests: SharedFlow<Unit> = MutableSharedFlow(),
+    /** 打开"新增粉丝"子页面的信号。AppShell 订阅后 push MESSAGE_FOLLOWER destination。 */
+    openFollowerFeedRequests: SharedFlow<Unit> = MutableSharedFlow(),
     /** 进入私信聊天页的信号（参数化）。AppShell 订阅后 push PRIVATE_CHAT destination。 */
     openPrivateChatRequests: SharedFlow<com.biliseek.app.AppViewModel.PrivateChatNav> = MutableSharedFlow(),
     /** 当前列表 tab 选中的页。 */
@@ -133,6 +145,12 @@ fun AppShell(
     followingListContent: @Composable (onBack: () -> Unit) -> Unit = { },
     /** 消息中心页内容。onBack 由 AppShell 传入。 */
     messagesContent: @Composable (onBack: () -> Unit) -> Unit = { },
+    /** 回复与@ 子页面内容。onBack 由 AppShell 传入。 */
+    replyFeedContent: @Composable (onBack: () -> Unit) -> Unit = { },
+    /** 收到喜欢 子页面内容。onBack 由 AppShell 传入。 */
+    likeFeedContent: @Composable (onBack: () -> Unit) -> Unit = { },
+    /** 新增粉丝 子页面内容。onBack 由 AppShell 传入。 */
+    followerFeedContent: @Composable (onBack: () -> Unit) -> Unit = { },
     /** 私信聊天页内容。onBack 由 AppShell 传入。 */
     privateChatContent: @Composable (talkerId: Long, peerName: String, peerFace: String, onBack: () -> Unit) -> Unit = { _, _, _, _ -> },
 ) {
@@ -192,6 +210,33 @@ fun AppShell(
         }
     }
 
+    // "回复与@" 子页面导航：收到信号后 push MESSAGE_REPLY destination。
+    LaunchedEffect(openReplyFeedRequests) {
+        openReplyFeedRequests.collect {
+            navController.navigate(Destination.MESSAGE_REPLY.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // "收到喜欢" 子页面导航：收到信号后 push MESSAGE_LIKE destination。
+    LaunchedEffect(openLikeFeedRequests) {
+        openLikeFeedRequests.collect {
+            navController.navigate(Destination.MESSAGE_LIKE.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // "新增粉丝" 子页面导航：收到信号后 push MESSAGE_FOLLOWER destination。
+    LaunchedEffect(openFollowerFeedRequests) {
+        openFollowerFeedRequests.collect {
+            navController.navigate(Destination.MESSAGE_FOLLOWER.route) {
+                launchSingleTop = true
+            }
+        }
+    }
+
     // 私信聊天导航：参数化路径 + launchSingleTop。
     LaunchedEffect(openPrivateChatRequests) {
         openPrivateChatRequests.collect { nav ->
@@ -231,7 +276,8 @@ fun AppShell(
                             // PLAYER / UP_SPACE / FOLLOWING_LIST 不在底部导航中点击跳转，仅作为 nav destination 存在
                             if (dest == Destination.PLAYER || dest == Destination.UP_SPACE ||
                                 dest == Destination.FOLLOWING_LIST || dest == Destination.MESSAGES ||
-                                dest == Destination.PRIVATE_CHAT
+                                dest == Destination.PRIVATE_CHAT || dest == Destination.MESSAGE_REPLY ||
+                                dest == Destination.MESSAGE_LIKE || dest == Destination.MESSAGE_FOLLOWER
                             ) return@forEach
                             NavigationBarItem(
                                 selected = currentRoute?.hierarchy?.any { it.route == dest.route } == true,
@@ -296,6 +342,15 @@ fun AppShell(
                 }
                 composable(Destination.MESSAGES.route) {
                     messagesContent({ navController.popBackStack() })
+                }
+                composable(Destination.MESSAGE_REPLY.route) {
+                    replyFeedContent({ navController.popBackStack() })
+                }
+                composable(Destination.MESSAGE_LIKE.route) {
+                    likeFeedContent({ navController.popBackStack() })
+                }
+                composable(Destination.MESSAGE_FOLLOWER.route) {
+                    followerFeedContent({ navController.popBackStack() })
                 }
                 composable(
                     Destination.PRIVATE_CHAT.route,
