@@ -61,16 +61,22 @@ fun PrivateChatScreen(
     LaunchedEffect(Unit) { onOpen() }
 
     val listState = rememberLazyListState()
+    // reverseLayout=true + items(state.messages.reversed()): 显示下标 0 = 最新消息（贴底部）,
+    // 下标越大越旧（贴顶部）。所以"滚到最新"要滚到下标 0，不是 size-1。
     LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
+        if (state.messages.isNotEmpty()) listState.animateScrollToItem(0)
     }
-    LaunchedEffect(listState) {
+    // 用 state.messages.size/hasMore/isLoadingMore 做 key：LaunchedEffect 只在 key 变化时才重启，
+    // 若只 key 在 listState（整个会话期间不变）上，协程会永远绑死第一次组合时的 state 快照，
+    // hasMore/isLoadingMore 永远读到初始值，onLoadMore 实际上永远不会触发。
+    LaunchedEffect(listState, state.messages.size, state.hasMore, state.isLoadingMore) {
         snapshotFlow {
             val info = listState.layoutInfo
-            val firstVisible = info.visibleItemsInfo.firstOrNull()?.index ?: 0
-            firstVisible <= 1
-        }.collect { nearTop ->
-            if (nearTop && state.hasMore && !state.isLoadingMore) onLoadMore()
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            // 显示下标越大越旧，接近末尾（size-1）= 滚到了最旧的一头，该加载更早的历史了。
+            lastVisible >= state.messages.size - 2
+        }.collect { nearOldest ->
+            if (nearOldest && state.hasMore && !state.isLoadingMore) onLoadMore()
         }
     }
 

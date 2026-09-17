@@ -2799,7 +2799,9 @@ return pages.map { p ->
             network.repository.loadMoreSessionMessages(talkerId, beginSeqno)
                 .onSuccess { data ->
                     val newMessages = data.messages.sortedBy { it.msgSeqno }
-                    val merged = if (isLoadMore) cur.messages + newMessages else newMessages
+                    // isLoadMore 时 newMessages 是用 beginSeqno=minSeqno-1 拉到的更早历史，
+                    // 时间上在 cur.messages 之前，要拼在前面才是按时间升序（旧→新）。
+                    val merged = if (isLoadMore) newMessages + cur.messages else newMessages
                     updateChat(talkerId) {
                         it.copy(
                             messages = merged,
