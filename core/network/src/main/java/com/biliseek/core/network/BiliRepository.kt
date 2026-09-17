@@ -982,24 +982,60 @@ class BiliRepository internal constructor(
 
     // ── 消息中心（私信 + 互动消息）──────────────────────────
 
-    /**
-     * 并发拉取消息中心四块数据（回复与@ / 收到喜欢 / 新增粉丝 / 私信会话）。
-     *
-     * 任一块失败不影响其他块——返回的 `MessageHub` 里对应块为 null（UI 显示「该区块加载失败」）。
-     * 整块由 `RequestThrottle.MESSAGE` 桶串行化（一次只发一块），避免触发 B 站风控。
-     */
-    suspend fun messageHub(): Result<MessageHub> = runCatching {
+    /** 私信会话列表。消息中心页面主体，懒加载——独立于三个子页面。 */
+    suspend fun privateSessions(): Result<com.biliseek.core.network.dto.SessionListData> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.getSessions() }
+        require(response.code == 0) { "私信会话加载失败：code=${response.code} ${response.message}" }
+        response.data ?: com.biliseek.core.network.dto.SessionListData()
+    }
+
+    /** 回复与@ 列表。「回复与@」子页面专用，懒加载——只有用户点开这个子页面才请求。 */
+    suspend fun replyFeed(): Result<com.biliseek.core.network.dto.ReplyFeedData> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.getMsgfeedReply() }
+        require(response.code == 0) { "回复与@加载失败：code=${response.code} ${response.message}" }
+        response.data ?: com.biliseek.core.network.dto.ReplyFeedData()
+    }
+
+    /** 收到喜欢 列表。「收到喜欢」子页面专用，懒加载。 */
+    suspend fun likeFeed(): Result<com.biliseek.core.network.dto.LikeFeedData> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.getMsgfeedLike() }
+        require(response.code == 0) { "收到喜欢加载失败：code=${response.code} ${response.message}" }
+        response.data ?: com.biliseek.core.network.dto.LikeFeedData()
+    }
+
+    /** 新增粉丝 列表（`x/relation/followers`）。「新增粉丝」子页面专用，懒加载。 */
+    suspend fun followerFeed(): Result<com.biliseek.core.network.dto.FollowersData> = runCatching {
         val mid = requireLoggedInMid()
         authGate.awaitReady()
-        val reply = safeCall("回复与@") { api.getMsgfeedReply().data }
-        val like = safeCall("收到喜欢") { api.getMsgfeedLike().data }
-        val follower = safeCall("粉丝") {
-            val resp = api.getFollowers(vmid = mid)
-            require(resp.code == 0) { "粉丝列表失败：code=${resp.code} ${resp.message}" }
-            resp.data
-        }
-        val sessions = safeCall("私信会话") { api.getSessions().data }
-        MessageHub(reply = reply, like = like, follower = follower, sessions = sessions)
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.getFollowers(vmid = mid) }
+        require(response.code == 0) { "新增粉丝加载失败：code=${response.code} ${response.message}" }
+        response.data ?: com.biliseek.core.network.dto.FollowersData()
     }
 
     /** 私信历史消息分页加载。`beginSeqno=0` 拉首屏。 */
@@ -1109,35 +1145,36 @@ class BiliRepository internal constructor(
     }
 
     /**
-     * 入口未读小红点：互动未读 + 私信未读。
+     * 入口未读角标聚合：互动未读（回复/@/赞）+ 私信未读。
      * `api.bilibili.com x/msgfeed/unread` + `api.vc.bilibili.com session_svr/single_unread`。
-     * 失败时返回 0，UI 不报错（小红点是 best-effort）。
+     * 失败时返回全零，UI 不报错（角标是 best-effort）。
      */
-    suspend fun messageUnread(): Int = runCatching {
+    suspend fun messageUnread(): MessageUnreadSummary = runCatching {
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
         val msgfeed = runCatching { api.getMsgfeedUnread().data }.getOrNull()
         val session = runCatching { api.getSessionUnread().data }.getOrNull()
-        (msgfeed?.let { it.at + it.reply + it.like } ?: 0) +
-            (session?.let { it.unfollowUnread + it.followUnread } ?: 0)
-    }.getOrDefault(0)
+        MessageUnreadSummary(
+            reply = msgfeed?.reply ?: 0,
+            at = msgfeed?.at ?: 0,
+            like = msgfeed?.like ?: 0,
+            sessionUnread = (session?.unfollowUnread ?: 0) + (session?.followUnread ?: 0),
+        )
+    }.getOrDefault(MessageUnreadSummary())
 
-    /** 把会话列表 + 历史消息 + 互动列表都视为「消息中心」，集中放在一个数据类返回。 */
-    data class MessageHub(
-        val reply: com.biliseek.core.network.dto.ReplyFeedData?,
-        val like: com.biliseek.core.network.dto.LikeFeedData?,
-        val follower: com.biliseek.core.network.dto.FollowersData?,
-        val sessions: com.biliseek.core.network.dto.SessionListData?,
-    )
-
-    /** 包裹一个会 throw 的调用，把异常转成 null（局部错误隔离）。
-     *  `block` 在调用处展开，可以调用 suspend 函数。 */
-    private inline fun <T> safeCall(label: String, block: () -> T?): T? = try {
-        block()
-    } catch (e: Exception) {
-        android.util.Log.w(TAG, "$label 失败：${e.message}")
-        null
+    /**
+     * 入口未读角标的结构化聚合。`total` 喂动态页铃铛；`replyAtBadge`/`like`
+     * 分别喂消息中心「回复与@」「收到喜欢」两个图标角标（「新增粉丝」没有未读概念，不带角标）。
+     */
+    data class MessageUnreadSummary(
+        val reply: Int = 0,
+        val at: Int = 0,
+        val like: Int = 0,
+        val sessionUnread: Int = 0,
+    ) {
+        val total: Int get() = reply + at + like + sessionUnread
+        val replyAtBadge: Int get() = reply + at
     }
 
     private companion object {
