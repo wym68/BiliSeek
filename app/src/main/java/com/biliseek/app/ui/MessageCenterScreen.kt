@@ -9,76 +9,70 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.LoginPanel
 import com.biliseek.app.data.RemoteListState
+import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
-import com.biliseek.core.network.dto.FollowerEntry
-import com.biliseek.core.network.dto.LikeItem
-import com.biliseek.core.network.dto.ReplyAtItem
 import com.biliseek.core.network.dto.Session
 import com.biliseek.core.network.normalizeCoverUrl
 
 /**
- * 消息中心页。登录后展示三 tab 互动消息 + 私信会话列表。
- * 模板仿 WatchLaterScreen / FollowingListScreen。
+ * 消息中心页。三个入口图标（回复与@/收到喜欢/新增粉丝，前两个带未读角标）+
+ * 私信会话列表主体。图标点击跳到各自独立的子页面，对齐真实 B 站的导航结构
+ * （不是内嵌 TabRow 切换）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessageCenterScreen(
-    hub: com.biliseek.app.AppViewModel.MessageHubState,
+    sessions: RemoteListState<Session>,
+    unreadSummary: BiliRepository.MessageUnreadSummary,
     session: BiliSession,
     loginState: LoginState,
-    unreadCount: Int,
     onInit: () -> Unit,
     onRetry: () -> Unit,
     onClose: () -> Unit,
     onStartLogin: () -> Unit,
     onCancelLogin: () -> Unit,
     onOpenChat: (Session) -> Unit,
-    onPlayReplyAtItem: (ReplyAtItem) -> Unit,
-    onPlayLikeItem: (LikeItem) -> Unit,
-    onOpenFollower: (FollowerEntry) -> Unit,
-    onSubmitReply: (aid: Long, root: Long, parent: Long, content: String, onResult: (Boolean, String?) -> Unit) -> Unit,
+    onOpenReplyFeed: () -> Unit,
+    onOpenLikeFeed: () -> Unit,
+    onOpenFollowerFeed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(Unit) { onInit() }
-    var selectedTab by remember { mutableStateOf(MessageTab.REPLY) }
-    var pendingReply by remember { mutableStateOf<ReplyAtItem?>(null) }
-    var replyDraft by remember { mutableStateOf("") }
-    var replySubmitting by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
         Row(
@@ -104,97 +98,59 @@ fun MessageCenterScreen(
             return@Column
         }
 
-        TabRow(selectedTabIndex = selectedTab.ordinal) {
-            MessageTab.entries.forEachIndexed { idx, tab ->
-                Tab(
-                    selected = selectedTab == tab,
-                    onClick = { selectedTab = tab },
-                    text = { Text(tab.label) },
-                )
-            }
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            MessageEntryIcon(
+                icon = Icons.Filled.Email,
+                label = "回复与@",
+                badgeCount = unreadSummary.replyAtBadge,
+                onClick = onOpenReplyFeed,
+            )
+            MessageEntryIcon(
+                icon = Icons.Filled.ThumbUp,
+                label = "收到喜欢",
+                badgeCount = unreadSummary.like,
+                onClick = onOpenLikeFeed,
+            )
+            MessageEntryIcon(
+                icon = Icons.Filled.Person,
+                label = "新增粉丝",
+                badgeCount = 0,
+                onClick = onOpenFollowerFeed,
+            )
         }
+        HorizontalDivider()
 
         val refreshState = rememberPullToRefreshState()
         Box(Modifier.fillMaxSize()) {
             PullToRefreshBox(
-                isRefreshing = hub.isLoading,
+                isRefreshing = sessions.isLoading,
                 onRefresh = onRetry,
                 state = refreshState,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                    val current = when (selectedTab) {
-                        MessageTab.REPLY -> hub.reply
-                        MessageTab.LIKE -> hub.like
-                        MessageTab.FOLLOWER -> hub.follower
-                    }
                     when {
-                        current.isLoading && current.items.isEmpty() -> item {
+                        sessions.isLoading && sessions.items.isEmpty() -> item {
                             Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
-                        current.errorMessage != null && current.items.isEmpty() -> item {
+                        sessions.errorMessage != null && sessions.items.isEmpty() -> item {
                             Column(Modifier.fillMaxWidth().padding(24.dp), Arrangement.spacedBy(8.dp)) {
-                                Text("加载失败：${current.errorMessage}", color = MaterialTheme.colorScheme.error)
+                                Text("加载失败：${sessions.errorMessage}", color = MaterialTheme.colorScheme.error)
                                 TextButton(onClick = onRetry) { Text("重试") }
                             }
                         }
-                        current.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                Text("暂无内容")
-                            }
-                        }
-                        else -> {
-                            items(current.items, key = { itemKey(it) }) { item ->
-                                val typed = item
-                                MessageItemRow(
-                                    item = typed,
-                                    onClick = when (selectedTab) {
-                                        MessageTab.REPLY -> {
-                                            { onPlayReplyAtItem(typed as ReplyAtItem) }
-                                        }
-                                        MessageTab.LIKE -> {
-                                            { onPlayLikeItem(typed as LikeItem) }
-                                        }
-                                        MessageTab.FOLLOWER -> {
-                                            { onOpenFollower(typed as FollowerEntry) }
-                                        }
-                                    },
-                                    onLongClick = if (selectedTab == MessageTab.REPLY) {
-                                        {
-                                            (typed as ReplyAtItem).let { r ->
-                                                pendingReply = r
-                                                replyDraft = ""
-                                            }
-                                        }
-                                    } else null,
-                                )
-                                HorizontalDivider()
-                            }
-                        }
-                    }
-
-                    item {
-                        Text(
-                            "私信",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 8.dp),
-                        )
-                    }
-                    when {
-                        hub.sessions.isLoading && hub.sessions.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        }
-                        hub.sessions.items.isEmpty() -> item {
+                        sessions.items.isEmpty() -> item {
                             Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
                                 Text("暂无私信")
                             }
                         }
-                        else -> items(hub.sessions.items, key = { it.talkerId }) { session ->
-                            SessionRow(session = session, onClick = { onOpenChat(session) })
+                        else -> items(sessions.items, key = { it.talkerId }) { s ->
+                            SessionRow(session = s, onClick = { onOpenChat(s) })
                             HorizontalDivider()
                         }
                     }
@@ -202,100 +158,28 @@ fun MessageCenterScreen(
             }
         }
     }
-
-    if (pendingReply != null) {
-        ModalBottomSheet(onDismissRequest = { pendingReply = null }) {
-            Column(Modifier.padding(16.dp)) {
-                Text("回复 ${pendingReply?.user?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text("「${pendingReply?.content.orEmpty()}」", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = replyDraft,
-                    onValueChange = { replyDraft = it },
-                    placeholder = { Text("写下你的回复…") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(onClick = { pendingReply = null }) { Text("取消") }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = {
-                            val target = pendingReply ?: return@TextButton
-                            replySubmitting = true
-                            onSubmitReply(
-                                target.sourceId,
-                                target.rootId,
-                                target.parentId,
-                                replyDraft,
-                            ) { ok, _ ->
-                                replySubmitting = false
-                                if (ok) {
-                                    pendingReply = null
-                                    replyDraft = ""
-                                }
-                            }
-                        },
-                        enabled = !replySubmitting && replyDraft.isNotBlank(),
-                    ) { Text(if (replySubmitting) "发送中…" else "发送") }
-                }
-            }
-        }
-    }
 }
 
 @Composable
-private fun MessageItemRow(
-    item: Any,
+private fun MessageEntryIcon(
+    icon: ImageVector,
+    label: String,
+    badgeCount: Int,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)?,
 ) {
-    val avatar = when (item) {
-        is ReplyAtItem -> item.user?.face.orEmpty()
-        is LikeItem -> item.user?.face.orEmpty()
-        is FollowerEntry -> item.face
-        else -> ""
-    }
-    val name = when (item) {
-        is ReplyAtItem -> item.user?.name.orEmpty()
-        is LikeItem -> item.user?.name.orEmpty()
-        is FollowerEntry -> item.uname
-        else -> ""
-    }
-    val body = when (item) {
-        is ReplyAtItem -> "评论：${item.content}"
-        is LikeItem -> "赞了你的视频：${item.title}"
-        is FollowerEntry -> item.sign.ifBlank { "关注了你" }
-        else -> ""
-    }
-    val time = when (item) {
-        is ReplyAtItem -> item.replyTime
-        is LikeItem -> item.likeTime
-        is FollowerEntry -> item.mtime
-        else -> 0L
-    }
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AsyncImage(
-            model = normalizeCoverUrl(avatar),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(44.dp).clip(CircleShape),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(body, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        IconButton(onClick = onClick) {
+            BadgedBox(
+                badge = {
+                    if (badgeCount > 0) {
+                        Badge { Text(minOf(badgeCount, 99).toString()) }
+                    }
+                },
+            ) {
+                Icon(imageVector = icon, contentDescription = label)
+            }
         }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = if (time > 0L) formatRelativeTime(time * 1000) else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
+        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -326,19 +210,6 @@ private fun SessionRow(session: Session, onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.outline,
         )
     }
-}
-
-private enum class MessageTab(val label: String) {
-    REPLY("回复与@"),
-    LIKE("收到喜欢"),
-    FOLLOWER("新增粉丝"),
-}
-
-private fun itemKey(item: Any): String = when (item) {
-    is ReplyAtItem -> "reply-${item.id}"
-    is LikeItem -> "like-${item.id}"
-    is FollowerEntry -> "follower-${item.mid}"
-    else -> item.hashCode().toString()
 }
 
 private fun extractTextPreview(rawJson: String): String {
