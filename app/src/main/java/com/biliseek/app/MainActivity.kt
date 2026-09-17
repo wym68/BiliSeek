@@ -34,7 +34,10 @@ import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.DayHistoryScreen
 import com.biliseek.app.ui.Destination
 import com.biliseek.app.ui.DownloadDialog
+import com.biliseek.app.ui.FollowerScreen
+import com.biliseek.app.ui.LikeScreen
 import com.biliseek.app.ui.MessageCenterScreen
+import com.biliseek.app.ui.ReplyAtScreen
 import com.biliseek.app.ui.PrivateChatScreen
 import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.app.toSearchVideo
@@ -125,7 +128,7 @@ class MainActivity : ComponentActivity() {
                 val openedSeries by viewModel.openedSeries.collectAsState()
                 val collectedList by viewModel.collectedList.collectAsState()
                 val collectedListState by viewModel.collectedListState.collectAsState()
-                val unreadCount by viewModel.unreadCount.collectAsState()
+                val unreadSummary by viewModel.unreadSummary.collectAsState()
 
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置（搜索结果 / 多 P 分 P / UP 投稿共用）
@@ -215,6 +218,9 @@ class MainActivity : ComponentActivity() {
                     openUpSpaceRequests = openUpSpaceRequests,
                     openFollowingListRequests = openFollowingListRequests,
                     openMessagesRequests = viewModel.openMessagesRequests,
+                    openReplyFeedRequests = viewModel.openReplyFeedRequests,
+                    openLikeFeedRequests = viewModel.openLikeFeedRequests,
+                    openFollowerFeedRequests = viewModel.openFollowerFeedRequests,
                     openPrivateChatRequests = viewModel.openPrivateChatRequests,
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
@@ -276,7 +282,7 @@ class MainActivity : ComponentActivity() {
                             onOpenFollowList = {
                                 openFollowingListRequests.tryEmit(Unit)
                             },
-                            unreadCount = unreadCount,
+                            unreadCount = unreadSummary.total,
                             onOpenMessages = viewModel::openMessages,
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
@@ -550,31 +556,56 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     messagesContent = { onBack ->
-                        val hub by viewModel.messageHub.collectAsState()
+                        val sessions by viewModel.privateSessions.collectAsState()
                         MessageCenterScreen(
-                            hub = hub,
+                            sessions = sessions,
+                            unreadSummary = unreadSummary,
                             session = session,
                             loginState = loginState,
-                            unreadCount = unreadCount,
-                            onInit = viewModel::retryMessageHub,
-                            onRetry = viewModel::retryMessageHub,
-                            onClose = {
-                                viewModel.closeMessages()
-                                onBack()
-                            },
+                            onInit = viewModel::retryPrivateSessions,
+                            onRetry = viewModel::retryPrivateSessions,
+                            onClose = onBack,
                             onStartLogin = viewModel::startLogin,
                             onCancelLogin = viewModel::cancelLogin,
-                            onOpenChat = { s ->
-                                viewModel.openPrivateChat(s)
-                            },
-                            onPlayReplyAtItem = viewModel::playReplyAtItem,
-                            onPlayLikeItem = viewModel::playLikeItem,
-                            onOpenFollower = { f ->
-                                viewModel.openFollowerSpace(f)
-                                openUpSpaceRequests.tryEmit(Unit)
-                            },
+                            onOpenChat = { s -> viewModel.openPrivateChat(s) },
+                            onOpenReplyFeed = viewModel::openReplyFeed,
+                            onOpenLikeFeed = viewModel::openLikeFeed,
+                            onOpenFollowerFeed = viewModel::openFollowerFeed,
+                        )
+                    },
+                    replyFeedContent = { onBack ->
+                        val replyState by viewModel.replyFeed.collectAsState()
+                        ReplyAtScreen(
+                            state = replyState,
+                            onInit = viewModel::retryReplyFeed,
+                            onRetry = viewModel::retryReplyFeed,
+                            onBack = onBack,
+                            onPlayItem = viewModel::playReplyAtItem,
                             onSubmitReply = { aid, root, parent, content, onResult ->
                                 viewModel.submitCommentReply(aid, root, parent, content, onResult)
+                            },
+                        )
+                    },
+                    likeFeedContent = { onBack ->
+                        val likeState by viewModel.likeFeed.collectAsState()
+                        LikeScreen(
+                            state = likeState,
+                            onInit = viewModel::retryLikeFeed,
+                            onRetry = viewModel::retryLikeFeed,
+                            onBack = onBack,
+                            onPlayItem = viewModel::playLikeItem,
+                        )
+                    },
+                    followerFeedContent = { onBack ->
+                        val followerState by viewModel.followerFeed.collectAsState()
+                        FollowerScreen(
+                            state = followerState,
+                            onInit = viewModel::retryFollowerFeed,
+                            onRetry = viewModel::retryFollowerFeed,
+                            onBack = onBack,
+                            onOpenSpace = { f ->
+                                viewModel.openFollowerSpace(f)
+                                openUpSpaceRequests.tryEmit(Unit)
                             },
                         )
                     },
