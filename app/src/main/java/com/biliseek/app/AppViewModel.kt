@@ -2904,7 +2904,7 @@ return pages.map { p ->
                     cid = null,
                     title = item.title.ifBlank { "收到喜欢的视频" },
                     coverUrl = "",
-                    author = item.user?.name.orEmpty(),
+                    author = item.firstUser?.name.orEmpty(),
                     durationSec = 0L,
                 ),
             )
