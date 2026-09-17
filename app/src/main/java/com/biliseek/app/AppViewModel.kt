@@ -2583,17 +2583,49 @@ return pages.map { p ->
 
     // ── 消息中心（私信 + 互动消息）──────────────────────────
 
-    /** 消息中心聚合状态：四个 tab 各自的 RemoteListState + 一组会话列表。 */
-    private val _messageHub = MutableStateFlow(MessageHubState())
-    val messageHub: StateFlow<MessageHubState> = _messageHub.asStateFlow()
+    /** 消息中心主体：私信会话列表。 */
+    private val _privateSessions = MutableStateFlow(
+        RemoteListState<com.biliseek.core.network.dto.Session>(id = TrackListId.PrivateSession, title = "私信"),
+    )
+    val privateSessions: StateFlow<RemoteListState<com.biliseek.core.network.dto.Session>> = _privateSessions.asStateFlow()
 
-    /** 入口未读小红点（best-effort）。 */
-    private val _unreadCount = MutableStateFlow(0)
-    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+    /** 回复与@ 子页面。 */
+    private val _replyFeed = MutableStateFlow(
+        RemoteListState<com.biliseek.core.network.dto.ReplyAtItem>(id = TrackListId.MessageReply, title = "回复与@"),
+    )
+    val replyFeed: StateFlow<RemoteListState<com.biliseek.core.network.dto.ReplyAtItem>> = _replyFeed.asStateFlow()
+
+    /** 收到喜欢 子页面。 */
+    private val _likeFeed = MutableStateFlow(
+        RemoteListState<com.biliseek.core.network.dto.LikeItem>(id = TrackListId.MessageLike, title = "收到喜欢"),
+    )
+    val likeFeed: StateFlow<RemoteListState<com.biliseek.core.network.dto.LikeItem>> = _likeFeed.asStateFlow()
+
+    /** 新增粉丝 子页面。 */
+    private val _followerFeed = MutableStateFlow(
+        RemoteListState<com.biliseek.core.network.dto.FollowerEntry>(id = TrackListId.MessageFollower, title = "新增粉丝"),
+    )
+    val followerFeed: StateFlow<RemoteListState<com.biliseek.core.network.dto.FollowerEntry>> = _followerFeed.asStateFlow()
+
+    /** 入口未读角标：动态页铃铛 + 消息中心两个图标角标共用同一份数据，避免多发请求。 */
+    private val _unreadSummary = MutableStateFlow(com.biliseek.core.network.BiliRepository.MessageUnreadSummary())
+    val unreadSummary: StateFlow<com.biliseek.core.network.BiliRepository.MessageUnreadSummary> = _unreadSummary.asStateFlow()
 
     /** 打开消息中心的信号。 */
     private val _openMessagesRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val openMessagesRequests: SharedFlow<Unit> = _openMessagesRequests.asSharedFlow()
+
+    /** 打开"回复与@"子页面的信号。 */
+    private val _openReplyFeedRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openReplyFeedRequests: SharedFlow<Unit> = _openReplyFeedRequests.asSharedFlow()
+
+    /** 打开"收到喜欢"子页面的信号。 */
+    private val _openLikeFeedRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openLikeFeedRequests: SharedFlow<Unit> = _openLikeFeedRequests.asSharedFlow()
+
+    /** 打开"新增粉丝"子页面的信号。 */
+    private val _openFollowerFeedRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openFollowerFeedRequests: SharedFlow<Unit> = _openFollowerFeedRequests.asSharedFlow()
 
     /** 进入私信聊天页的信号。 */
     private val _openPrivateChatRequests = MutableSharedFlow<PrivateChatNav>(extraBufferCapacity = 1)
@@ -2603,62 +2635,44 @@ return pages.map { p ->
     private val _chatByTalker = MutableStateFlow<Map<Long, PrivateChatState>>(emptyMap())
     val chatByTalker: StateFlow<Map<Long, PrivateChatState>> = _chatByTalker.asStateFlow()
 
-    fun openMessages() {
+    /**
+     * 点铃铛 / 消息中心入口：只发导航信号，不预拉数据——`MessageCenterScreen` 自己的
+     * `onInit` 负责加载私信列表（懒加载策略）。**不要**在这里调用 `loadPrivateSessions()`，
+     * 会重蹈 v1 的导航死循环（`onInit` 接到同时发信号又加载的函数 → 每次进页面重发信号 →
+     * 重新 push → 重新触发 onInit → 无限循环）。
+     */
+    fun openMessages() { _openMessagesRequests.tryEmit(Unit) }
+
+    /** 点"回复与@"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
+    fun openReplyFeed() { _openReplyFeedRequests.tryEmit(Unit) }
+
+    /** 点"收到喜欢"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
+    fun openLikeFeed() { _openLikeFeedRequests.tryEmit(Unit) }
+
+    /** 点"新增粉丝"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
+    fun openFollowerFeed() { _openFollowerFeedRequests.tryEmit(Unit) }
+
+    /** 消息中心页 onInit / 下拉刷新共用。 */
+    fun retryPrivateSessions() = loadPrivateSessions()
+
+    private fun loadPrivateSessions() {
         if (!session.value.isLoggedIn) {
-            _messageHub.value = MessageHubState()
+            _privateSessions.value = _privateSessions.value.copy(items = emptyList(), errorMessage = null, isLoading = false)
             return
         }
-        loadMessageHub()
-        _openMessagesRequests.tryEmit(Unit)
-    }
-
-    fun closeMessages() { _messageHub.value = MessageHubState() }
-
-    fun retryMessageHub() = loadMessageHub()
-
-    private fun loadMessageHub() {
-        _messageHub.value = _messageHub.value.copy(isLoading = true, errorMessage = null)
+        _privateSessions.value = _privateSessions.value.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
-            network.repository.messageHub()
-                .onSuccess { hub ->
-                    val cur = _messageHub.value
-                    _messageHub.value = cur.copy(
-                        reply = RemoteListState(
-                            id = TrackListId.MessageReply,
-                            title = "回复与@",
-                            items = hub.reply?.items.orEmpty(),
-                            hasMore = (hub.reply?.hasMore ?: 0) == 1,
-                            isLoading = false,
-                            errorMessage = if (hub.reply == null) "回复与@加载失败" else null,
-                        ),
-                        like = RemoteListState(
-                            id = TrackListId.MessageLike,
-                            title = "收到喜欢",
-                            items = hub.like?.items.orEmpty(),
-                            hasMore = (hub.like?.hasMore ?: 0) == 1,
-                            isLoading = false,
-                            errorMessage = if (hub.like == null) "收到喜欢加载失败" else null,
-                        ),
-                        follower = RemoteListState(
-                            id = TrackListId.MessageFollower,
-                            title = "新增粉丝",
-                            items = hub.follower?.list.orEmpty(),
-                            hasMore = false,
-                            isLoading = false,
-                            errorMessage = if (hub.follower == null) "新增粉丝加载失败" else null,
-                        ),
-                        sessions = RemoteListState(
-                            id = TrackListId.PrivateSession,
-                            title = "私信",
-                            items = hub.sessions?.sessionList.orEmpty(),
-                            hasMore = (hub.sessions?.hasMore ?: 0) == 1,
-                            isLoading = false,
-                            errorMessage = if (hub.sessions == null) "私信会话加载失败" else null,
-                        ),
+            network.repository.privateSessions()
+                .onSuccess { data ->
+                    _privateSessions.value = _privateSessions.value.copy(
+                        items = data.sessionList,
+                        hasMore = data.hasMore == 1,
+                        isLoading = false,
+                        errorMessage = null,
                     )
                 }
                 .onFailure { e ->
-                    _messageHub.value = _messageHub.value.copy(
+                    _privateSessions.value = _privateSessions.value.copy(
                         isLoading = false,
                         errorMessage = e.message ?: "加载失败",
                     )
@@ -2666,14 +2680,88 @@ return pages.map { p ->
         }
     }
 
-    /** 点动态页入口图标 / 列表 tab 切换时调用。best-effort，失败不抛。 */
+    /** "回复与@"子页面 onInit / 下拉刷新共用。 */
+    fun retryReplyFeed() = loadReplyFeed()
+
+    private fun loadReplyFeed() {
+        _replyFeed.value = _replyFeed.value.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            network.repository.replyFeed()
+                .onSuccess { data ->
+                    _replyFeed.value = _replyFeed.value.copy(
+                        items = data.items,
+                        hasMore = data.hasMore,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                    refreshUnreadCount()
+                }
+                .onFailure { e ->
+                    _replyFeed.value = _replyFeed.value.copy(
+                        isLoading = false,
+                        errorMessage = e.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /** "收到喜欢"子页面 onInit / 下拉刷新共用。 */
+    fun retryLikeFeed() = loadLikeFeed()
+
+    private fun loadLikeFeed() {
+        _likeFeed.value = _likeFeed.value.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            network.repository.likeFeed()
+                .onSuccess { data ->
+                    _likeFeed.value = _likeFeed.value.copy(
+                        items = data.items,
+                        hasMore = data.hasMore,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                    refreshUnreadCount()
+                }
+                .onFailure { e ->
+                    _likeFeed.value = _likeFeed.value.copy(
+                        isLoading = false,
+                        errorMessage = e.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /** "新增粉丝"子页面 onInit / 下拉刷新共用。 */
+    fun retryFollowerFeed() = loadFollowerFeed()
+
+    private fun loadFollowerFeed() {
+        _followerFeed.value = _followerFeed.value.copy(isLoading = true, errorMessage = null)
+        viewModelScope.launch {
+            network.repository.followerFeed()
+                .onSuccess { data ->
+                    _followerFeed.value = _followerFeed.value.copy(
+                        items = data.list,
+                        hasMore = false,
+                        isLoading = false,
+                        errorMessage = null,
+                    )
+                }
+                .onFailure { e ->
+                    _followerFeed.value = _followerFeed.value.copy(
+                        isLoading = false,
+                        errorMessage = e.message ?: "加载失败",
+                    )
+                }
+        }
+    }
+
+    /** 入口未读角标：动态页铃铛 / 消息中心两个图标共用，best-effort，失败不抛。 */
     fun refreshUnreadCount() {
         if (!session.value.isLoggedIn) {
-            _unreadCount.value = 0
+            _unreadSummary.value = com.biliseek.core.network.BiliRepository.MessageUnreadSummary()
             return
         }
         viewModelScope.launch {
-            _unreadCount.value = network.repository.messageUnread()
+            _unreadSummary.value = network.repository.messageUnread()
         }
     }
 
@@ -2871,16 +2959,6 @@ return pages.map { p ->
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
 
     // ── 状态数据类 ─────────────────────────────────
-
-    /** 消息中心四个 tab 状态聚合。 */
-    data class MessageHubState(
-        val reply: RemoteListState<com.biliseek.core.network.dto.ReplyAtItem> = RemoteListState(id = TrackListId.MessageReply, title = "回复与@"),
-        val like: RemoteListState<com.biliseek.core.network.dto.LikeItem> = RemoteListState(id = TrackListId.MessageLike, title = "收到喜欢"),
-        val follower: RemoteListState<com.biliseek.core.network.dto.FollowerEntry> = RemoteListState(id = TrackListId.MessageFollower, title = "新增粉丝"),
-        val sessions: RemoteListState<com.biliseek.core.network.dto.Session> = RemoteListState(id = TrackListId.PrivateSession, title = "私信"),
-        val isLoading: Boolean = false,
-        val errorMessage: String? = null,
-    )
 
     /** 聊天页状态。 */
     data class PrivateChatState(

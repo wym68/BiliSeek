@@ -2,21 +2,10 @@ package com.biliseek.app.data
 
 import com.biliseek.app.AppViewModel
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MessageUiStateMapperTest {
-
-    @Test
-    fun `MessageHubState 默认四态为空`() {
-        val s = AppViewModel.MessageHubState()
-        assertEquals(0, s.reply.items.size)
-        assertEquals(0, s.like.items.size)
-        assertEquals(0, s.follower.items.size)
-        assertEquals(0, s.sessions.items.size)
-        assertNull(s.errorMessage)
-    }
 
     @Test
     fun `PrivateChatState 默认无草稿无消息`() {
