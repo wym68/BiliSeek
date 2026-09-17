@@ -1178,8 +1178,6 @@ class BiliRepository internal constructor(
     }
 
     private companion object {
-        const val TAG = "BiliSeekRepo"
-
         // B3 限速最小间隔（ms）+ 抖动。保守初值，真机按体感/效果校准（工单 §5.3）。
         const val SEARCH_MIN_INTERVAL_MS = 800L
         const val FEED_MIN_INTERVAL_MS = 600L
