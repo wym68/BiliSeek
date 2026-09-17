@@ -102,18 +102,20 @@ class MessageDtoParseTest {
                 "items": [
                   {
                     "id": 11,
-                    "user": { "mid": 222, "name": "用户A", "face": "//fa" },
-                    "business_id": 1,
-                    "source_id": 1000,
-                    "source_content": "原视频标题",
-                    "root_id": 0,
-                    "parent_id": 0,
+                    "user": { "mid": 222, "nickname": "用户A", "avatar": "//fa" },
                     "reply_time": 1700000000,
-                    "content": "评论内容"
+                    "item": {
+                      "root_id": 5,
+                      "target_id": 6,
+                      "source_id": 1000,
+                      "business_id": 1,
+                      "source_content": "原视频标题",
+                      "root_reply_content": "根评论内容",
+                      "target_reply_content": "评论内容"
+                    }
                   }
                 ],
-                "has_more": 1,
-                "total_count": 1
+                "cursor": { "id": 11, "time": 1700000000, "is_end": false }
               }
             }
             """.trimIndent(),
@@ -121,8 +123,44 @@ class MessageDtoParseTest {
         val items = data.data?.items.orEmpty()
         assertEquals(1, items.size)
         assertEquals(1000L, items[0].sourceId)
+        assertEquals(5L, items[0].rootId)
+        assertEquals(6L, items[0].parentId)
         assertEquals("用户A", items[0].user?.name)
+        assertEquals("//fa", items[0].user?.face)
         assertEquals("评论内容", items[0].content)
+        assertEquals(true, data.data?.hasMore)
+    }
+
+    @Test
+    fun `回复与@ 正文优先取 target_reply_content，取不到退回 root_reply_content`() {
+        val data = json.decodeFromString<BiliResponse<ReplyFeedData>>(
+            """
+            {
+              "code": 0,
+              "data": {
+                "items": [
+                  {
+                    "id": 12,
+                    "user": { "mid": 223, "nickname": "用户B", "avatar": "//fb" },
+                    "reply_time": 1700000001,
+                    "item": {
+                      "root_id": 1,
+                      "target_id": 2,
+                      "source_id": 1001,
+                      "business_id": 1,
+                      "source_content": "",
+                      "root_reply_content": "根评论内容",
+                      "target_reply_content": ""
+                    }
+                  }
+                ],
+                "cursor": { "id": 12, "time": 1700000001, "is_end": true }
+              }
+            }
+            """.trimIndent(),
+        )
+        assertEquals("根评论内容", data.data?.items?.first()?.content)
+        assertEquals(false, data.data?.hasMore)
     }
 
     @Test
@@ -132,18 +170,19 @@ class MessageDtoParseTest {
             {
               "code": 0,
               "data": {
-                "items": [
-                  {
-                    "id": 22,
-                    "user": { "mid": 333, "name": "用户C", "face": "//fc" },
-                    "source_id": 2000,
-                    "business_id": 1,
-                    "title": "被点赞视频",
-                    "like_time": 1700000000
-                  }
-                ],
-                "has_more": 0,
-                "total_count": 1
+                "latest": {
+                  "items": [
+                    {
+                      "id": 22,
+                      "users": [
+                        { "mid": 333, "nickname": "用户C", "avatar": "//fc" }
+                      ],
+                      "item": { "source_id": 2000, "business_id": 1, "title": "被点赞视频" },
+                      "like_time": 1700000000
+                    }
+                  ],
+                  "cursor": { "id": 22, "time": 1700000000, "is_end": true }
+                }
               }
             }
             """.trimIndent(),
@@ -152,6 +191,8 @@ class MessageDtoParseTest {
         assertEquals(1, items.size)
         assertEquals(2000L, items[0].sourceId)
         assertEquals("被点赞视频", items[0].title)
+        assertEquals("用户C", items[0].firstUser?.name)
+        assertEquals(false, data.data?.hasMore)
     }
 
     @Test

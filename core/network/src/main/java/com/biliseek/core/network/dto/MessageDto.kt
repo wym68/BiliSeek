@@ -70,53 +70,97 @@ data class SendMessageData(
 
 // ───────────────── 互动消息（api.bilibili.com x/msgfeed）─────────────────
 
+/** 回复/@/点赞通知里的用户信息。真实字段名是 nickname/avatar，不是 name/face。 */
+@Serializable
+data class MsgfeedUser(
+    @SerialName("mid") val mid: Long = 0,
+    @SerialName("nickname") val name: String = "",
+    @SerialName("avatar") val face: String = "",
+)
+
+/** msgfeed 分页游标：`is_end=true` 表示没有更多了。 */
+@Serializable
+data class MsgfeedCursor(
+    @SerialName("id") val id: Long = 0,
+    @SerialName("time") val time: Long = 0,
+    @SerialName("is_end") val isEnd: Boolean = false,
+)
+
+/** `x/msgfeed/reply` 单条业务内容，真实响应嵌在 item.item 里，不是平铺在顶层。 */
+@Serializable
+data class ReplyAtContent(
+    @SerialName("root_id") val rootId: Long = 0,
+    @SerialName("target_id") val targetId: Long = 0,
+    @SerialName("source_id") val sourceId: Long = 0,
+    @SerialName("business_id") val businessId: Int = 0,
+    @SerialName("source_content") val sourceContent: String = "",
+    @SerialName("root_reply_content") val rootReplyContent: String = "",
+    @SerialName("target_reply_content") val targetReplyContent: String = "",
+)
+
 /** `x/msgfeed/reply` 单条（回复与@ tab）。 */
 @Serializable
 data class ReplyAtItem(
     @SerialName("id") val id: Long = 0,
     @SerialName("user") val user: MsgfeedUser? = null,
-    /** 业务类型：1=视频回复，5=动态回复，7=评论回复等。 */
-    @SerialName("business_id") val businessId: Int = 0,
-    /** 资源 oid（视频=aid，动态=id_str）。 */
-    @SerialName("source_id") val sourceId: Long = 0,
-    @SerialName("source_content") val sourceContent: String = "",
-    @SerialName("root_id") val rootId: Long = 0,
-    @SerialName("parent_id") val parentId: Long = 0,
+    @SerialName("item") val item: ReplyAtContent? = null,
     @SerialName("reply_time") val replyTime: Long = 0,
-    @SerialName("content") val content: String = "",
-)
-
-/** `x/msgfeed/like` 单条（收到喜欢 tab）。 */
-@Serializable
-data class LikeItem(
-    @SerialName("id") val id: Long = 0,
-    @SerialName("user") val user: MsgfeedUser? = null,
-    @SerialName("source_id") val sourceId: Long = 0,
-    @SerialName("business_id") val businessId: Int = 0,
-    @SerialName("title") val title: String = "",
-    @SerialName("like_time") val likeTime: Long = 0,
-)
-
-@Serializable
-data class MsgfeedUser(
-    @SerialName("mid") val mid: Long = 0,
-    @SerialName("name") val name: String = "",
-    @SerialName("face") val face: String = "",
-)
+) {
+    /** 优先取楼中楼回复内容，取不到时退回一级回复内容。 */
+    val content: String get() =
+        item?.targetReplyContent?.takeIf { it.isNotBlank() } ?: item?.rootReplyContent.orEmpty()
+    val businessId: Int get() = item?.businessId ?: 0
+    val sourceId: Long get() = item?.sourceId ?: 0
+    val sourceContent: String get() = item?.sourceContent.orEmpty()
+    val rootId: Long get() = item?.rootId ?: 0
+    /** 站内回复评论时用作 `parent`（被回复的具体那条评论）。 */
+    val parentId: Long get() = item?.targetId ?: 0
+}
 
 @Serializable
 data class ReplyFeedData(
     @SerialName("items") val items: List<ReplyAtItem> = emptyList(),
-    @SerialName("has_more") val hasMore: Int = 0,
-    @SerialName("total_count") val totalCount: Int = 0,
+    @SerialName("cursor") val cursor: MsgfeedCursor? = null,
+) {
+    val hasMore: Boolean get() = cursor?.isEnd == false
+}
+
+/** `x/msgfeed/like` 单条业务内容，嵌在 item.item 里。 */
+@Serializable
+data class LikeContent(
+    @SerialName("source_id") val sourceId: Long = 0,
+    @SerialName("business_id") val businessId: Int = 0,
+    @SerialName("title") val title: String = "",
 )
 
+/** `x/msgfeed/like` 单条（收到喜欢 tab）。`users` 是复数——可能多人点赞合并展示，本期只取第一个。 */
+@Serializable
+data class LikeItem(
+    @SerialName("id") val id: Long = 0,
+    @SerialName("users") val users: List<MsgfeedUser> = emptyList(),
+    @SerialName("item") val item: LikeContent? = null,
+    @SerialName("like_time") val likeTime: Long = 0,
+) {
+    val firstUser: MsgfeedUser? get() = users.firstOrNull()
+    val title: String get() = item?.title.orEmpty()
+    val sourceId: Long get() = item?.sourceId ?: 0
+    val businessId: Int get() = item?.businessId ?: 0
+}
+
+@Serializable
+data class LikeFeedBucket(
+    @SerialName("items") val items: List<LikeItem> = emptyList(),
+    @SerialName("cursor") val cursor: MsgfeedCursor? = null,
+)
+
+/** `x/msgfeed/like` 响应按 latest/total 分桶；本期只用 latest（最近点赞），total 桶不解析。 */
 @Serializable
 data class LikeFeedData(
-    @SerialName("items") val items: List<LikeItem> = emptyList(),
-    @SerialName("has_more") val hasMore: Int = 0,
-    @SerialName("total_count") val totalCount: Int = 0,
-)
+    @SerialName("latest") val latest: LikeFeedBucket? = null,
+) {
+    val items: List<LikeItem> get() = latest?.items.orEmpty()
+    val hasMore: Boolean get() = latest?.cursor?.isEnd == false
+}
 
 /** `x/msgfeed/unread` 返回聚合未读。 */
 @Serializable
@@ -135,7 +179,7 @@ data class SessionUnreadData(
 
 // ───────────────── 粉丝列表（x/relation/followers）─────────────────
 
-/** `x/relation/followers` 单条。 */
+/** `x/relation/followers` 单条。这一族关系接口是扁平结构，不受本次嵌套修正影响。 */
 @Serializable
 data class FollowerEntry(
     @SerialName("mid") val mid: Long = 0,
