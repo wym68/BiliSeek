@@ -1346,7 +1346,7 @@ return pages.map { p ->
         viewModelScope.launch {
             session.collect { s ->
                 if (s.isLoggedIn) {
-                    initDynamic(forceRefresh = true)
+                    dynamics.initDynamic(forceRefresh = true)
                 }
             }
         }
