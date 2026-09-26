@@ -46,6 +46,7 @@ import com.biliseek.app.comment.CommentThreadController
 import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.app.upspace.UpSpaceController
+import com.biliseek.app.search.SearchController
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
@@ -306,7 +307,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ── Ch4 状态 ──────────────────────────────────────
 
     /** 动态：关注流 + 卡片互动（评论对话框在 `dynamics.comments`）。 */
-    val dynamics = DynamicFeedController(
+    val dynamics: DynamicFeedController = DynamicFeedController(
         scope = viewModelScope,
         repository = network.repository,
         library = library,
@@ -366,7 +367,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── B 站远程列表（收藏夹 / 稍后再看 / 合集）：见 RemoteLibraryController ──
 
-    val remoteLibrary = RemoteLibraryController(
+    val remoteLibrary: RemoteLibraryController = RemoteLibraryController(
         scope = viewModelScope,
         repository = network.repository,
         library = library,
@@ -1078,7 +1079,7 @@ return pages.map { p ->
 
     // ── 搜索 / UP 主搜索：见 SearchController ──
 
-    val search = SearchController(
+    val search: SearchController = SearchController(
         scope = viewModelScope,
         repository = network.repository,
         library = library,
@@ -1090,7 +1091,7 @@ return pages.map { p ->
 
     // ── UP 空间页（M11-D）：见 UpSpaceController ──
 
-    val upSpace = UpSpaceController(
+    val upSpace: UpSpaceController = UpSpaceController(
         scope = viewModelScope,
         repository = network.repository,
         session = session,
@@ -1414,7 +1415,7 @@ return pages.map { p ->
 
     // ── 消息中心（私信 + 互动消息）：见 MessageCenterController ──
 
-    val messages = com.biliseek.app.message.MessageCenterController(
+    val messages: com.biliseek.app.message.MessageCenterController = com.biliseek.app.message.MessageCenterController(
         scope = viewModelScope,
         repository = network.repository,
         session = session,
