@@ -11,11 +11,7 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
 import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
-import com.biliseek.core.network.SearchException
-import com.biliseek.core.network.SearchIntent
 import com.biliseek.core.network.SearchOrder
-import com.biliseek.core.network.SearchPage
-import com.biliseek.core.network.avToBv
 import com.biliseek.core.network.bvToAv
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
@@ -23,7 +19,6 @@ import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.SeriesArchivesPage
-import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
 import android.graphics.Bitmap
 import coil3.imageLoader
@@ -50,6 +45,7 @@ import com.biliseek.app.data.TrackListId
 import com.biliseek.app.comment.CommentThreadController
 import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
+import com.biliseek.app.upspace.UpSpaceController
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
@@ -265,8 +261,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val loginState: StateFlow<LoginState> = network.loginManager.state
     val session: StateFlow<BiliSession> = network.sessionStore.session
 
-    private val _search = MutableStateFlow(SearchUiState())
-    val search: StateFlow<SearchUiState> = _search.asStateFlow()
 
     /**
      * 「已开始播放」事件。UI 据此切到播放页。
@@ -318,8 +312,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         library = library,
         session = session,
         emitMessage = ::emitMessage,
-        patchOtherEntry = ::patchUpSpaceEntry,
-        findOtherEntry = { idStr -> _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr } },
+        patchOtherEntry = { idStr, transform -> upSpace.patchDynamicEntry(idStr, transform) },
+        findOtherEntry = { idStr -> upSpace.state.value.dynamic.items.firstOrNull { it.idStr == idStr } },
     )
 
     /** 图文动态图片全屏预览。null=关闭。 */
@@ -350,9 +344,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** playlistId → 条目数。加入列表弹窗的歌单行显示用。 */
     val playlistTrackCounts = library.observePlaylistTrackCounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    val searchHistory = library.observeSearchHistory()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val recentPlays = library.observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -545,14 +536,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 全选：只覆盖点击当时已加载的可见项（定案 Ch3-5）。 */
     fun selectAllVisible() {
-        _selectedBvids.value = _search.value.items.map { it.bvid }.toSet()
+        _selectedBvids.value = search.state.value.items.map { it.bvid }.toSet()
     }
 
     fun clearSelection() { _selectedBvids.value = emptySet() }
 
     private fun selectedVideos(): List<SearchVideo> {
         val sel = _selectedBvids.value
-        return _search.value.items.filter { it.bvid in sel }
+        return search.state.value.items.filter { it.bvid in sel }
     }
 
     /**
@@ -653,13 +644,13 @@ return pages.map { p ->
     }
 
     fun togglePageSelection(cid: Long) = pageSelection.toggle(cid.toString())
-    fun selectAllPages() = pageSelection.selectAll(_search.value.pages.map { it.cid.toString() })
+    fun selectAllPages() = pageSelection.selectAll(search.state.value.pages.map { it.cid.toString() })
     fun clearPageSelection() = pageSelection.clear()
     fun exitPageSelection() = pageSelection.exit()
 
     /** 多 P 条目 → 播放请求：标题带 P 序号，封面 / UP 主从面板头部状态带。 */
     private fun PageEntry.toPageRequest(): PlaybackRequest.Bili {
-        val s = _search.value
+        val s = search.state.value
         return PlaybackRequest.Bili(
             bvid = s.pagesOfBvid,
             cid = cid,
@@ -673,7 +664,7 @@ return pages.map { p ->
     /** 多 P 面板批量动作：选中 P（保持自然顺序）执行；执行前退出复选。 */
     fun runPageBatch(action: PendingAction) = viewModelScope.launch {
         val sel = pageSelection.selected.value
-        val chosen = _search.value.pages.filter { it.cid.toString() in sel }
+        val chosen = search.state.value.pages.filter { it.cid.toString() in sel }
         pageSelection.exit()
         execute(action, chosen.map { it.toPageRequest() })
     }
@@ -684,7 +675,7 @@ return pages.map { p ->
     }
 
     fun pageVideoUrl(entry: PageEntry) =
-        "https://www.bilibili.com/video/${_search.value.pagesOfBvid}?p=${entry.page}"
+        "https://www.bilibili.com/video/${search.state.value.pagesOfBvid}?p=${entry.page}"
 
     // ── UP 空间投稿的复选与动作 ──────────────────────────
 
@@ -695,13 +686,13 @@ return pages.map { p ->
     }
 
     fun toggleUpSelection(bvid: String) = upSelection.toggle(bvid)
-    fun selectAllUp() = upSelection.selectAll(_upSpace.value.posts.items.map { it.bvid })
+    fun selectAllUp() = upSelection.selectAll(upSpace.state.value.posts.items.map { it.bvid })
     fun clearUpSelection() = upSelection.clear()
     fun exitUpSelection() = upSelection.exit()
 
     private fun selectedUpVideos(): List<SearchVideo> {
         val sel = upSelection.selected.value
-        return _upSpace.value.posts.items.filter { it.bvid in sel }.map { it.toSearchVideo() }
+        return upSpace.state.value.posts.items.filter { it.bvid in sel }.map { it.toSearchVideo() }
     }
 
     /** UP 空间批量动作：选中投稿展开全 P（自然顺序）执行；执行前退出复选。 */
@@ -920,12 +911,12 @@ return pages.map { p ->
     fun showPages(video: SearchVideo) {
         viewModelScope.launch {
             network.repository.pages(video.bvid).onSuccess { pages ->
-                _search.value = _search.value.copy(
+                search.update { it.copy(
                     pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
                     pagesOfBvid = video.bvid,
                     pagesCover = coverOf(video),
                     pagesAuthor = video.author,
-                )
+                ) }
             }
         }
     }
@@ -950,29 +941,6 @@ return pages.map { p ->
     fun playTrack(item: PlaylistTrack) {
         val items = openedTracks.value
         playPlaylist(items, items.indexOfFirst { it.track.id == item.track.id }.coerceAtLeast(0))
-    }
-
-    fun deleteSearchKeyword(keyword: String) = viewModelScope.launch { library.deleteSearch(keyword) }
-    fun clearSearchHistory() = viewModelScope.launch { library.clearSearchHistory() }
-
-    fun searchKeyword(keyword: String) {
-        _search.value = _search.value.copy(keyword = keyword)
-        submitSearch()
-    }
-
-    /**
-     * 切换搜索筛选（时长 / 排序）。
-     *
-     * **重置到第 1 页**：筛选变了结果集就变了，停留在旧页码会把两页不同的
-     * 结果接在一起。BV/AV/短链直达不走筛选，只有关键词搜索才响应。
-     */
-    fun setSearchFilters(order: SearchOrder, duration: SearchDuration) {
-        val current = _search.value
-        if (current.order == order && current.duration == duration) return
-        _search.value = current.copy(order = order, duration = duration)
-        if (current.keyword.isNotBlank() && parseSearchInput(current.keyword) is SearchIntent.Keyword) {
-            doSearch(current.keyword, page = 1)
-        }
     }
 
     init {
@@ -1108,292 +1076,32 @@ return pages.map { p ->
         }.getOrNull()
     }
 
-    // ── 搜索 ────────────────────────────────────────────
+    // ── 搜索 / UP 主搜索：见 SearchController ──
 
-    fun onKeywordChange(text: String) {
-        // 清空搜索框即回到首页空状态：结果一并清掉，否则会停留在上次的列表上
-        _search.value = if (text.isBlank()) {
-            SearchUiState()
-        } else {
-            _search.value.copy(keyword = text)
-        }
-    }
-
-    /** 提交搜索。输入是 BV/AV/短链时直接播放，否则走关键词搜索。 */
-    fun submitSearch() {
-        val raw = _search.value.keyword
-        when (val intent = parseSearchInput(raw)) {
-            is SearchIntent.Video -> play(PlaybackRequest.Bili(intent.bvid, title = intent.bvid))
-
-            // 本地换算，不为了拿 BV 号多打一次网络请求
-            is SearchIntent.VideoAid -> {
-                val bvid = runCatching { avToBv(intent.aid) }.getOrNull()
-                if (bvid == null) doSearch(raw, page = 1)
-                else play(PlaybackRequest.Bili(bvid, title = bvid))
-            }
-
-            is SearchIntent.ShortLink -> expandAndOpen(intent.url, fallbackKeyword = raw)
-
-            is SearchIntent.Keyword -> {
-                if (intent.text.isBlank()) return
-                viewModelScope.launch { library.recordSearch(intent.text) }
-                if (_search.value.searchMode == SearchMode.USER) {
-                    doUserSearch(intent.text, page = 1)
-                } else {
-                    doSearch(intent.text, page = 1)
-                }
-            }
-        }
-    }
-
-    /** 展开 b23 短链后二次解析。展不开或落点不可信时，退回关键词搜索。 */
-    private fun expandAndOpen(url: String, fallbackKeyword: String) {
-        viewModelScope.launch {
-            _search.value = _search.value.copy(isLoading = true, error = null)
-            network.repository.expandShortLink(url)
-                .onSuccess { finalUrl ->
-                    _search.value = _search.value.copy(isLoading = false)
-                    when (val resolved = parseSearchInput(finalUrl)) {
-                        is SearchIntent.Video ->
-                            play(PlaybackRequest.Bili(resolved.bvid, title = resolved.bvid))
-                        is SearchIntent.VideoAid -> {
-                            val bvid = runCatching { avToBv(resolved.aid) }.getOrNull()
-                            if (bvid == null) doSearch(fallbackKeyword, page = 1)
-                            else play(PlaybackRequest.Bili(bvid, title = bvid))
-                        }
-                        else -> doSearch(fallbackKeyword, page = 1)
-                    }
-                }
-                .onFailure {
-                    _search.value = _search.value.copy(isLoading = false)
-                    doSearch(fallbackKeyword, page = 1)
-                }
-        }
-    }
-
-    /**
-     * 接住外部分享。
-     *
-     * 分享过来的文本往往是「标题 + 一句吆喝 + 链接」，
-     * [parseSearchInput] 本来就能从中挑出 BV / 短链，直接整段喂进去即可。
-     */
-    fun handleSharedText(text: String) {
-        if (text.isBlank()) return
-        _search.value = _search.value.copy(keyword = text.trim(), error = null)
-        submitSearch()
-    }
-
-    private fun doSearch(keyword: String, page: Int) {
-        val filters = _search.value
-        viewModelScope.launch {
-            _search.value = _search.value.copy(
-                isLoading = page == 1,
-                isLoadingMore = page > 1,
-                error = null,
-                pages = if (page == 1) emptyList() else _search.value.pages,
-            )
-            network.repository.search(keyword, page, filters.order, filters.duration)
-                .onSuccess { result -> applyPage(result, keyword, append = page > 1) }
-                .onFailure { e ->
-                    _search.value = _search.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = (e as? SearchException)?.error
-                            ?: SearchError.Unknown(e.message ?: "搜索失败"),
-                    )
-                }
-        }
-    }
-
-    private fun applyPage(result: SearchPage, keyword: String, append: Boolean) {
-        val current = _search.value
-        // B 站分页会返回重复条目，必须去重——LazyColumn 的 key 撞重复会直接崩
-        val items = if (append) {
-            com.biliseek.core.network.mergeSearchResults(current.items, result.items)
-        } else {
-            com.biliseek.core.network.mergeSearchResults(emptyList(), result.items)
-        }
-        _search.value = current.copy(
-            items = items,
-            page = result.page,
-            totalPages = result.totalPages,
-            totalResults = result.totalResults,
-            isLoading = false,
-            isLoadingMore = false,
-            // code=0 但一条没有：接口是「成功」的，界面却会是白的。必须显式表达。
-            error = if (items.isEmpty()) SearchError.Empty(keyword) else null,
-        )
-    }
-
-    /** 错误面板上的「重试」。风控 [SearchError.Blocked] 不会走到这里——UI 不给按钮。 */
-    fun retrySearch() {
-        val s = _search.value
-        if (s.keyword.isBlank()) return
-        doSearch(s.keyword, page = if (s.page > 0) s.page else 1)
-    }
+    val search = SearchController(
+        scope = viewModelScope,
+        repository = network.repository,
+        library = library,
+        play = ::play,
+    )
 
     /** 取流失败后的「重试」：重放队列里当前这条。 */
     fun retryPlayback() = connection.retry()
 
-    // ── UP 主搜索（M11-D）─────────────────────────────────
+    // ── UP 空间页（M11-D）：见 UpSpaceController ──
 
-    /**
-     * 切换搜索目标（视频 / UP 主）。
-     *
-     * 切换后页码归 1 重搜——与搜索筛选切换同一纪律：
-     * 两种模式结果集完全无关，停留在旧页码会把两页不同种类的结果接在一起。
-     */
-    fun setSearchMode(mode: SearchMode) {
-        val current = _search.value
-        if (current.searchMode == mode) return
-        _search.value = current.copy(
-            searchMode = mode,
-            items = emptyList(),
-            users = emptyList(),
-            page = 0,
-            userPage = 0,
-            error = null,
-            userError = null,
-        )
-        val keyword = current.keyword
-        if (keyword.isNotBlank() && parseSearchInput(keyword) is SearchIntent.Keyword) {
-            if (mode == SearchMode.USER) doUserSearch(keyword, page = 1) else doSearch(keyword, page = 1)
-        }
-    }
+    val upSpace = UpSpaceController(
+        scope = viewModelScope,
+        repository = network.repository,
+        session = session,
+        emitMessage = ::emitMessage,
+        recordUpVisit = ::recordUpVisit,
+        onExitSelection = { upSelection.exit() },
+        onFollowChanged = { dynamics.refreshUpChips() },
+    )
 
-    private fun doUserSearch(keyword: String, page: Int) {
-        viewModelScope.launch {
-            _search.value = _search.value.copy(
-                userLoading = page == 1,
-                userError = null,
-            )
-            network.repository.searchUsers(keyword, page)
-                .onSuccess { result -> applyUserPage(result, keyword, append = page > 1) }
-                .onFailure { e ->
-                    _search.value = _search.value.copy(
-                        userLoading = false,
-                        userError = (e as? SearchException)?.error
-                            ?: SearchError.Unknown(e.message ?: "搜索失败"),
-                    )
-                }
-        }
-    }
-
-    private fun applyUserPage(result: com.biliseek.core.network.BiliRepository.UserSearchPage, keyword: String, append: Boolean) {
-        val current = _search.value
-        // UP 主按 mid 去重（B 站分页会返回重复条目，key 撞重复会崩）
-        val users = if (append) {
-            (current.users + result.items).distinctBy { it.mid }
-        } else {
-            result.items
-        }
-        _search.value = current.copy(
-            users = users,
-            userPage = result.page,
-            userTotalPages = result.totalPages,
-            userTotalResults = result.totalResults,
-            userLoading = false,
-            userError = if (users.isEmpty()) SearchError.Empty(keyword) else null,
-        )
-    }
-
-    fun retryUserSearch() {
-        val s = _search.value
-        if (s.keyword.isBlank()) return
-        doUserSearch(s.keyword, page = if (s.userPage > 0) s.userPage else 1)
-    }
-
-    fun loadMoreUsers() {
-        val s = _search.value
-        if (s.userPage <= 0 || s.userPage >= s.userTotalPages) return
-        if (s.userLoading) return
-        doUserSearch(s.keyword, s.userPage + 1)
-    }
-
-    // ── UP 空间页（M11-D）─────────────────────────────────
-
-    private val _upSpace = MutableStateFlow(UpSpaceUiState())
-    val upSpace: StateFlow<UpSpaceUiState> = _upSpace.asStateFlow()
-
-    /** 点 UP 搜索结果 → 打开空间页（默认投稿视图）。 */
-    fun openUpSpace(user: SearchUser) {
-        _upSpace.value = UpSpaceUiState(up = user)
-        loadUpPosts(1)
-        loadFollowingState(user.mid)
-        // 如果头像或粉丝数为空，从 API 获取完整信息
-        if (user.upic.isBlank() || user.fans == 0L) {
-            loadUserInfo(user.mid)
-        }
-        // 计一次访问（最常访问排序用）。
-        recordUpVisit(user.mid)
-    }
-
-    /** 获取用户完整信息（头像、粉丝数）。 */
-    private fun loadUserInfo(mid: Long) = viewModelScope.launch {
-        network.repository.userCard(mid)
-            .onSuccess { fullUser ->
-                _upSpace.value = _upSpace.value.copy(up = fullUser)
-            }
-            .onFailure { err ->
-                android.util.Log.e("BiliSeekUser", "loadUserInfo failed: ${err.message}")
-            }
-    }
-
-    fun closeUpSpace() {
-        upSelection.exit()
-        _upSpace.value = UpSpaceUiState()
-    }
-
-    /**
-     * 进空间页时拉一次关注状态。`relation()` 未登录会 -101，
-     * 由 interceptor 链提前抛成 SearchException；runCatching 兜成 null = 未知。
-     */
-    private fun loadFollowingState(mid: Long) = viewModelScope.launch {
-        android.util.Log.d("BiliSeekRelation", "loadFollowingState: mid=$mid")
-        network.repository.relation(mid)
-            .onSuccess { stat ->
-                android.util.Log.d("BiliSeekRelation", "relation ok: stat=$stat, relationStatus=${stat.relationStatus}, following=${stat.relationStatus == com.biliseek.core.network.dto.RelationStatus.FOLLOWING}")
-                val following = stat.relationStatus == com.biliseek.core.network.dto.RelationStatus.FOLLOWING
-                _upSpace.value = _upSpace.value.copy(following = following)
-            }
-            .onFailure { err ->
-                android.util.Log.e("BiliSeekRelation", "relation FAILED: ${err.javaClass.simpleName}: ${err.message}", err)
-            }
-    }
-
-    /** 关注 / 取关：乐观更新，失败回滚。 */
-    fun toggleRelation(mid: Long, follow: Boolean) = viewModelScope.launch {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再关注")
-            return@launch
-        }
-        val cur = _upSpace.value
-        // 防止双击：true→true 已是最终态，不重复发
-        if (cur.followingLoading) return@launch
-        // 乐观更新
-        _upSpace.value = cur.copy(followingLoading = true, following = follow)
-        network.repository.modifyRelation(mid, follow)
-            .onSuccess {
-                _upSpace.value = _upSpace.value.copy(followingLoading = false)
-                emitMessage(if (follow) "已关注" else "已取消关注")
-                // 关注/取关成功后刷新动态页的关注列表
-                dynamics.refreshUpChips()
-            }
-            .onFailure { err ->
-                // 回滚 + 报错提示
-                _upSpace.value = _upSpace.value.copy(followingLoading = false, following = !follow)
-                emitMessage("关注失败：${err.message ?: "未知错误"}")
-            }
-    }
-
-    /** UP 空间页动态列表里就地替换一条（供 [dynamics] 的乐观更新 / 回滚使用）。 */
-    private fun patchUpSpaceEntry(idStr: String, transform: (DynamicEntry) -> DynamicEntry) {
-        val space = _upSpace.value
-        val idx = space.dynamic.items.indexOfFirst { it.idStr == idStr }
-        if (idx < 0) return
-        val newItems = space.dynamic.items.toMutableList().also { it[idx] = transform(it[idx]) }
-        _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
-    }
+    /** 打开 UP 空间页。消息中心、动态、关注列表、播放页「查看作者」等多处入口共用。 */
+    fun openUpSpace(user: SearchUser) = upSpace.openUpSpace(user)
 
     // ── 图片预览（动态卡片 / UP 空间页共用） ──
 
@@ -1418,110 +1126,6 @@ return pages.map { p ->
         }
     }
 
-    /** 投稿 / 动态 视图切换：各视图独立分页状态，互不干扰。 */
-    fun setUpSpaceView(view: UpSpaceView) {
-        // 切视图退出投稿复选：另一视图的列表与勾选集无关
-        upSelection.exit()
-        val cur = _upSpace.value
-        if (cur.view == view) return
-        _upSpace.value = cur.copy(view = view)
-        if (view == UpSpaceView.DYNAMIC && cur.dynamic.items.isEmpty() && !cur.dynamic.isLoading) {
-            loadUpDynamicPage(offset = "")
-        }
-    }
-
-    fun loadUpPosts(page: Int) {
-        val cur = _upSpace.value
-        val up = cur.up ?: return
-        if (cur.posts.isLoading || cur.posts.isLoadingMore) return
-        val loadingMore = page > 1
-        if (loadingMore && !cur.posts.hasMore) return
-        viewModelScope.launch {
-            _upSpace.value = cur.copy(
-                posts = cur.posts.copy(
-                    isLoading = !loadingMore,
-                    isLoadingMore = loadingMore,
-                    errorMessage = null,
-                ),
-            )
-            network.repository.spaceArchives(up.mid, page)
-                .onSuccess { result ->
-                    val base = _upSpace.value.posts
-                    _upSpace.value = _upSpace.value.copy(
-                        posts = base.copy(
-                            items = if (loadingMore) base.items + result.items else result.items,
-                            hasMore = result.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                    )
-                }
-                .onFailure {
-                    val base = _upSpace.value.posts
-                    _upSpace.value = _upSpace.value.copy(
-                        posts = base.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = it.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
-    }
-
-    fun loadMoreUpPosts() {
-        val cur = _upSpace.value
-        if (!cur.posts.hasMore) return
-        loadUpPosts(cur.posts.page + 1)
-    }
-
-    private fun loadUpDynamicPage(offset: String) {
-        val cur = _upSpace.value
-        val up = cur.up ?: return
-        if (cur.dynamic.isLoading || cur.dynamic.isLoadingMore) return
-        val loadingMore = offset.isNotBlank()
-        viewModelScope.launch {
-            _upSpace.value = cur.copy(
-                dynamic = cur.dynamic.copy(
-                    isLoading = !loadingMore,
-                    isLoadingMore = loadingMore,
-                    errorMessage = null,
-                ),
-            )
-            network.repository.dynamicSpace(up.mid, offset)
-                .onSuccess { pageData ->
-                    val base = _upSpace.value.dynamic
-                    _upSpace.value = _upSpace.value.copy(
-                        dynamic = base.copy(
-                            items = if (loadingMore) base.items + pageData.entries else pageData.entries,
-                            hasMore = pageData.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                        dynamicOffset = pageData.offset,
-                    )
-                }
-                .onFailure {
-                    val base = _upSpace.value.dynamic
-                    _upSpace.value = _upSpace.value.copy(
-                        dynamic = base.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = it.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
-    }
-
-    fun loadMoreUpDynamic() {
-        val cur = _upSpace.value
-        if (!cur.dynamic.hasMore) return
-        loadUpDynamicPage(cur.dynamicOffset)
-    }
-
     /** 点 UP 投稿条目：走 playBvid（单 P 直播 / 多 P 整张作队列）。 */
     fun playUpPost(video: SpaceVideo) {
         playBvid(
@@ -1531,12 +1135,6 @@ return pages.map { p ->
             author = video.author,
             durationSec = com.biliseek.core.network.parseDurationText(video.length),
         )
-    }
-
-    fun loadMore() {
-        val s = _search.value
-        if (!s.hasMore || s.isLoadingMore || s.isLoading) return
-        doSearch(s.keyword, s.page + 1)
     }
 
     // ── 播放 ────────────────────────────────────────────
@@ -1550,22 +1148,22 @@ return pages.map { p ->
             network.repository.pages(video.bvid)
                 .onSuccess { pages ->
                     if (pages.size <= 1) {
-                        _search.value = _search.value.copy(
+                        search.update { it.copy(
                             pages = emptyList(),
                             pagesOfBvid = "",
                             pagesCover = "",
                             pagesAuthor = "",
-                        )
+                        ) }
                         play(video.toRequest(cid = pages.firstOrNull()?.cid))
                     } else {
-                        _search.value = _search.value.copy(
+                        search.update { it.copy(
                             pages = pages.map {
                                 PageEntry(it.cid, it.page, it.part, it.duration)
                             },
                             pagesOfBvid = video.bvid,
                             pagesCover = coverOf(video),
                             pagesAuthor = video.author,
-                        )
+                        ) }
                     }
                 }
                 .onFailure { play(video.toRequest()) }
@@ -1590,9 +1188,9 @@ return pages.map { p ->
 
     /** 点某个分 P：整张多 P 视频作为队列，从该 P 开始播。 */
     fun playPage(bvid: String, entry: PageEntry) {
-        val all = _search.value.pages
-        val cover = _search.value.pagesCover
-        val author = _search.value.pagesAuthor
+        val all = search.state.value.pages
+        val cover = search.state.value.pagesCover
+        val author = search.state.value.pagesAuthor
         val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
         viewModelScope.launch {
             connection.playQueue(
@@ -1766,7 +1364,7 @@ return pages.map { p ->
 
     fun dismissPages() {
         pageSelection.exit()
-        _search.value = _search.value.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "", pagesAuthor = "")
+        search.update { it.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "", pagesAuthor = "") }
     }
 
     /**

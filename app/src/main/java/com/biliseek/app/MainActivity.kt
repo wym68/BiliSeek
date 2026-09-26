@@ -93,20 +93,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             BiliSeekTheme {
                 val playback by viewModel.connection.state.collectAsState()
-                val search by viewModel.search.collectAsState()
+                val search by viewModel.search.state.collectAsState()
                 val loginState by viewModel.loginState.collectAsState()
                 val session by viewModel.session.collectAsState()
                 val playlists by viewModel.playlists.collectAsState()
                 val playlistTrackCounts by viewModel.playlistTrackCounts.collectAsState()
                 val openedPlaylist by viewModel.openedPlaylist.collectAsState()
                 val openedTracks by viewModel.openedTracks.collectAsState()
-                val searchHistory by viewModel.searchHistory.collectAsState()
+                val searchHistory by viewModel.search.history.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
                 val favoriteFolders by viewModel.remoteLibrary.favoriteFolders.collectAsState()
                 val favoriteSync by viewModel.remoteLibrary.favoriteSync.collectAsState()
                 val openedFavorite by viewModel.remoteLibrary.openedFavorite.collectAsState()
                 val dynamic by viewModel.dynamics.dynamic.collectAsState()
-                val upSpace by viewModel.upSpace.collectAsState()
+                val upSpace by viewModel.upSpace.state.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayHistory by viewModel.dayHistory.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
@@ -334,8 +334,8 @@ class MainActivity : ComponentActivity() {
                             search.pages.isEmpty()
                         SearchScreen(
                             state = search,
-                            onKeywordChange = viewModel::onKeywordChange,
-                            onSubmit = viewModel::submitSearch,
+                            onKeywordChange = viewModel.search::onKeywordChange,
+                            onSubmit = viewModel.search::submitSearch,
                             onResultClick = viewModel::onResultClick,
                             onAddToPlaylist = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
                             // 加入队列 = 追加到播放队列末尾（多 P 走挑 P 页，默认全选）
@@ -350,7 +350,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
-                            onLoadMore = viewModel::loadMore,
+                            onLoadMore = viewModel.search::loadMore,
                             onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
                             onDismissPages = viewModel::dismissPages,
                             // 多 P 面板：复选与动作
@@ -391,20 +391,20 @@ class MainActivity : ComponentActivity() {
                             onEnqueueSelectionNext = viewModel::enqueueSelectionNext,
                             onDownloadSelection = viewModel::downloadSelection,
                             isLoggedIn = session.isLoggedIn,
-                            onRetry = viewModel::retrySearch,
-                            onOrderChange = { viewModel.setSearchFilters(it, search.duration) },
-                            onDurationChange = { viewModel.setSearchFilters(search.order, it) },
-                            onModeChange = viewModel::setSearchMode,
+                            onRetry = viewModel.search::retrySearch,
+                            onOrderChange = { viewModel.search.setSearchFilters(it, search.duration) },
+                            onDurationChange = { viewModel.search.setSearchFilters(search.order, it) },
+                            onModeChange = viewModel.search::setSearchMode,
                             onUserClick = { user ->
                                 viewModel.openUpSpace(user)
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
-                            onRetryUser = viewModel::retryUserSearch,
-                            onLoadMoreUsers = viewModel::loadMoreUsers,
+                            onRetryUser = viewModel.search::retryUserSearch,
+                            onLoadMoreUsers = viewModel.search::loadMoreUsers,
                             searchHistory = searchHistory,
-                            onHistoryClick = viewModel::searchKeyword,
-                            onDeleteHistory = viewModel::deleteSearchKeyword,
-                            onClearHistory = viewModel::clearSearchHistory,
+                            onHistoryClick = viewModel.search::searchKeyword,
+                            onDeleteHistory = viewModel.search::deleteSearchKeyword,
+                            onClearHistory = viewModel.search::clearSearchHistory,
                             onAvatarClick = {
                                 viewModel.openUpSpace(
                                     SearchUser(
@@ -421,9 +421,9 @@ class MainActivity : ComponentActivity() {
                                     HomeEmptyState(
                                         searchHistory = searchHistory,
                                         heatmap = heatmap,
-                                        onKeywordClick = viewModel::searchKeyword,
-                                        onDeleteKeyword = viewModel::deleteSearchKeyword,
-                                        onClearHistory = viewModel::clearSearchHistory,
+                                        onKeywordClick = viewModel.search::searchKeyword,
+                                        onDeleteKeyword = viewModel.search::deleteSearchKeyword,
+                                        onClearHistory = viewModel.search::clearSearchHistory,
                                         onDayClick = { date -> viewModel.openDayHistory(date) },
                                         onOpenWatchLater = {
                                             tabSwitchRequests.tryEmit(Destination.LIBRARY)
@@ -518,18 +518,18 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     upSpaceContent = { onBack ->
-                        BackHandler(onBack = { viewModel.closeUpSpace(); onBack() })
+                        BackHandler(onBack = { viewModel.upSpace.closeUpSpace(); onBack() })
                         UpSpaceScreen(
                             state = upSpace,
-                            onClose = { viewModel.closeUpSpace(); onBack() },
-                            onViewChange = viewModel::setUpSpaceView,
+                            onClose = { viewModel.upSpace.closeUpSpace(); onBack() },
+                            onViewChange = viewModel.upSpace::setUpSpaceView,
                             onPostClick = viewModel::playUpPost,
-                            onLoadMorePosts = viewModel::loadMoreUpPosts,
-                            onRetryPosts = { viewModel.loadUpPosts(1) },
+                            onLoadMorePosts = viewModel.upSpace::loadMoreUpPosts,
+                            onRetryPosts = { viewModel.upSpace.loadUpPosts(1) },
                             onDynamicClick = viewModel::playDynamic,
-                            onLoadMoreDynamic = viewModel::loadMoreUpDynamic,
+                            onLoadMoreDynamic = viewModel.upSpace::loadMoreUpDynamic,
                             // Ch4
-                            onToggleFollow = viewModel::toggleRelation,
+                            onToggleFollow = viewModel.upSpace::toggleRelation,
                             onOpenImagePreview = viewModel::openImagePreview,
                             onOpenRepost = { idStr ->
                                 copyToClipboard(viewModel.dynamicUrl(idStr))
@@ -802,7 +802,7 @@ class MainActivity : ComponentActivity() {
             extraText = intent?.getStringExtra(Intent.EXTRA_TEXT),
             dataString = intent?.dataString,
         ) ?: return
-        viewModel.handleSharedText(text)
+        viewModel.search.handleSharedText(text)
     }
 
     /**
