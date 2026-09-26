@@ -102,14 +102,14 @@ class MainActivity : ComponentActivity() {
                 val openedTracks by viewModel.openedTracks.collectAsState()
                 val searchHistory by viewModel.searchHistory.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
-                val favoriteFolders by viewModel.favoriteFolders.collectAsState()
-                val favoriteSync by viewModel.favoriteSync.collectAsState()
-                val openedFavorite by viewModel.openedFavorite.collectAsState()
+                val favoriteFolders by viewModel.remoteLibrary.favoriteFolders.collectAsState()
+                val favoriteSync by viewModel.remoteLibrary.favoriteSync.collectAsState()
+                val openedFavorite by viewModel.remoteLibrary.openedFavorite.collectAsState()
                 val dynamic by viewModel.dynamics.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayHistory by viewModel.dayHistory.collectAsState()
-                val watchLater by viewModel.watchLater.collectAsState()
+                val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
                 val deletingFavoriteMediaId by viewModel.deletingFavoriteMediaId.collectAsState()
                 val selectionMode by viewModel.selectionMode.collectAsState()
@@ -129,9 +129,9 @@ class MainActivity : ComponentActivity() {
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
                 val downloadTasks by viewModel.downloadTasks.collectAsState()
-                val openedSeries by viewModel.openedSeries.collectAsState()
-                val collectedList by viewModel.collectedList.collectAsState()
-                val collectedListState by viewModel.collectedListState.collectAsState()
+                val openedSeries by viewModel.remoteLibrary.openedSeries.collectAsState()
+                val collectedList by viewModel.remoteLibrary.collectedList.collectAsState()
+                val collectedListState by viewModel.remoteLibrary.collectedListState.collectAsState()
                 val unreadSummary by viewModel.messages.unreadSummary.collectAsState()
 
                 val coroutineScope = rememberCoroutineScope()
@@ -196,16 +196,16 @@ class MainActivity : ComponentActivity() {
                         favoriteSync !is com.biliseek.app.SyncState.Syncing &&
                         favoriteSync !is com.biliseek.app.SyncState.NotLoggedIn
                     ) {
-                        viewModel.syncFavoriteFolders()
+                        viewModel.remoteLibrary.syncFavoriteFolders()
                     }
                 }
 
                 // 已登录且合集列表从未加载过 → 自动拉一次订阅合集列表
                 LaunchedEffect(session.isLoggedIn) {
-                    if (session.isLoggedIn && viewModel.collectedList.value.isEmpty() &&
-                        viewModel.collectedListState.value.isLoading.not()
+                    if (session.isLoggedIn && viewModel.remoteLibrary.collectedList.value.isEmpty() &&
+                        viewModel.remoteLibrary.collectedListState.value.isLoading.not()
                     ) {
-                        viewModel.loadCollectedList(1)
+                        viewModel.remoteLibrary.loadCollectedList(1)
                     }
                 }
 
@@ -427,7 +427,7 @@ class MainActivity : ComponentActivity() {
                                         onDayClick = { date -> viewModel.openDayHistory(date) },
                                         onOpenWatchLater = {
                                             tabSwitchRequests.tryEmit(Destination.LIBRARY)
-                                            viewModel.openWatchLater()
+                                            viewModel.remoteLibrary.openWatchLater()
                                         },
                                         onOpenRecentPlaylists = { tabSwitchRequests.tryEmit(Destination.LIBRARY) },
                                         isLoggedIn = session.isLoggedIn,
@@ -470,31 +470,31 @@ class MainActivity : ComponentActivity() {
                                 favoriteContent = openedFavorite,
                                 loginState = loginState,
                                 session = session,
-                                onSyncFavorites = viewModel::syncFavoriteFolders,
-                                onOpenFavorite = viewModel::openFavorite,
-                                onCloseFavorite = viewModel::closeFavorite,
+                                onSyncFavorites = viewModel.remoteLibrary::syncFavoriteFolders,
+                                onOpenFavorite = viewModel.remoteLibrary::openFavorite,
+                                onCloseFavorite = viewModel.remoteLibrary::closeFavorite,
                                 onCreateFavoriteFolder = viewModel::createFavoriteFolder,
                                 onEditFavoriteFolder = viewModel::editFavoriteFolder,
                                 onDeleteFavoriteFolder = viewModel::deleteFavoriteFolder,
-                                onFavoriteTrackClick = viewModel::playFavoriteTrack,
-                                onFavoriteLoadMore = viewModel::loadFavoritePage,
+                                onFavoriteTrackClick = viewModel.remoteLibrary::playFavoriteTrack,
+                                onFavoriteLoadMore = viewModel.remoteLibrary::loadFavoritePage,
                                 onStartLogin = viewModel::startLogin,
                                 onCancelLogin = viewModel::cancelLogin,
                                 watchLaterContent = watchLater,
-                                onOpenWatchLater = viewModel::openWatchLater,
-                                onCloseWatchLater = viewModel::closeWatchLater,
-                                onWatchLaterRetry = viewModel::retryWatchLater,
-                                onWatchLaterItemClick = viewModel::playWatchLaterItem,
+                                onOpenWatchLater = viewModel.remoteLibrary::openWatchLater,
+                                onCloseWatchLater = viewModel.remoteLibrary::closeWatchLater,
+                                onWatchLaterRetry = viewModel.remoteLibrary::retryWatchLater,
+                                onWatchLaterItemClick = viewModel.remoteLibrary::playWatchLaterItem,
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = openedSeries,
-                                onCloseSeries = viewModel::closeSeries,
+                                onCloseSeries = viewModel.remoteLibrary::closeSeries,
                                 collectedList = collectedList,
                                 collectedListState = collectedListState,
-                                onOpenSeries = viewModel::openSeries,
-                                onCollectedLoadMore = viewModel::loadCollectedList,
-                                onSeriesLoadMore = viewModel::loadSeriesPage,
-                                onPlaySeriesArchive = viewModel::playSeriesArchive,
+                                onOpenSeries = viewModel.remoteLibrary::openSeries,
+                                onCollectedLoadMore = viewModel.remoteLibrary::loadCollectedList,
+                                onSeriesLoadMore = viewModel.remoteLibrary::loadSeriesPage,
+                                onPlaySeriesArchive = viewModel.remoteLibrary::playSeriesArchive,
                             )
                         }
                     },

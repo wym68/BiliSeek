@@ -19,13 +19,9 @@ import com.biliseek.core.network.avToBv
 import com.biliseek.core.network.bvToAv
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
-import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
-import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.dto.SeriesItem
-import com.biliseek.core.network.dto.SeriesArchive
-import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.SeriesArchivesPage
 import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
@@ -50,12 +46,11 @@ import com.biliseek.app.data.SettingsStore
 import com.biliseek.app.data.TrackEntity
 import com.biliseek.app.data.VideoGate
 import com.biliseek.app.data.resolveVideoGate
-import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.comment.CommentThreadController
 import com.biliseek.app.dynamic.DynamicFeedController
+import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.app.data.RemoteListState
-import com.biliseek.app.data.CollectedListLoadState
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.DynamicItemType
@@ -378,83 +373,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    // ── 收藏夹目录快照（M11-B）──────────────────────────
+    // ── B 站远程列表（收藏夹 / 稍后再看 / 合集）：见 RemoteLibraryController ──
 
-    /** 收藏夹目录（音乐库「收藏夹」分区）。落库快照，未登录时为空。 */
-    val favoriteFolders: StateFlow<List<FavoriteFolderEntity>> = library.observeFavoriteFolders()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** 目录同步状态：拉取中 / 错误（可重试）。 */
-    private val _favoriteSync = MutableStateFlow<SyncState>(SyncState.Idle)
-    val favoriteSync: StateFlow<SyncState> = _favoriteSync.asStateFlow()
-
-    /**
-     * 同步收藏夹目录（整体替换快照）。
-     *
-     * 未登录不发起网络请求，直接置 [SyncState.NotLoggedIn]——
-     * 音乐库分区据此显示登录引导。
-     *
-     * 封面策略：B 站 list-all 接口常返回空封面（用户从未给文件夹设置封面），
-     * 此时拉一次首页内容，取首条 media 的 cover 作不上去——避免列表里全是占位色块。
-     * 每个空封面目录串行打一次「收藏夹内容」接口，N 个文件夹多 N 次请求，
-     * 平时几个夹子的话几秒内能完成。
-     */
-    fun syncFavoriteFolders() {
-        if (_favoriteSync.value is SyncState.Syncing) return
-        if (!session.value.isLoggedIn) {
-            _favoriteSync.value = SyncState.NotLoggedIn
-            return
-        }
-        viewModelScope.launch {
-            _favoriteSync.value = SyncState.Syncing
-            network.repository.favoriteFolders()
-                .onSuccess { folders ->
-                    val now = System.currentTimeMillis()
-                    val entities = folders.map { folder ->
-                        val cover = folder.cover.ifBlank {
-                            // 串行：N 个空封面就 N 次额外请求。
-                            // 并发会马上被 B 站限流，不如让用户感觉到一点进度。
-                            network.repository.firstMediaCover(folder.id).orEmpty()
-                        }
-                        FavoriteFolderEntity(
-                            mediaId = folder.id,
-                            title = folder.title,
-                            coverUrl = com.biliseek.core.network.normalizeCoverUrl(cover),
-                            mediaCount = folder.mediaCount,
-                            syncedAt = now,
-                        )
-                    }
-                    library.replaceFavoriteFolders(entities)
-                    _favoriteSync.value = SyncState.Idle
-                }
-                .onFailure {
-                    _favoriteSync.value = SyncState.Error(it.message ?: "同步失败")
-                }
-        }
-    }
-
-    private fun FavoriteMedia.toTrack() = FavoriteTrack(
-        bvid = bvid,
-        title = com.biliseek.core.network.stripHighlight(title),
-        coverUrl = com.biliseek.core.network.normalizeCoverUrl(cover),
-        durationSec = duration,
-        author = upper?.name.orEmpty(),
+    val remoteLibrary = RemoteLibraryController(
+        scope = viewModelScope,
+        repository = network.repository,
+        library = library,
+        session = session,
+        playBvid = { bvid, title, coverUrl, author, durationSec ->
+            playBvid(bvid, title, coverUrl, author, durationSec)
+        },
     )
-
-    /** 打开收藏夹内容页（分页拉取，不落库）。 */
-    fun openFavorite(mediaId: Long, title: String) {
-        _openedFavorite.value = RemoteListState(
-            id = TrackListId.Favorite(mediaId),
-            title = title,
-        )
-        loadFavoritePage(1)
-    }
-
-    fun closeFavorite() { _openedFavorite.value = null }
-
-    private val _openedFavorite =
-        MutableStateFlow<RemoteListState<FavoriteTrack>?>(null)
-    val openedFavorite: StateFlow<RemoteListState<FavoriteTrack>?> = _openedFavorite.asStateFlow()
 
     // ── 日历史页（M12）────────────────────────────────────
 
@@ -479,233 +408,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 日历史页点条目：与「最近播放」同一条播放路径。 */
     fun playDayHistoryEntry(entry: PlayHistoryEntity) = playHistoryEntry(entry)
-
-    // ── 稍后再看（M12）───────────────────────────────────
-
-    /** 稍后再看列表状态。 */
-    private val _watchLater = MutableStateFlow<RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>?>(null)
-    val watchLater: StateFlow<RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>?> = _watchLater.asStateFlow()
-
-    /** 打开稍后再看页：未登录置空（UI 显示登录引导）。 */
-    fun openWatchLater() {
-        if (!session.value.isLoggedIn) {
-            _watchLater.value = RemoteListState(
-                id = TrackListId.WatchLater,
-                title = "稍后再看",
-            )
-            return
-        }
-        // 不预置 isLoading：loadWatchLater 自己会设，预置反而被开头
-        // `if (state.isLoading) return` 挡掉——请求永远发不出去（M12 bug）。
-        _watchLater.value = RemoteListState(
-            id = TrackListId.WatchLater,
-            title = "稍后再看",
-        )
-        loadWatchLater()
-    }
-
-    fun closeWatchLater() { _watchLater.value = null }
-
-    fun retryWatchLater() = loadWatchLater()
-
-    private fun loadWatchLater() {
-        val state = _watchLater.value ?: return
-        if (state.isLoading) return
-        viewModelScope.launch {
-            _watchLater.value = state.copy(isLoading = true, errorMessage = null)
-            network.repository.watchLater()
-                .onSuccess { items ->
-                    _watchLater.value = _watchLater.value?.copy(
-                        items = items,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                }
-                .onFailure {
-                    _watchLater.value = _watchLater.value?.copy(
-                        isLoading = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 点稍后再看条目：走与收藏夹相同的 playBvid 路径。 */
-    fun playWatchLaterItem(item: com.biliseek.core.network.dto.WatchLaterItem) {
-        playBvid(
-            bvid = item.bvid,
-            title = item.title,
-            coverUrl = com.biliseek.core.network.normalizeCoverUrl(item.pic),
-            author = item.owner?.name.orEmpty(),
-            durationSec = item.duration,
-        )
-    }
-
-    // ── 合集（M13-N）────────────────────────────────
-
-    /** 订阅合集列表（分页）。 */
-    private val _collectedList = MutableStateFlow<List<CollectedItem>>(emptyList())
-    val collectedList: StateFlow<List<CollectedItem>> = _collectedList.asStateFlow()
-
-    /** 当前打开的合集内容页（分页拉取，不落库）。 */
-    private val _openedSeries = MutableStateFlow<RemoteListState<SeriesArchive>?>(null)
-    val openedSeries: StateFlow<RemoteListState<SeriesArchive>?> = _openedSeries.asStateFlow()
-
-    /** 订阅合集列表加载状态。 */
-    private val _collectedListState = MutableStateFlow(CollectedListLoadState())
-    val collectedListState: StateFlow<CollectedListLoadState> = _collectedListState.asStateFlow()
-
-    /** 加载订阅合集列表第 [page] 页。 */
-    fun loadCollectedList(page: Int = 1) {
-        val mid = session.value.dedeUserId.toLongOrNull() ?: return
-        val state = _collectedListState.value
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        viewModelScope.launch {
-            val loadingMore = page > 1
-            _collectedListState.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            network.repository.collectedList(mid, page)
-                .onSuccess { result ->
-                    val base = _collectedListState.value
-                    _collectedList.value = if (loadingMore) _collectedList.value + result.items else result.items
-                    _collectedListState.value = base.copy(
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        totalCount = result.totalCount,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    _collectedListState.value = _collectedListState.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 打开合集内容页。 */
-    fun openSeries(seriesId: Long, title: String) {
-        _openedSeries.value = RemoteListState(
-            id = TrackListId.Series(seriesId),
-            title = title,
-        )
-        loadSeriesPage(1)
-    }
-
-    fun closeSeries() { _openedSeries.value = null }
-
-    /** 加载合集内容第 [page] 页。 */
-    fun loadSeriesPage(page: Int) {
-        val state = _openedSeries.value ?: return
-        val seriesId = (state.id as? TrackListId.Series)?.seriesId ?: return
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        viewModelScope.launch {
-            val loadingMore = page > 1
-            _openedSeries.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            network.repository.collectionSeasonList(seriesId, page)
-                .onSuccess { result ->
-                    val base = _openedSeries.value ?: return@onSuccess
-                    val archives = result.items.map { item ->
-                        SeriesArchive(
-                            bvid = item.bvid,
-                            cid = item.id,
-                            title = item.title,
-                            cover = item.cover,
-                            duration = item.duration.toLong(),
-                            author = item.upper.name,
-                        )
-                    }
-                    _openedSeries.value = base.copy(
-                        items = if (loadingMore) base.items + archives else archives,
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    val base = _openedSeries.value ?: return@onFailure
-                    _openedSeries.value = base.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 点合集条目：走与收藏夹相同的 playBvid 路径。 */
-    fun playSeriesArchive(archive: SeriesArchive) {
-        playBvid(
-            bvid = archive.bvid,
-            title = archive.title,
-            coverUrl = com.biliseek.core.network.normalizeCoverUrl(archive.cover),
-            author = archive.author,
-            durationSec = archive.duration,
-        )
-    }
-
-    /** 加载收藏夹内容第 [page] 页。翻页时追加，刷新时从第 1 页替换。 */
-    fun loadFavoritePage(page: Int) {
-        val state = _openedFavorite.value ?: return
-        val id = state.id as? TrackListId.Favorite ?: return
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        viewModelScope.launch {
-            val loadingMore = page > 1
-            _openedFavorite.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            network.repository.favoriteResources(id.mediaId, page)
-                .onSuccess { result ->
-                    val base = _openedFavorite.value ?: return@onSuccess
-                    _openedFavorite.value = base.copy(
-                        items = if (loadingMore) base.items + result.items.map { it.toTrack() }
-                        else result.items.map { it.toTrack() },
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    val base = _openedFavorite.value ?: return@onFailure
-                    _openedFavorite.value = base.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /**
-     * 点收藏夹条目：取分 P，单 P 直接播，多 P 整张作队列从头播。
-     * （搜索结果里「先展开再选」是因为用户在看；收藏夹里点播放意图是「听」。）
-     */
-    fun playFavoriteTrack(item: FavoriteTrack) {
-        playBvid(
-            bvid = item.bvid,
-            title = item.title,
-            coverUrl = item.coverUrl,
-            author = item.author,
-            durationSec = item.durationSec,
-        )
-    }
 
     /**
      * 按 bvid 起播：单 P 直接播，多 P 整张作队列从头播。
@@ -1090,7 +792,7 @@ return pages.map { p ->
                         ok == 0 -> emitMessage("收藏夹已创建，但视频加入失败")
                         else -> emitMessage("已创建收藏夹，加入 $ok 项、$failed 项失败")
                     }
-                    syncFavoriteFolders()
+                    remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("创建收藏夹失败：${it.message ?: "未知错误"}") }
         }
@@ -1103,7 +805,7 @@ return pages.map { p ->
             network.repository.addFavoriteFolder(title, intro)
                 .onSuccess {
                     emitMessage("已创建收藏夹")
-                    syncFavoriteFolders()
+                    remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("创建收藏夹失败：${it.message ?: "未知错误"}") }
         }
@@ -1116,7 +818,7 @@ return pages.map { p ->
             network.repository.editFavoriteFolder(mediaId, newTitle)
                 .onSuccess {
                     emitMessage("已修改收藏夹")
-                    syncFavoriteFolders()
+                    remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("编辑失败：${it.message ?: "未知错误"}") }
         }
@@ -1146,7 +848,7 @@ return pages.map { p ->
                             failed == 0 -> emitMessage("已删除收藏夹（清理 $total 个视频）")
                             else -> emitMessage("已删除收藏夹，${total - failed}/$total 个视频已移除")
                         }
-                        syncFavoriteFolders()
+                        remoteLibrary.syncFavoriteFolders()
                     }
                     .onFailure { emitMessage("删除失败：${it.message ?: "未知错误"}") }
             } finally {
