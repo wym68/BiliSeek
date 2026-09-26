@@ -29,9 +29,17 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
 
+      - name: Diagnose available SDK packages
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          echo "--- available platforms (API 30+) ---"
+          "$SDKMANAGER" --list 2>/dev/null | grep -E "platforms;android-([3-9][0-9]|[A-Za-z])" || echo "(none matched)"
+          echo "--- available build-tools (30+) ---"
+          "$SDKMANAGER" --list 2>/dev/null | grep -E "build-tools;([3-9][0-9]|[A-Za-z])" || echo "(none matched)"
+
       - name: Install SDK platform & build-tools
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0" || true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
