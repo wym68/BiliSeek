@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
                 val favoriteFolders by viewModel.favoriteFolders.collectAsState()
                 val favoriteSync by viewModel.favoriteSync.collectAsState()
                 val openedFavorite by viewModel.openedFavorite.collectAsState()
-                val dynamic by viewModel.dynamic.collectAsState()
+                val dynamic by viewModel.dynamics.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayHistory by viewModel.dayHistory.collectAsState()
@@ -120,11 +120,11 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
-                val commentDialog by viewModel.dynamicComments.state.collectAsState()
+                val commentDialog by viewModel.dynamics.comments.state.collectAsState()
                 val playerComment by viewModel.playerComments.state.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
-                val dynamicExpand by viewModel.dynamicExpand.collectAsState()
+                val dynamicExpand by viewModel.dynamics.dynamicExpand.collectAsState()
                 val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
@@ -283,12 +283,12 @@ class MainActivity : ComponentActivity() {
                             state = dynamic,
                             session = session,
                             loginState = loginState,
-                            onInit = viewModel::initDynamic,
-                            onRefresh = viewModel::initDynamic,
-                            onTypeFilterChange = viewModel::setDynamicTypeFilter,
-                            onSelectUp = viewModel::selectDynamicUp,
-                            onLoadMore = viewModel::loadMoreDynamic,
-                            onRetryInit = viewModel::initDynamic,
+                            onInit = viewModel.dynamics::initDynamic,
+                            onRefresh = viewModel.dynamics::initDynamic,
+                            onTypeFilterChange = viewModel.dynamics::setDynamicTypeFilter,
+                            onSelectUp = viewModel.dynamics::selectDynamicUp,
+                            onLoadMore = viewModel.dynamics::loadMoreDynamic,
+                            onRetryInit = viewModel.dynamics::initDynamic,
                             onEntryClick = viewModel::playDynamic,
                             onStartLogin = viewModel::startLogin,
                             onCancelLogin = viewModel::cancelLogin,
@@ -298,8 +298,8 @@ class MainActivity : ComponentActivity() {
                                 copyToClipboard(viewModel.dynamicUrl(idStr))
                                 viewModel.notifyLinkCopied()
                             },
-                            onOpenComment = viewModel::openCommentDialog,
-                            onToggleLike = viewModel::toggleDynamicLike,
+                            onOpenComment = viewModel.dynamics::openCommentDialog,
+                            onToggleLike = viewModel.dynamics::toggleDynamicLike,
                             onOpenFollowList = {
                                 openFollowingListRequests.tryEmit(Unit)
                             },
@@ -312,7 +312,7 @@ class MainActivity : ComponentActivity() {
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
                             dynamicExpand = dynamicExpand,
-                            onToggleExpand = viewModel::toggleDynamicExpand,
+                            onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
                         )
                     },
                     searchContent = {
@@ -535,15 +535,15 @@ class MainActivity : ComponentActivity() {
                                 copyToClipboard(viewModel.dynamicUrl(idStr))
                                 viewModel.notifyLinkCopied()
                             },
-                            onOpenComment = viewModel::openCommentDialog,
-                            onToggleLike = viewModel::toggleDynamicLike,
+                            onOpenComment = viewModel.dynamics::openCommentDialog,
+                            onToggleLike = viewModel.dynamics::toggleDynamicLike,
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
                                 )
                             },
                             dynamicExpand = dynamicExpand,
-                            onToggleExpand = viewModel::toggleDynamicExpand,
+                            onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
                             // 投稿复选与动作
                             isSelection = upSelectionActive,
                             selectedBvids = selectedUpKeys,
@@ -697,16 +697,16 @@ class MainActivity : ComponentActivity() {
                         content = state.content,
                         isPosting = state.isPosting,
                         expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel.dynamicComments::setSort,
-                        onLoadMore = viewModel.dynamicComments::loadMore,
-                        onLike = { reply, root -> viewModel.dynamicComments.toggleLike(reply, root) },
-                        onReply = { reply, root -> viewModel.dynamicComments.startReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel.dynamicComments::expandSubReplies,
-                        onLoadMoreSubReplies = viewModel.dynamicComments::loadMoreSubReplies,
-                        onContentChange = viewModel.dynamicComments::updateContent,
-                        onClearReplyTarget = viewModel.dynamicComments::clearReplyTarget,
-                        onSubmit = viewModel.dynamicComments::submit,
-                        onDismiss = viewModel.dynamicComments::dismiss,
+                        onSortChange = viewModel.dynamics.comments::setSort,
+                        onLoadMore = viewModel.dynamics.comments::loadMore,
+                        onLike = { reply, root -> viewModel.dynamics.comments.toggleLike(reply, root) },
+                        onReply = { reply, root -> viewModel.dynamics.comments.startReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel.dynamics.comments::expandSubReplies,
+                        onLoadMoreSubReplies = viewModel.dynamics.comments::loadMoreSubReplies,
+                        onContentChange = viewModel.dynamics.comments::updateContent,
+                        onClearReplyTarget = viewModel.dynamics.comments::clearReplyTarget,
+                        onSubmit = viewModel.dynamics.comments::submit,
+                        onDismiss = viewModel.dynamics.comments::dismiss,
                     )
                 }
 

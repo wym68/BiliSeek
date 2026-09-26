@@ -53,16 +53,13 @@ import com.biliseek.app.data.resolveVideoGate
 import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.comment.CommentThreadController
+import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.CollectedListLoadState
-import com.biliseek.app.data.DynamicExpandState
-import com.biliseek.app.data.nextDynamicExpandState
-import com.biliseek.app.data.shouldFetchDynamicDetail
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.DynamicItemType
 import com.biliseek.core.network.dto.FollowingUp
-import com.biliseek.core.network.dto.ReplyItem
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -319,22 +316,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Ch4 状态 ──────────────────────────────────────
 
-    /** 动态评论对话框。发表时对卡片评论数乐观 +1，失败回滚。 */
-    val dynamicComments = CommentThreadController(
+    /** 动态：关注流 + 卡片互动（评论对话框在 `dynamics.comments`）。 */
+    val dynamics = DynamicFeedController(
         scope = viewModelScope,
         repository = network.repository,
+        library = library,
         session = session,
         emitMessage = ::emitMessage,
-        onPostStarted = { s -> patchCommentCount(s.key, +1) },
-        onPostFailed = { s -> patchCommentCount(s.key, -1) },
+        patchOtherEntry = ::patchUpSpaceEntry,
+        findOtherEntry = { idStr -> _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr } },
     )
 
     /** 图文动态图片全屏预览。null=关闭。 */
     private val _previewImage = MutableStateFlow<ImagePreviewState?>(null)
     val previewImage: StateFlow<ImagePreviewState?> = _previewImage.asStateFlow()
-
-    /** 点赞防抖：记录每个 dyn_id_str 最近一次发起请求的时间戳。 */
-    private val likeRequestGate = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private var pollJob: Job? = null
 
@@ -758,40 +753,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── 动态（M11-C）──────────────────────────────────────
-
-    private val _dynamic = MutableStateFlow(DynamicUiState())
-    val dynamic: StateFlow<DynamicUiState> = _dynamic.asStateFlow()
-
-    /** 登录后首次进入动态 tab 时调用：拉关注列表 + 第一页动态。 */
-    fun initDynamic(forceRefresh: Boolean = false) {
-        if (!session.value.isLoggedIn) return
-        val cur = _dynamic.value
-        if (cur.initState is DynamicInitState.Loading) return
-        if (!forceRefresh && (cur.upChips.isNotEmpty() || cur.feed.items.isNotEmpty())) return
-        viewModelScope.launch {
-            _dynamic.value = cur.copy(initState = DynamicInitState.Loading)
-            network.repository.followings()
-                .onSuccess { ups ->
-                    _dynamic.value = _dynamic.value.copy(
-                        upChips = mergeUpChips(ups, library.upVisitAll()),
-                        initState = DynamicInitState.Idle,
-                    )
-                    loadDynamicPage(offset = "")
-                }
-                .onFailure {
-                    _dynamic.value = _dynamic.value.copy(
-                        initState = DynamicInitState.Error(it.message ?: "加载失败"),
-                    )
-                }
-        }
-    }
-
-    /** 合并关注列表与本地访问记录，产出「最常访问」栏的展示顺序。 */
-    private suspend fun mergeUpChips(
-        followings: List<FollowingUp>,
-        visits: List<com.biliseek.app.data.UpVisitEntity>,
-    ): List<FollowingUp> = com.biliseek.app.data.UpVisitPolicy.mergeUpChips(followings, visits)
+    // ── 动态（M11-C）：见 DynamicFeedController ──
 
     /** 计一次 UP 访问。失败静默：不影响主流程。 */
     private fun recordUpVisit(mid: Long) {
@@ -799,102 +761,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { library.recordUpVisit(mid) }
     }
 
-    /** 「全部 / 仅视频」切换：变化必须重置游标重拉第 1 页。 */
-    fun setDynamicTypeFilter(type: String) {
-        val cur = _dynamic.value
-        if (cur.typeFilter == type) return
-        _dynamic.value = cur.copy(typeFilter = type, feed = RemoteListState.empty(), feedOffset = "")
-        loadDynamicPage(offset = "")
-    }
-
-    /**
- * 按 UP 筛选：null = 回关注流，非 null = 只看该 UP。切换同样重置游标。
- *
- * 再点已选中的 UP = 取消筛选（与 B 站 App 行为一致）。
- */
-    fun selectDynamicUp(up: FollowingUp?) {
-        val cur = _dynamic.value
-        val targetMid = if (up != null && cur.selectedUpMid == up.mid) null else up?.mid
-        if (cur.selectedUpMid == targetMid) return
-        _dynamic.value = cur.copy(
-            selectedUpMid = targetMid,
-            feed = RemoteListState.empty(),
-            feedOffset = "",
-        )
-        loadDynamicPage(offset = "")
-        // 筛选本身就是一次「访问」：计入最常访问（取消筛选不计）。
-        if (up != null && targetMid != null) recordUpVisit(up.mid)
-    }
-
-    /** 强制刷新关注列表（无视缓存），关注/取关成功后调用。 */
-    private fun refreshUpChips() = viewModelScope.launch {
-        network.repository.followings()
-            .onSuccess { ups ->
-                _dynamic.value = _dynamic.value.copy(
-                    upChips = mergeUpChips(ups, library.upVisitAll()),
-                )
-            }
-    }
-
     /** 从关注列表页点击 UP 主 → 打开 UP 空间页。 */
     fun openUpSpaceFromFollowing(up: FollowingUp) {
         openUpSpace(
             SearchUser(mid = up.mid, uname = up.uname, upic = up.face)
         )
-    }
-
-    /** 加载下一页（继续翻）。 */
-    fun loadMoreDynamic() {
-        val cur = _dynamic.value
-        if (!cur.feed.hasMore) return
-        loadDynamicPage(offset = cur.feedOffset)
-    }
-
-    private fun loadDynamicPage(offset: String) {
-        val cur = _dynamic.value
-        if (cur.feed.isLoading || cur.feed.isLoadingMore) return
-        val loadingMore = offset.isNotBlank()
-        viewModelScope.launch {
-            _dynamic.value = cur.feed.let { feed ->
-                cur.copy(
-                    feed = feed.copy(
-                        isLoading = !loadingMore,
-                        isLoadingMore = loadingMore,
-                        errorMessage = null,
-                    ),
-                )
-            }
-            val result = if (cur.selectedUpMid != null) {
-                network.repository.dynamicSpace(cur.selectedUpMid, offset)
-            } else {
-                network.repository.dynamicFeed(cur.typeFilter, offset)
-            }
-            result
-                .onSuccess { pageData ->
-                    val base = _dynamic.value.feed
-                    _dynamic.value = _dynamic.value.copy(
-                        feed = base.copy(
-                            items = if (loadingMore) base.items + pageData.entries
-                            else pageData.entries,
-                            hasMore = pageData.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                        feedOffset = pageData.offset,
-                    )
-                }
-                .onFailure {
-                    val base = _dynamic.value.feed
-                    _dynamic.value = _dynamic.value.copy(
-                        feed = base.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = it.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
     }
 
     /** 点动态条目：视频动态直接播（走与收藏夹相同的 playBvid 路径）。 */
@@ -1804,7 +1675,7 @@ return pages.map { p ->
                 _upSpace.value = _upSpace.value.copy(followingLoading = false)
                 emitMessage(if (follow) "已关注" else "已取消关注")
                 // 关注/取关成功后刷新动态页的关注列表
-                refreshUpChips()
+                dynamics.refreshUpChips()
             }
             .onFailure { err ->
                 // 回滚 + 报错提示
@@ -1813,117 +1684,16 @@ return pages.map { p ->
             }
     }
 
-    // ── Ch4 动态互动（点赞 / 转发 / 评论 / 图片预览） ──
-
-    /**
-     * 乐观更新一条动态的 stat.like：用于点赞 +1/-1 双状态。
-     * 同步更新关注流（`_dynamic.feed`）与 UP 空间页（`_upSpace.dynamic`）两个 StateFlow。
-     */
-    private fun patchEntry(idStr: String, transform: (DynamicEntry) -> DynamicEntry) {
-        val dyn = _dynamic.value
-        val idx = dyn.feed.items.indexOfFirst { it.idStr == idStr }
-        if (idx >= 0) {
-            val newItems = dyn.feed.items.toMutableList().also { it[idx] = transform(it[idx]) }
-            _dynamic.value = dyn.copy(feed = dyn.feed.copy(items = newItems))
-        }
+    /** UP 空间页动态列表里就地替换一条（供 [dynamics] 的乐观更新 / 回滚使用）。 */
+    private fun patchUpSpaceEntry(idStr: String, transform: (DynamicEntry) -> DynamicEntry) {
         val space = _upSpace.value
-        val sIdx = space.dynamic.items.indexOfFirst { it.idStr == idStr }
-        if (sIdx >= 0) {
-            val newItems = space.dynamic.items.toMutableList().also { it[sIdx] = transform(it[sIdx]) }
-            _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
-        }
+        val idx = space.dynamic.items.indexOfFirst { it.idStr == idStr }
+        if (idx < 0) return
+        val newItems = space.dynamic.items.toMutableList().also { it[idx] = transform(it[idx]) }
+        _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
     }
 
-    /** 点赞：500ms 内只发一次请求；乐观更新；失败回滚。 */
-    fun toggleDynamicLike(idStr: String, like: Boolean) = viewModelScope.launch {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再点赞")
-            return@launch
-        }
-        // 防抖：500ms 闸门
-        val now = System.currentTimeMillis()
-        val last = likeRequestGate[idStr] ?: 0L
-        if (now - last < 500) return@launch
-        likeRequestGate[idStr] = now
-
-        val original = snapshotEntry(idStr)
-        // 乐观更新：status 反转、count ±1
-        patchEntry(idStr) { e ->
-            val stat = e.stat ?: return@patchEntry e
-            e.copy(stat = stat.copy(like = stat.like.copy(
-                count = (stat.like.count + if (like) 1 else -1).coerceAtLeast(0),
-                status = like,
-            )))
-        }
-        network.repository.likeDynamic(idStr, like)
-            .onSuccess { emitMessage(if (like) "已点赞" else "已取消点赞") }
-            .onFailure { err ->
-                // 回滚：把 entry 的 stat 还原
-                original?.let { orig -> patchEntry(idStr) { _ -> orig } }
-                emitMessage("点赞失败：${err.message ?: "未知错误"}")
-            }
-    }
-
-    /** 取一份 entry 快照（用于失败回滚）。 */
-    private fun snapshotEntry(idStr: String): DynamicEntry? {
-        _dynamic.value.feed.items.firstOrNull { it.idStr == idStr }?.let { return it }
-        return _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr }
-    }
-
-    /** 打开评论对话框：根据 dynamic entry 计算 oid/type，并立即加载第一页。未登录也可读。 */
-    fun openCommentDialog(entry: DynamicEntry) {
-        val (oid, type) = com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry(
-            idStr = entry.idStr,
-            rawType = entry.rawType,
-            drawId = entry.drawId,
-            commentOid = entry.commentOid,
-            commentType = entry.commentType,
-        )
-        dynamicComments.open(oid = oid, type = type, key = entry.idStr)
-    }
-
-    private fun patchCommentCount(idStr: String, delta: Int) {
-        patchEntry(idStr) { e ->
-            val stat = e.stat ?: return@patchEntry e
-            e.copy(stat = stat.copy(comment = stat.comment.copy(
-                count = (stat.comment.count + delta).coerceAtLeast(0),
-            )))
-        }
-    }
-
-    // ── 动态卡片正文原地展开/收起（四级降级拉全文）────────────────
-
-    private val _dynamicExpand = MutableStateFlow<Map<String, DynamicExpandState>>(emptyMap())
-    val dynamicExpand: StateFlow<Map<String, DynamicExpandState>> = _dynamicExpand.asStateFlow()
-
-    /**
-     * 点"展开/收起"：状态转换交给纯函数 [nextDynamicExpandState]，这里只负责按需
-     * 发起网络请求（web detail → opus/detail → desktop → rid，与旧版全文弹层同一路径，
-     * repository 层有 LRU 缓存）。按 idStr 独立维护，允许多张卡片同时展开。
-     */
-    fun toggleDynamicExpand(entry: DynamicEntry) {
-        val idStr = entry.idStr
-        val current = _dynamicExpand.value[idStr]
-        val alreadyFetching = current?.expanded == true && current.entry == null && current.error == null
-        val next = nextDynamicExpandState(current)
-        _dynamicExpand.value = _dynamicExpand.value + (idStr to next)
-        if (alreadyFetching || !shouldFetchDynamicDetail(next)) return
-        viewModelScope.launch {
-            network.repository.dynamicDetail(idStr, seed = entry)
-                .onSuccess { detail ->
-                    val cur = _dynamicExpand.value[idStr]
-                    if (cur?.expanded == true && cur.entry == null) {
-                        _dynamicExpand.value = _dynamicExpand.value + (idStr to cur.copy(entry = detail))
-                    }
-                }
-                .onFailure { e ->
-                    val cur = _dynamicExpand.value[idStr]
-                    if (cur?.expanded == true && cur.entry == null) {
-                        _dynamicExpand.value = _dynamicExpand.value + (idStr to cur.copy(error = e.message ?: "加载失败"))
-                    }
-                }
-        }
-    }
+    // ── 图片预览（动态卡片 / UP 空间页共用） ──
 
     /** 打开图片预览（全屏）。 */
     fun openImagePreview(pics: List<String>, initialIndex: Int = 0) {
