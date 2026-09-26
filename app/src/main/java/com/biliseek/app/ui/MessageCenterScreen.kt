@@ -48,6 +48,7 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
 import com.biliseek.core.network.dto.Session
 import com.biliseek.core.network.normalizeCoverUrl
+import com.biliseek.core.network.privateMessageText
 
 /**
  * 消息中心页。三个入口图标（回复与@/收到喜欢/新增粉丝，前两个带未读角标）+
@@ -187,7 +188,7 @@ private fun MessageEntryIcon(
 private fun SessionRow(session: Session, onClick: () -> Unit) {
     val peerName = session.accountInfo?.name.orEmpty().ifBlank { "用户${session.talkerId}" }
     val peerFace = session.accountInfo?.face.orEmpty()
-    val lastText = session.lastMsg?.content?.let { extractTextPreview(it) }.orEmpty()
+    val lastText = session.lastMsg?.let { privateMessageText(it.msgType, it.content) }.orEmpty()
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -210,13 +211,4 @@ private fun SessionRow(session: Session, onClick: () -> Unit) {
             color = MaterialTheme.colorScheme.outline,
         )
     }
-}
-
-private fun extractTextPreview(rawJson: String): String {
-    val regex = Regex("\"content\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
-    return regex.find(rawJson)?.groupValues?.get(1)
-        ?.replace("\\\\", "\\")
-        ?.replace("\\\"", "\"")
-        ?.replace("\\n", "\n")
-        ?: rawJson
 }

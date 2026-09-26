@@ -46,9 +46,10 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.dto.ReplyAtItem
+import com.biliseek.core.network.canReplyInApp
 import com.biliseek.core.network.normalizeCoverUrl
 
-/** "回复与@" 子页面：从消息中心图标进入。长按条目可站内直接回复。 */
+/** "回复与@" 子页面：从消息中心图标进入。长按视频评论区的条目可站内直接回复。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReplyAtScreen(
@@ -110,9 +111,13 @@ fun ReplyAtScreen(
                             ReplyAtRow(
                                 item = entry,
                                 onClick = { onPlayItem(entry) },
-                                onLongClick = {
-                                    pendingReply = entry
-                                    replyDraft = ""
+                                onLongClick = if (entry.canReplyInApp()) {
+                                    {
+                                        pendingReply = entry
+                                        replyDraft = ""
+                                    }
+                                } else {
+                                    null
                                 },
                             )
                             HorizontalDivider()
@@ -145,9 +150,9 @@ fun ReplyAtScreen(
                             val target = pendingReply ?: return@TextButton
                             replySubmitting = true
                             onSubmitReply(
-                                target.sourceId,
-                                target.rootId,
-                                target.parentId,
+                                target.subjectId,
+                                target.replyRootId,
+                                target.replyParentId,
                                 replyDraft,
                             ) { ok, _ ->
                                 replySubmitting = false
@@ -170,7 +175,7 @@ fun ReplyAtScreen(
 private fun ReplyAtRow(
     item: ReplyAtItem,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
 ) {
     Row(
         Modifier.fillMaxWidth()
@@ -187,7 +192,23 @@ private fun ReplyAtRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(item.user?.name.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("评论：${item.content}", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val action = if (item.quotedContent.isNotBlank()) "回复了你的评论" else "评论了你"
+            Text(
+                "$action：${item.content}",
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val context = item.quotedContent.ifBlank { item.title }
+            if (context.isNotBlank()) {
+                Text(
+                    context,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         Spacer(Modifier.width(8.dp))
         Text(

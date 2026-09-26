@@ -28,6 +28,7 @@ import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.SeriesArchivesPage
 import com.biliseek.core.network.parseSearchInput
+import com.biliseek.core.network.videoBvid
 import android.view.SurfaceView
 import android.graphics.Bitmap
 import coil3.imageLoader
@@ -2880,37 +2881,42 @@ return pages.map { p ->
         _chatByTalker.value = _chatByTalker.value - talkerId
     }
 
-    /** 点回复与@ 条目：跳转到对应视频（business_id=1 视频，5 动态本期不支持）。 */
+    /** 点回复与@ 条目：评论区在视频下就播该视频；动态/专栏等本期不支持，给提示不乱跳。 */
     fun playReplyAtItem(item: com.biliseek.core.network.dto.ReplyAtItem) {
-        if (item.businessId == 1 && item.sourceId > 0L) {
-            val bvid = avToBv(item.sourceId)
-            play(
-                PlaybackRequest.Bili(
-                    bvid = bvid,
-                    cid = null,
-                    title = item.sourceContent.ifBlank { "评论的视频" },
-                    coverUrl = "",
-                    author = item.user?.name.orEmpty(),
-                    durationSec = 0L,
-                ),
-            )
+        val bvid = item.videoBvid()
+        if (bvid == null) {
+            emitMessage("暂不支持打开这类内容")
+            return
         }
+        play(
+            PlaybackRequest.Bili(
+                bvid = bvid,
+                cid = null,
+                title = item.title.ifBlank { "评论的视频" },
+                coverUrl = "",
+                author = "",
+                durationSec = 0L,
+            ),
+        )
     }
 
+    /** 点收到喜欢条目：被赞对象能落到视频上就播；评论/动态等本期不支持。 */
     fun playLikeItem(item: com.biliseek.core.network.dto.LikeItem) {
-        if (item.sourceId > 0L) {
-            val bvid = avToBv(item.sourceId)
-            play(
-                PlaybackRequest.Bili(
-                    bvid = bvid,
-                    cid = null,
-                    title = item.title.ifBlank { "收到喜欢的视频" },
-                    coverUrl = "",
-                    author = item.firstUser?.name.orEmpty(),
-                    durationSec = 0L,
-                ),
-            )
+        val bvid = item.videoBvid()
+        if (bvid == null) {
+            emitMessage("暂不支持打开这类内容")
+            return
         }
+        play(
+            PlaybackRequest.Bili(
+                bvid = bvid,
+                cid = null,
+                title = item.title.ifBlank { "收到喜欢的视频" },
+                coverUrl = "",
+                author = "",
+                durationSec = 0L,
+            ),
+        )
     }
 
     fun openFollowerSpace(item: com.biliseek.core.network.dto.FollowerEntry) {
