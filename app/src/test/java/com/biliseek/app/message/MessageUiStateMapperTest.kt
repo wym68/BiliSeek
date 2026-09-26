@@ -1,6 +1,5 @@
-package com.biliseek.app.data
+package com.biliseek.app.message
 
-import com.biliseek.app.AppViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,7 +8,7 @@ class MessageUiStateMapperTest {
 
     @Test
     fun `PrivateChatState 默认无草稿无消息`() {
-        val s = AppViewModel.PrivateChatState()
+        val s = PrivateChatState()
         assertEquals("", s.draft)
         assertEquals(0L, s.minSeqno)
         assertEquals(0L, s.maxSeqno)
@@ -19,7 +18,7 @@ class MessageUiStateMapperTest {
 
     @Test
     fun `PrivateChatNav 携带 talker 与昵称`() {
-        val nav = AppViewModel.PrivateChatNav(talkerId = 123L, peerName = "Alice", peerFace = "//face")
+        val nav = PrivateChatNav(talkerId = 123L, peerName = "Alice", peerFace = "//face")
         assertEquals(123L, nav.talkerId)
         assertEquals("Alice", nav.peerName)
     }

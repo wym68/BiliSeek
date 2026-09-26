@@ -120,8 +120,8 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
-                val commentDialog by viewModel.commentDialog.collectAsState()
-                val playerComment by viewModel.playerComment.collectAsState()
+                val commentDialog by viewModel.dynamicComments.state.collectAsState()
+                val playerComment by viewModel.playerComments.state.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
                 val dynamicExpand by viewModel.dynamicExpand.collectAsState()
@@ -132,7 +132,7 @@ class MainActivity : ComponentActivity() {
                 val openedSeries by viewModel.openedSeries.collectAsState()
                 val collectedList by viewModel.collectedList.collectAsState()
                 val collectedListState by viewModel.collectedListState.collectAsState()
-                val unreadSummary by viewModel.unreadSummary.collectAsState()
+                val unreadSummary by viewModel.messages.unreadSummary.collectAsState()
 
                 val coroutineScope = rememberCoroutineScope()
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
                     val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                         if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                            viewModel.refreshUnreadCount()
+                            viewModel.messages.refreshUnreadCount()
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
 
                 // 首次进入也刷新一次未读小红点（LifecycleObserver 只覆盖 ON_RESUME）
                 LaunchedEffect(Unit) {
-                    viewModel.refreshUnreadCount()
+                    viewModel.messages.refreshUnreadCount()
                 }
 
                 AppShell(
@@ -222,11 +222,11 @@ class MainActivity : ComponentActivity() {
                     tabSwitchRequests = tabSwitchRequests,
                     openUpSpaceRequests = openUpSpaceRequests,
                     openFollowingListRequests = openFollowingListRequests,
-                    openMessagesRequests = viewModel.openMessagesRequests,
-                    openReplyFeedRequests = viewModel.openReplyFeedRequests,
-                    openLikeFeedRequests = viewModel.openLikeFeedRequests,
-                    openFollowerFeedRequests = viewModel.openFollowerFeedRequests,
-                    openPrivateChatRequests = viewModel.openPrivateChatRequests,
+                    openMessagesRequests = viewModel.messages.openMessagesRequests,
+                    openReplyFeedRequests = viewModel.messages.openReplyFeedRequests,
+                    openLikeFeedRequests = viewModel.messages.openLikeFeedRequests,
+                    openFollowerFeedRequests = viewModel.messages.openFollowerFeedRequests,
+                    openPrivateChatRequests = viewModel.messages.openPrivateChatRequests,
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
                     surfaceView = surfaceView,
@@ -304,7 +304,7 @@ class MainActivity : ComponentActivity() {
                                 openFollowingListRequests.tryEmit(Unit)
                             },
                             unreadCount = unreadSummary.total,
-                            onOpenMessages = viewModel::openMessages,
+                            onOpenMessages = viewModel.messages::openMessages,
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
@@ -577,75 +577,75 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     messagesContent = { onBack ->
-                        val sessions by viewModel.privateSessions.collectAsState()
+                        val sessions by viewModel.messages.privateSessions.collectAsState()
                         MessageCenterScreen(
                             sessions = sessions,
                             unreadSummary = unreadSummary,
                             session = session,
                             loginState = loginState,
-                            onInit = viewModel::retryPrivateSessions,
-                            onRetry = viewModel::retryPrivateSessions,
+                            onInit = viewModel.messages::retryPrivateSessions,
+                            onRetry = viewModel.messages::retryPrivateSessions,
                             onClose = onBack,
                             onStartLogin = viewModel::startLogin,
                             onCancelLogin = viewModel::cancelLogin,
-                            onOpenChat = { s -> viewModel.openPrivateChat(s) },
-                            onOpenReplyFeed = viewModel::openReplyFeed,
-                            onOpenLikeFeed = viewModel::openLikeFeed,
-                            onOpenFollowerFeed = viewModel::openFollowerFeed,
+                            onOpenChat = { s -> viewModel.messages.openPrivateChat(s) },
+                            onOpenReplyFeed = viewModel.messages::openReplyFeed,
+                            onOpenLikeFeed = viewModel.messages::openLikeFeed,
+                            onOpenFollowerFeed = viewModel.messages::openFollowerFeed,
                         )
                     },
                     replyFeedContent = { onBack ->
-                        val replyState by viewModel.replyFeed.collectAsState()
+                        val replyState by viewModel.messages.replyFeed.collectAsState()
                         ReplyAtScreen(
                             state = replyState,
-                            onInit = viewModel::retryReplyFeed,
-                            onRetry = viewModel::retryReplyFeed,
+                            onInit = viewModel.messages::retryReplyFeed,
+                            onRetry = viewModel.messages::retryReplyFeed,
                             onBack = onBack,
-                            onPlayItem = viewModel::playReplyAtItem,
+                            onPlayItem = viewModel.messages::playReplyAtItem,
                             onSubmitReply = { aid, root, parent, content, onResult ->
-                                viewModel.submitCommentReply(aid, root, parent, content, onResult)
+                                viewModel.messages.submitCommentReply(aid, root, parent, content, onResult)
                             },
                         )
                     },
                     likeFeedContent = { onBack ->
-                        val likeState by viewModel.likeFeed.collectAsState()
+                        val likeState by viewModel.messages.likeFeed.collectAsState()
                         LikeScreen(
                             state = likeState,
-                            onInit = viewModel::retryLikeFeed,
-                            onRetry = viewModel::retryLikeFeed,
+                            onInit = viewModel.messages::retryLikeFeed,
+                            onRetry = viewModel.messages::retryLikeFeed,
                             onBack = onBack,
-                            onPlayItem = viewModel::playLikeItem,
+                            onPlayItem = viewModel.messages::playLikeItem,
                         )
                     },
                     followerFeedContent = { onBack ->
-                        val followerState by viewModel.followerFeed.collectAsState()
+                        val followerState by viewModel.messages.followerFeed.collectAsState()
                         FollowerScreen(
                             state = followerState,
-                            onInit = viewModel::retryFollowerFeed,
-                            onRetry = viewModel::retryFollowerFeed,
+                            onInit = viewModel.messages::retryFollowerFeed,
+                            onRetry = viewModel.messages::retryFollowerFeed,
                             onBack = onBack,
                             onOpenSpace = { f ->
-                                viewModel.openFollowerSpace(f)
+                                viewModel.messages.openFollowerSpace(f)
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
                         )
                     },
                     privateChatContent = { talkerId, peerName, peerFace, onBack ->
-                        val chats by viewModel.chatByTalker.collectAsState()
-                        val state = chats[talkerId] ?: com.biliseek.app.AppViewModel.PrivateChatState()
+                        val chats by viewModel.messages.chatByTalker.collectAsState()
+                        val state = chats[talkerId] ?: com.biliseek.app.message.PrivateChatState()
                         PrivateChatScreen(
                             peerName = peerName,
                             peerFace = peerFace,
                             currentUid = session.dedeUserId.toLongOrNull() ?: 0L,
                             state = state,
                             onBack = {
-                                viewModel.closeChat(talkerId)
+                                viewModel.messages.closeChat(talkerId)
                                 onBack()
                             },
-                            onOpen = { viewModel.openChat(talkerId) },
-                            onLoadMore = { viewModel.loadMoreChat(talkerId) },
-                            onDraftChange = { viewModel.updateChatDraft(talkerId, it) },
-                            onSend = { viewModel.sendChatMessage(talkerId) },
+                            onOpen = { viewModel.messages.openChat(talkerId) },
+                            onLoadMore = { viewModel.messages.loadMoreChat(talkerId) },
+                            onDraftChange = { viewModel.messages.updateChatDraft(talkerId, it) },
+                            onSend = { viewModel.messages.sendChatMessage(talkerId) },
                         )
                     },
                 )
@@ -697,16 +697,16 @@ class MainActivity : ComponentActivity() {
                         content = state.content,
                         isPosting = state.isPosting,
                         expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel::setCommentSort,
-                        onLoadMore = viewModel::loadMoreComments,
-                        onLike = { reply, root -> viewModel.toggleCommentLike(reply, root) },
-                        onReply = { reply, root -> viewModel.startReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel::expandSubReplies,
-                        onLoadMoreSubReplies = viewModel::loadMoreSubReplies,
-                        onContentChange = viewModel::updateCommentContent,
-                        onClearReplyTarget = viewModel::clearReplyTarget,
-                        onSubmit = viewModel::submitComment,
-                        onDismiss = viewModel::dismissCommentDialog,
+                        onSortChange = viewModel.dynamicComments::setSort,
+                        onLoadMore = viewModel.dynamicComments::loadMore,
+                        onLike = { reply, root -> viewModel.dynamicComments.toggleLike(reply, root) },
+                        onReply = { reply, root -> viewModel.dynamicComments.startReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel.dynamicComments::expandSubReplies,
+                        onLoadMoreSubReplies = viewModel.dynamicComments::loadMoreSubReplies,
+                        onContentChange = viewModel.dynamicComments::updateContent,
+                        onClearReplyTarget = viewModel.dynamicComments::clearReplyTarget,
+                        onSubmit = viewModel.dynamicComments::submit,
+                        onDismiss = viewModel.dynamicComments::dismiss,
                     )
                 }
 
@@ -719,16 +719,16 @@ class MainActivity : ComponentActivity() {
                         content = state.content,
                         isPosting = state.isPosting,
                         expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel::setPlayerCommentSort,
-                        onLoadMore = viewModel::loadMorePlayerComments,
-                        onLike = { reply, root -> viewModel.togglePlayerCommentLike(reply, root) },
-                        onReply = { reply, root -> viewModel.startPlayerReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel::expandPlayerSubReplies,
-                        onLoadMoreSubReplies = viewModel::loadMorePlayerSubReplies,
-                        onContentChange = viewModel::updatePlayerCommentContent,
-                        onClearReplyTarget = viewModel::clearPlayerReplyTarget,
-                        onSubmit = viewModel::submitPlayerComment,
-                        onDismiss = viewModel::dismissPlayerComment,
+                        onSortChange = viewModel.playerComments::setSort,
+                        onLoadMore = viewModel.playerComments::loadMore,
+                        onLike = { reply, root -> viewModel.playerComments.toggleLike(reply, root) },
+                        onReply = { reply, root -> viewModel.playerComments.startReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel.playerComments::expandSubReplies,
+                        onLoadMoreSubReplies = viewModel.playerComments::loadMoreSubReplies,
+                        onContentChange = viewModel.playerComments::updateContent,
+                        onClearReplyTarget = viewModel.playerComments::clearReplyTarget,
+                        onSubmit = viewModel.playerComments::submit,
+                        onDismiss = viewModel.playerComments::dismiss,
                     )
                 }
                 val currentPreviewImage = previewImage

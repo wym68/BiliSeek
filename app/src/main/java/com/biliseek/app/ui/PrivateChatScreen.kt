@@ -51,7 +51,7 @@ fun PrivateChatScreen(
     peerName: String,
     peerFace: String,
     currentUid: Long,
-    state: com.biliseek.app.AppViewModel.PrivateChatState,
+    state: com.biliseek.app.message.PrivateChatState,
     onBack: () -> Unit,
     onOpen: () -> Unit,
     onLoadMore: () -> Unit,

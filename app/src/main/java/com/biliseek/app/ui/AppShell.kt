@@ -143,7 +143,7 @@ fun AppShell(
     /** 打开"新增粉丝"子页面的信号。AppShell 订阅后 push MESSAGE_FOLLOWER destination。 */
     openFollowerFeedRequests: SharedFlow<Unit> = MutableSharedFlow(),
     /** 进入私信聊天页的信号（参数化）。AppShell 订阅后 push PRIVATE_CHAT destination。 */
-    openPrivateChatRequests: SharedFlow<com.biliseek.app.AppViewModel.PrivateChatNav> = MutableSharedFlow(),
+    openPrivateChatRequests: SharedFlow<com.biliseek.app.message.PrivateChatNav> = MutableSharedFlow(),
     /** 当前列表 tab 选中的页。 */
     selectedTab: LibraryTab = LibraryTab.PLAYLISTS,
     /** 列表 tab 切换回调。 */
