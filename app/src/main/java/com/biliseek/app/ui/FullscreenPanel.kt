@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
@@ -67,6 +69,8 @@ fun FullscreenPanel(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.3f))
+                    // 面板开着时，遮罩上的拖动不能漏到下面去调进度 / 音量
+                    .pointerInput(Unit) { detectDragGestures { change, _ -> change.consume() } }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
