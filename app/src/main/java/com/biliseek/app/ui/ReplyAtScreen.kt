@@ -47,6 +47,8 @@ import coil3.compose.AsyncImage
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.dto.ReplyAtItem
 import com.biliseek.core.network.canReplyInApp
+import com.biliseek.core.network.listKey
+import com.biliseek.core.network.replyOid
 import com.biliseek.core.network.normalizeCoverUrl
 
 /** "回复与@" 子页面：从消息中心图标进入。长按视频评论区的条目可站内直接回复。 */
@@ -107,7 +109,7 @@ fun ReplyAtScreen(
                                 Text("暂无内容")
                             }
                         }
-                        else -> items(state.items, key = { it.id }) { entry ->
+                        else -> items(state.items, key = { it.listKey() }) { entry ->
                             ReplyAtRow(
                                 item = entry,
                                 onClick = { onPlayItem(entry) },
@@ -150,7 +152,7 @@ fun ReplyAtScreen(
                             val target = pendingReply ?: return@TextButton
                             replySubmitting = true
                             onSubmitReply(
-                                target.subjectId,
+                                target.replyOid(),
                                 target.replyRootId,
                                 target.replyParentId,
                                 replyDraft,
@@ -192,14 +194,18 @@ private fun ReplyAtRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(item.user?.name.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val action = if (item.quotedContent.isNotBlank()) "回复了你的评论" else "评论了你"
+            val action = when {
+                item.isAt -> "@了你"
+                item.quotedContent.isNotBlank() -> "回复了你的评论"
+                else -> "评论了你"
+            }
             Text(
                 "$action：${item.content}",
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val context = item.quotedContent.ifBlank { item.title }
+            val context = if (item.isAt) item.title else item.quotedContent.ifBlank { item.title }
             if (context.isNotBlank()) {
                 Text(
                     context,

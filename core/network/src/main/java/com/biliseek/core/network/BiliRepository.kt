@@ -670,6 +670,39 @@ class BiliRepository internal constructor(
         }
     }
 
+    /**
+     * 消息中心读请求的统一响应检查，风控分流与搜索 / 评论读路径一致：
+     * -352 → 记入全局冷却并抛 [SearchError.Blocked]（绝不重试）；-412 → 作废设备凭据并抛
+     * [SearchError.CredentialsInvalid]；其余非 0 → 抛 [SearchError.Unknown]；成功 → 清冷却。
+     * （-101 已由拦截器链处理。）
+     */
+    private suspend fun <T> checkMessageRead(response: BiliResponse<T>, what: String): T? {
+        when (resolveRetryAction(response.code)) {
+            RetryAction.BACKOFF_NO_RETRY -> {
+                riskCooldown.onRiskControl()
+                throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            }
+            RetryAction.RESEED_CREDENTIALS -> {
+                authGate.invalidate()
+                throw SearchException(SearchError.CredentialsInvalid, "请求被拦截（-412），已重置设备凭据")
+            }
+            else -> Unit
+        }
+        if (response.code != 0) {
+            throw SearchException(
+                SearchError.Unknown("code=${response.code} ${response.message}"),
+                "${what}加载失败：code=${response.code} ${response.message}",
+            )
+        }
+        riskCooldown.onSuccess()
+        return response.data
+    }
+
+    /** best-effort 请求用：不抛错，但 -352 照样记入冷却。 */
+    private fun noteRiskCode(code: Int) {
+        if (resolveRetryAction(code) == RetryAction.BACKOFF_NO_RETRY) riskCooldown.onRiskControl()
+    }
+
     /** 读路径冷却闸门：处于 -352 冷却期则快速失败，不硬顶。 */
     private fun ensureNotCoolingRead() {
         if (riskCooldown.remaining() > 0) {
@@ -1001,8 +1034,7 @@ class BiliRepository internal constructor(
             MESSAGE_MIN_INTERVAL_MS,
             THROTTLE_JITTER_MS,
         ) { api.getSessions() }
-        require(response.code == 0) { "私信会话加载失败：code=${response.code} ${response.message}" }
-        val data = response.data ?: com.biliseek.core.network.dto.SessionListData()
+        val data = checkMessageRead(response, "私信会话") ?: com.biliseek.core.network.dto.SessionListData()
         data.copy(sessionList = fillSessionPeers(data.sessionList))
     }
 
@@ -1025,7 +1057,7 @@ class BiliRepository internal constructor(
                 MESSAGE_MIN_INTERVAL_MS,
                 THROTTLE_JITTER_MS,
             ) { api.getUserCards(missing.joinToString(",")) }
-                .also { if (resolveRetryAction(it.code) == RetryAction.BACKOFF_NO_RETRY) riskCooldown.onRiskControl() }
+                .also { noteRiskCode(it.code) }
                 .takeIf { it.code == 0 }
                 ?.data.orEmpty()
                 .associateBy { it.mid }
@@ -1046,8 +1078,20 @@ class BiliRepository internal constructor(
             MESSAGE_MIN_INTERVAL_MS,
             THROTTLE_JITTER_MS,
         ) { api.getMsgfeedReply() }
-        require(response.code == 0) { "回复与@加载失败：code=${response.code} ${response.message}" }
-        response.data ?: com.biliseek.core.network.dto.ReplyFeedData()
+        checkMessageRead(response, "回复与@") ?: com.biliseek.core.network.dto.ReplyFeedData()
+    }
+
+    /** @我的 列表。与回复合并展示在「回复与@」子页面，懒加载。 */
+    suspend fun atFeed(): Result<com.biliseek.core.network.dto.AtFeedData> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.getMsgfeedAt() }
+        checkMessageRead(response, "@我的") ?: com.biliseek.core.network.dto.AtFeedData()
     }
 
     /** 收到喜欢 列表。「收到喜欢」子页面专用，懒加载。 */
@@ -1060,8 +1104,7 @@ class BiliRepository internal constructor(
             MESSAGE_MIN_INTERVAL_MS,
             THROTTLE_JITTER_MS,
         ) { api.getMsgfeedLike() }
-        require(response.code == 0) { "收到喜欢加载失败：code=${response.code} ${response.message}" }
-        response.data ?: com.biliseek.core.network.dto.LikeFeedData()
+        checkMessageRead(response, "收到喜欢") ?: com.biliseek.core.network.dto.LikeFeedData()
     }
 
     /** 新增粉丝 列表（`x/relation/followers`）。「新增粉丝」子页面专用，懒加载。 */
@@ -1074,8 +1117,7 @@ class BiliRepository internal constructor(
             MESSAGE_MIN_INTERVAL_MS,
             THROTTLE_JITTER_MS,
         ) { api.getFollowers(vmid = mid) }
-        require(response.code == 0) { "新增粉丝加载失败：code=${response.code} ${response.message}" }
-        response.data ?: com.biliseek.core.network.dto.FollowersData()
+        checkMessageRead(response, "新增粉丝") ?: com.biliseek.core.network.dto.FollowersData()
     }
 
     /** 私信历史消息分页加载。`beginSeqno=0` 拉首屏。 */
@@ -1091,10 +1133,7 @@ class BiliRepository internal constructor(
             MESSAGE_MIN_INTERVAL_MS,
             THROTTLE_JITTER_MS,
         ) { api.fetchSessionMsgs(talkerId = talkerId, beginSeqno = beginSeqno) }
-        require(response.code == 0) {
-            "私信消息失败：code=${response.code} ${response.message}"
-        }
-        response.data ?: throw IllegalStateException("私信消息 data 为空")
+        checkMessageRead(response, "私信消息") ?: throw IllegalStateException("私信消息 data 为空")
     }
 
     /** 发送文本私信。`devId` 取自 `BiliCredentials.bNut`（缺失时 fallback UUID）。 */
@@ -1193,8 +1232,9 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val msgfeed = runCatching { api.getMsgfeedUnread().data }.getOrNull()
-        val session = runCatching { api.getSessionUnread().data }.getOrNull()
+        // 角标是 best-effort：失败不抛，但 -352 仍要记入冷却，否则后台轮询会继续顶着风控打。
+        val msgfeed = runCatching { api.getMsgfeedUnread().also { noteRiskCode(it.code) }.data }.getOrNull()
+        val session = runCatching { api.getSessionUnread().also { noteRiskCode(it.code) }.data }.getOrNull()
         MessageUnreadSummary(
             reply = msgfeed?.reply ?: 0,
             at = msgfeed?.at ?: 0,

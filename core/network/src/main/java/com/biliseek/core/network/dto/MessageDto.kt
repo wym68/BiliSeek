@@ -2,6 +2,7 @@ package com.biliseek.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 // ───────────────── 私信会话/消息（api.vc.bilibili.com）─────────────────
 
@@ -125,6 +126,8 @@ data class ReplyAtItem(
     @SerialName("user") val user: MsgfeedUser? = null,
     @SerialName("item") val item: ReplyAtContent? = null,
     @SerialName("reply_time") val replyTime: Long = 0,
+    /** 本地标记：这条来自 `x/msgfeed/at`（@我的），不是回复。不参与反序列化。 */
+    @Transient val isAt: Boolean = false,
 ) {
     /** 对方回复的正文。 */
     val content: String get() = item?.sourceContent.orEmpty()
@@ -191,6 +194,29 @@ data class LikeFeedBucket(
     @SerialName("items") val items: List<LikeItem> = emptyList(),
     @SerialName("cursor") val cursor: MsgfeedCursor? = null,
 )
+
+/**
+ * `x/msgfeed/at` 单条（@我的）。业务内容与回复同构，嵌在 item.item；时间字段是 `at_time`。
+ * 注意：@ 条目未必带 `subject_id`，视频 aid 可能要从 `uri` 反推（见 MessageContent.kt）。
+ */
+@Serializable
+data class AtItem(
+    @SerialName("id") val id: Long = 0,
+    @SerialName("user") val user: MsgfeedUser? = null,
+    @SerialName("item") val item: ReplyAtContent? = null,
+    @SerialName("at_time") val atTime: Long = 0,
+) {
+    /** 转成回复条目的形状，便于在「回复与@」同一列表里展示。 */
+    fun toReplyAtItem(): ReplyAtItem = ReplyAtItem(id = id, user = user, item = item, replyTime = atTime, isAt = true)
+}
+
+@Serializable
+data class AtFeedData(
+    @SerialName("items") val items: List<AtItem> = emptyList(),
+    @SerialName("cursor") val cursor: MsgfeedCursor? = null,
+) {
+    val hasMore: Boolean get() = cursor?.isEnd == false
+}
 
 /**
  * `x/msgfeed/like` 响应分两桶：
