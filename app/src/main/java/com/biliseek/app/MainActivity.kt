@@ -130,6 +130,7 @@ class MainActivity : ComponentActivity() {
                 val commentDialog by viewModel.dynamics.comments.state.collectAsState()
                 val playerComment by viewModel.playerComments.state.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
+                val danmakuItems by viewModel.danmakuItems.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
                 val dynamicExpand by viewModel.dynamics.dynamicExpand.collectAsState()
                 val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
@@ -192,6 +193,13 @@ class MainActivity : ComponentActivity() {
                     onDispose {
                         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
+                }
+
+                // 弹幕只在全屏（且不在 PiP）时拉取与显示
+                LaunchedEffect(expansion, isInPip) {
+                    viewModel.setDanmakuSurfaceVisible(
+                        expansion == PlayerExpansion.FULLSCREEN && !isInPip,
+                    )
                 }
 
                 // 画面被回落成纯听（息屏 / 进后台）后，全屏层没有存在意义：
@@ -314,6 +322,9 @@ class MainActivity : ComponentActivity() {
                     defaultAudioQuality = settings.audioQuality,
                     onSetAudioQuality = viewModel::setAudioQualityForSession,
                     onSetDefaultAudioQuality = { viewModel.setAudioQuality(it) },
+                    danmakuItems = danmakuItems,
+                    danmakuSettings = settings.danmaku,
+                    onDanmakuSettingsChange = viewModel::updateDanmakuSettings,
                     onDownloadCurrent = {
                         val current = playback.queue.getOrNull(playback.queueIndex)
                             as? com.biliseek.core.player.PlaybackRequest.Bili

@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -147,6 +148,11 @@ fun FullscreenPlayerOverlay(
     defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
     onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
     onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    danmakuItems: List<com.biliseek.core.network.dto.DanmakuItem> = emptyList(),
+    danmakuSettings: com.biliseek.app.danmaku.DanmakuSettings = com.biliseek.app.danmaku.DanmakuSettings(),
+    onDanmakuSettingsChange: (
+        (com.biliseek.app.danmaku.DanmakuSettings) -> com.biliseek.app.danmaku.DanmakuSettings,
+    ) -> Unit = {},
 ) {
     androidx.activity.compose.BackHandler(enabled = !isInPip) { onExit() }
 
@@ -311,6 +317,15 @@ fun FullscreenPlayerOverlay(
 
             if (isInPip) return@Box
 
+            // 弹幕在画面之上、控制层之下；PiP 小窗里不画
+            if (danmakuEnabled) {
+                com.biliseek.app.danmaku.DanmakuLayer(
+                    items = danmakuItems,
+                    state = state,
+                    settings = danmakuSettings,
+                )
+            }
+
             // 加载与错误不跟控制层一起藏：黑屏时用户得知道是在等还是坏了
             FullscreenStatus(state = state, onRetry = {
                 touch()
@@ -434,6 +449,15 @@ fun FullscreenPlayerOverlay(
                             },
                         )
                         val danmakuButton: @Composable () -> Unit = {
+                            if (danmakuEnabled) {
+                                IconButton(onClick = { openPanel(FullscreenPanelType.DANMAKU) }) {
+                                    Icon(
+                                        Icons.Filled.Tune,
+                                        contentDescription = "弹幕设置",
+                                        tint = Color.White,
+                                    )
+                                }
+                            }
                             IconButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -577,6 +601,13 @@ fun FullscreenPlayerOverlay(
                         },
                         onSetDefault = onSetDefaultAudioQuality,
                     )
+                    FullscreenPanelType.DANMAKU -> com.biliseek.app.danmaku.DanmakuSettingsOptions(
+                        settings = danmakuSettings,
+                        onChange = {
+                            touch()
+                            onDanmakuSettingsChange(it)
+                        },
+                    )
                     FullscreenPanelType.TIMER -> TimerOptions(
                         isActive = state.sleepTimerActive,
                         remainingMs = state.sleepTimerRemainingMs,
@@ -629,6 +660,7 @@ private enum class FullscreenPanelType(val title: String) {
     SPEED("倍速播放"),
     QUALITY("画质"),
     AUDIO("音质"),
+    DANMAKU("弹幕设置"),
     TIMER("定时关闭"),
     MORE("更多"),
 }

@@ -161,6 +161,11 @@ data class PlaybackState(
     val title: String = "",
     val bvid: String = "",
     val cid: Long = 0,
+    /**
+     * 实际在播的分 P cid。[cid] 是请求里带的，起播第一 P 时常为 0；
+     * 这里是取流补全后的真实值，弹幕等按分 P 取数据的功能用它。取流前为 0。
+     */
+    val resolvedCid: Long = 0,
     /** 当前条目封面，纯音频模式下顶替黑框 */
     val coverUrl: String = "",
     val lastSwitch: SwitchDiagnostics? = null,

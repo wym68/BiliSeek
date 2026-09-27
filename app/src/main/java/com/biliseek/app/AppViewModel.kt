@@ -65,6 +65,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -1480,13 +1482,64 @@ return pages.map { p ->
         playerComments.open(oid = aid, type = 1, key = bvid)
     }
 
-    // ── 全屏弹幕开关（UI 占位） ──
+    // ── 弹幕（只在全屏显示） ──
 
-    private val _danmakuEnabled = MutableStateFlow(false)
-    val danmakuEnabled: StateFlow<Boolean> = _danmakuEnabled.asStateFlow()
+    /** 弹幕开关，持久化在设置里。 */
+    val danmakuEnabled: StateFlow<Boolean> = settingsStore.state
+        .map { it.danmaku.enabled }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settingsStore.current.danmaku.enabled)
 
     fun toggleDanmaku() {
-        _danmakuEnabled.value = !_danmakuEnabled.value
+        viewModelScope.launch { settingsStore.updateDanmaku { it.copy(enabled = !it.enabled) } }
+    }
+
+    fun updateDanmakuSettings(transform: (com.biliseek.app.danmaku.DanmakuSettings) -> com.biliseek.app.danmaku.DanmakuSettings) {
+        viewModelScope.launch { settingsStore.updateDanmaku(transform) }
+    }
+
+    private val danmakuLoader = com.biliseek.app.danmaku.DanmakuLoader(viewModelScope) { cid, segment ->
+        network.repository.danmakuSegment(cid, segment)
+    }
+
+    /** 全屏层是否在显示画面。由 UI 告知——全屏是界面状态，ViewModel 看不到。 */
+    private val danmakuSurfaceVisible = MutableStateFlow(false)
+
+    fun setDanmakuSurfaceVisible(visible: Boolean) {
+        danmakuSurfaceVisible.value = visible
+    }
+
+    /** 按当前设置过滤、按时间排好序的弹幕，供全屏渲染层直接用。 */
+    val danmakuItems: StateFlow<List<com.biliseek.core.network.dto.DanmakuItem>> =
+        kotlinx.coroutines.flow.combine(danmakuLoader.items, settingsStore.state) { items, s ->
+            com.biliseek.app.danmaku.filterDanmaku(items, s.danmaku)
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    init {
+        // 只有「全屏 + 弹幕开 + 看模式」才拉弹幕；纯听、内联、弹幕关时一个请求都不发。
+        // 位置按 10 秒分桶去重，避免 250ms 一次的状态推送每次都去算一遍要不要拉。
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                connection.state,
+                danmakuEnabled,
+                danmakuSurfaceVisible,
+            ) { playback, enabled, visible ->
+                if (enabled && visible && playback.presentation != PresentationMode.NONE &&
+                    playback.resolvedCid > 0L
+                ) {
+                    Triple(playback.resolvedCid, playback.positionMs / 10_000L, playback.durationMs)
+                } else {
+                    null
+                }
+            }
+                .distinctUntilChanged()
+                .collect { key ->
+                    key ?: return@collect
+                    val playback = connection.state.value
+                    danmakuLoader.update(key.first, playback.positionMs, playback.durationMs)
+                }
+        }
     }
 
     // ── 分享 ──

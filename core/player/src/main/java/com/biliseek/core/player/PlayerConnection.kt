@@ -213,6 +213,9 @@ class PlayerConnection(private val context: Context) {
     private var videoQualities: List<VideoQualityOption> = emptyList()
     private var lockedVideoQn: Int? = null
 
+    /** 当前条目取流补全后的 cid（见 [PlaybackState.resolvedCid]）。 */
+    private var resolvedCid = 0L
+
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (recording && playbackState == Player.STATE_BUFFERING) bufferingEvents++
@@ -503,6 +506,7 @@ class PlayerConnection(private val context: Context) {
 
         // 上一条的画质锁定指向上一条的轨道组，对新条目无效，先清掉；新轨道出现后在
         // onTracksChanged 里按偏好重新锁定
+        resolvedCid = media?.resolvedCid ?: 0L
         videoQualityPreference = sessionVideoQuality ?: prefs.videoQuality
         acceptQualities = media?.acceptQualities.orEmpty()
         videoQualities = emptyList()
@@ -966,6 +970,7 @@ class PlayerConnection(private val context: Context) {
             title = currentTrack?.title.orEmpty(),
             bvid = currentTrack?.bvid.orEmpty(),
             cid = currentTrack?.cid ?: 0L,
+            resolvedCid = resolvedCid,
             coverUrl = currentTrack?.coverUrl.orEmpty(),
             queue = queue,
             queueIndex = queueIndex,

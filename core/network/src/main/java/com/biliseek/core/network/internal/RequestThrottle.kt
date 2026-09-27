@@ -13,6 +13,8 @@ internal object ThrottleBucket {
     const val FEED = "feed"
     /** 消息中心（私信会话/历史/互动 tab）：与 FEED 隔离，避免触发风控 */
     const val MESSAGE = "message"
+    /** 弹幕分段：随播放进度按需拉取，与 FEED 隔离，不拖慢评论等页面读 */
+    const val DANMAKU = "danmaku"
 }
 
 /**

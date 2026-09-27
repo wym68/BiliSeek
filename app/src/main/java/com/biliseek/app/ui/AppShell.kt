@@ -118,6 +118,12 @@ fun AppShell(
     onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
     /** 把音质写进设置页默认值。 */
     onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    /** 全屏弹幕：已过滤排序的弹幕、显示设置与修改入口。 */
+    danmakuItems: List<com.biliseek.core.network.dto.DanmakuItem> = emptyList(),
+    danmakuSettings: com.biliseek.app.danmaku.DanmakuSettings = com.biliseek.app.danmaku.DanmakuSettings(),
+    onDanmakuSettingsChange: (
+        (com.biliseek.app.danmaku.DanmakuSettings) -> com.biliseek.app.danmaku.DanmakuSettings,
+    ) -> Unit = {},
     /** 全屏弹幕开关状态。 */
     danmakuEnabled: Boolean = false,
     /** 全屏弹幕开关切换。 */
@@ -444,6 +450,9 @@ fun AppShell(
                 defaultAudioQuality = defaultAudioQuality,
                 onSetAudioQuality = onSetAudioQuality,
                 onSetDefaultAudioQuality = onSetDefaultAudioQuality,
+                danmakuItems = danmakuItems,
+                danmakuSettings = danmakuSettings,
+                onDanmakuSettingsChange = onDanmakuSettingsChange,
             )
         } else if (isInPip && playback.presentation != PresentationMode.NONE) {
             PipVideoOverlay(surfaceView = surfaceView, state = playback)
