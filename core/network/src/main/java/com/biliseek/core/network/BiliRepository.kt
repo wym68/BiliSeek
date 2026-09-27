@@ -23,6 +23,8 @@ import com.biliseek.core.network.dto.CollectionSeasonInfo
 import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.dto.DanmakuItem
+import com.biliseek.core.network.internal.DanmakuProto
 import com.biliseek.core.network.internal.IdempotentCodes
 import com.biliseek.core.network.internal.runCommentRead
 import com.biliseek.core.network.internal.RequestThrottle
@@ -710,6 +712,68 @@ class BiliRepository internal constructor(
         }
     }
 
+    // ── 弹幕 ────────────────────────────────────────────
+
+    /**
+     * 一段弹幕（6 分钟一段，[segmentIndex] 从 1 起）。
+     *
+     * 只在「全屏 + 弹幕开 + 看模式」时由播放页按进度逐段拉取，纯听永远不请求。
+     * 错误分流与其他读接口一致：-352 进冷却、**不重试**；-412 重置凭据。
+     */
+    suspend fun danmakuSegment(cid: Long, segmentIndex: Int): Result<List<DanmakuItem>> = runCatching {
+        val credentials = try {
+            authGate.awaitReady()
+        } catch (e: Exception) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "风控凭据不可用")
+        }
+        val signed = WbiSigner.sign(
+            params = mapOf(
+                "type" to "1",
+                "oid" to cid.toString(),
+                "segment_index" to segmentIndex.toString(),
+                "web_location" to "1315873",
+            ),
+            imgKey = credentials.wbiImgKey,
+            subKey = credentials.wbiSubKey,
+        )
+        ensureNotCoolingRead()
+        val response = try {
+            requestThrottle.gate(ThrottleBucket.DANMAKU, DANMAKU_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                api.danmakuSegment(signed)
+            }
+        } catch (e: IOException) {
+            throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        }
+        if (!response.isSuccessful) {
+            throw SearchException(
+                SearchError.Unknown("http=${response.code()}"),
+                "弹幕加载失败：HTTP ${response.code()}",
+            )
+        }
+        val bytes = response.body()?.use { it.bytes() } ?: ByteArray(0)
+        DanmakuProto.jsonErrorCode(bytes)?.let { code ->
+            when (resolveRetryAction(code)) {
+                RetryAction.BACKOFF_NO_RETRY -> {
+                    riskCooldown.onRiskControl()
+                    throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+                }
+                RetryAction.RESEED_CREDENTIALS -> {
+                    authGate.invalidate()
+                    throw SearchException(SearchError.CredentialsInvalid, "请求被拦截（-412），已重置设备凭据")
+                }
+                else -> Unit
+            }
+            // code=0 的 JSON 表示这一段没有弹幕
+            if (code != 0) {
+                throw SearchException(SearchError.Unknown("code=$code"), "弹幕加载失败：code=$code")
+            }
+            riskCooldown.onSuccess()
+            return@runCatching emptyList()
+        }
+        riskCooldown.onSuccess()
+        DanmakuProto.parseSegment(bytes)
+    }
+
     // ── 评论读（B5）────────────────────────────────────────
 
     /** 评论列表的一页。 */
@@ -1261,6 +1325,7 @@ class BiliRepository internal constructor(
         // B3 限速最小间隔（ms）+ 抖动。保守初值，真机按体感/效果校准（工单 §5.3）。
         const val SEARCH_MIN_INTERVAL_MS = 800L
         const val FEED_MIN_INTERVAL_MS = 600L
+        const val DANMAKU_MIN_INTERVAL_MS = 1_000L
         const val WRITE_MIN_INTERVAL_MS = 1_000L
         /** 消息中心限速：B 站私信接口对连发敏感，按 800ms/req 起步。 */
         const val MESSAGE_MIN_INTERVAL_MS = 800L

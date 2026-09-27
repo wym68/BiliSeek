@@ -47,6 +47,8 @@ fun SettingsScreen(
     accountContent: @Composable () -> Unit,
     // Ch5
     onMiniBarStyleChange: (MiniBarStyle) -> Unit = {},
+    onVideoQualityWifiChange: (Int) -> Unit = {},
+    onVideoQualityMeteredChange: (Int) -> Unit = {},
 ) {
     Column(
         Modifier
@@ -98,6 +100,18 @@ fun SettingsScreen(
             description = "把过响的投稿压到接近的响度，避免切歌时忽大忽小",
             checked = settings.loudnessNormalization,
             onCheckedChange = onLoudnessChange,
+        )
+
+        HorizontalDivider()
+        SectionTitle("画质")
+        Text("Wi-Fi", style = MaterialTheme.typography.labelLarge)
+        VideoQualityChips(settings.videoQualityWifi, onVideoQualityWifiChange)
+        Text("移动网络", style = MaterialTheme.typography.labelLarge)
+        VideoQualityChips(settings.videoQualityMetered, onVideoQualityMeteredChange)
+        Text(
+            "看模式起播时的默认档位；视频没有这一档时自动往下取最接近的。" +
+                "播放页里临时切换的画质会沿用到本次退出 App 为止",
+            style = MaterialTheme.typography.bodySmall,
         )
 
         HorizontalDivider()
@@ -241,6 +255,22 @@ private fun QualityChip(
         onClick = { onSelect(value) },
         label = { Text(label) },
     )
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun VideoQualityChips(current: Int, onSelect: (Int) -> Unit) {
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        com.biliseek.app.data.VideoQualityDefaults.CHOICES.forEach { (qn, label) ->
+            FilterChip(
+                selected = current == qn,
+                onClick = { onSelect(qn) },
+                label = { Text(label) },
+            )
+        }
+    }
 }
 
 /** Ch5 §5.1.4：minibar 风格（浮在底部 / 贴底）。 */

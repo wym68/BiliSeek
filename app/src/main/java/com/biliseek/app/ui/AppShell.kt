@@ -108,10 +108,28 @@ fun AppShell(
     onOpenAddToList: () -> Unit = {},
     /** 打开 UP 空间页。 */
     onOpenUpSpace: () -> Unit = {},
+    /** 下载当前在播的视频（走与搜索结果相同的下载弹窗）。 */
+    onDownloadCurrent: () -> Unit = {},
+    /** 切画质（只锁定已有视频轨，不重新取流）。 */
+    onSetVideoQuality: (Int) -> Unit = {},
+    /** 设置页的默认音质。播放页里临时选的与它不同时，提供「设为默认」。 */
+    defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
+    /** 播放页换音质：本次会话生效，当前视频带进度重新取流。 */
+    onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    /** 把音质写进设置页默认值。 */
+    onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    /** 全屏弹幕：已过滤排序的弹幕、显示设置与修改入口。 */
+    danmakuItems: List<com.biliseek.core.network.dto.DanmakuItem> = emptyList(),
+    danmakuSettings: com.biliseek.app.danmaku.DanmakuSettings = com.biliseek.app.danmaku.DanmakuSettings(),
+    onDanmakuSettingsChange: (
+        (com.biliseek.app.danmaku.DanmakuSettings) -> com.biliseek.app.danmaku.DanmakuSettings,
+    ) -> Unit = {},
     /** 全屏弹幕开关状态。 */
     danmakuEnabled: Boolean = false,
     /** 全屏弹幕开关切换。 */
     onDanmakuToggle: () -> Unit = {},
+    /** Activity 当前处于画中画。此时只渲染画面，不渲染任何控件。 */
+    isInPip: Boolean = false,
     /** Ch5：minibar 风格（FLOAT/BOTTOM）。 */
     miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
     /**
@@ -265,18 +283,13 @@ fun AppShell(
             bottomBar = {
                 Column {
                     if (showMiniPlayer) {
-                        PlayerContainer(
+                        MiniPlayer(
                             state = playback,
-                            expansion = PlayerExpansion.COLLAPSED,
-                            surfaceView = surfaceView,
-                            onExpansionChange = onExpansionChange,
                             onTogglePlayPause = onTogglePlayPause,
-                            onPresentationChange = onPresentationChange,
                             onSeek = onSeek,
                             onOpenQueue = onOpenQueue,
                             miniBarStyle = miniBarStyle,
-                            // 点 MiniPlayer 跳 player route；EXPANDED 不再是状态，
-                            // 设了反而让上面对的 showMiniPlayer 判走错。
+                            // 点 MiniPlayer 跳 player route；EXPANDED 不再是状态
                             onExpand = {
                                 navController.navigate(Destination.PLAYER.route) {
                                     launchSingleTop = true
@@ -322,12 +335,7 @@ fun AppShell(
                 composable(Destination.SETTINGS.route) { settingsContent() }
                 composable(Destination.PLAYER.route) {
                     // 只有进入 player route 才计算取色，避免每个 tab 都跳调色
-                    val palette = rememberCoverPalette(playback.coverUrl)
-                    val darkTheme = isSystemInDarkTheme()
-                    val surface = MaterialTheme.colorScheme.surface
-                    val accent = remember(palette.dominant, darkTheme, surface) {
-                        AdaptiveAccentColorPolicy.resolve(palette.dominant, darkTheme, surface)
-                    }
+                    val accent = rememberAccentDecision(rememberCoverPalette(playback.coverUrl))
 
                     // z-ordering fix: 如果当前处于视频模式，先切回音频模式
                     // （触发 clearVideoSurface），等状态更新后再 popBackStack。
@@ -368,8 +376,14 @@ fun AppShell(
                         onShare = onShare,
                         onOpenAddToList = onOpenAddToList,
                         onOpenUpSpace = onOpenUpSpace,
+                        onDownload = onDownloadCurrent,
+                        onSetVideoQuality = onSetVideoQuality,
+                        defaultAudioQuality = defaultAudioQuality,
+                        onSetAudioQuality = onSetAudioQuality,
+                        onSetDefaultAudioQuality = onSetDefaultAudioQuality,
                         accent = accent,
-                        isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN,
+                        // 全屏层或 PiP 层接管 SurfaceView 时，内联封面区让路
+                        isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN || isInPip,
                     )
                 }
                 composable(Destination.UP_SPACE.route) {
@@ -423,9 +437,25 @@ fun AppShell(
                 onSeek = onSeek,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
-                hasPrevious = playback.hasPrevious,
-                hasNext = playback.hasNext,
+                onEnterPip = onEnterPip,
+                isInPip = isInPip,
+                onSetSpeed = onSetSpeed,
+                onSetSleepTimer = onSetSleepTimer,
+                onRetryPlayback = onRetryPlayback,
+                onDownload = onDownloadCurrent,
+                onAddToList = onOpenAddToList,
+                onShare = onShare,
+                onViewAuthor = onOpenUpSpace,
+                onSetVideoQuality = onSetVideoQuality,
+                defaultAudioQuality = defaultAudioQuality,
+                onSetAudioQuality = onSetAudioQuality,
+                onSetDefaultAudioQuality = onSetDefaultAudioQuality,
+                danmakuItems = danmakuItems,
+                danmakuSettings = danmakuSettings,
+                onDanmakuSettingsChange = onDanmakuSettingsChange,
             )
+        } else if (isInPip && playback.presentation != PresentationMode.NONE) {
+            PipVideoOverlay(surfaceView = surfaceView, state = playback)
         }
     }
 }

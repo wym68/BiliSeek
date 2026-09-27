@@ -78,6 +78,27 @@ sealed interface PlaybackRequest {
 data class PlaybackPreferences(
     val audioQuality: AudioQuality = AudioQuality.AUTO,
     val loudnessNormalization: Boolean = true,
+    /**
+     * 默认画质（B 站 qn），[VIDEO_QUALITY_AUTO] 表示交给播放器自适应。
+     * 只影响看模式；听模式下视频轨关闭，这个值只被记住、不产生流量。
+     */
+    val videoQuality: Int = VIDEO_QUALITY_AUTO,
+)
+
+/** 画质「自动」：不锁定视频轨，由 ExoPlayer 按带宽自适应。 */
+const val VIDEO_QUALITY_AUTO = 0
+
+/**
+ * 一个画质档位。
+ *
+ * [qn] 是 B 站画质代号（16=360P、32=480P、64=720P、80=1080P、112=1080P+、
+ * 116=1080P60、120=4K……）。[available] 为假表示这个视频有这一档、但当前拿不到——
+ * 账号权限不够（登录 / 大会员），或设备解不了这一档的编码。
+ */
+data class VideoQualityOption(
+    val qn: Int,
+    val label: String,
+    val available: Boolean,
 )
 
 /**
@@ -140,6 +161,11 @@ data class PlaybackState(
     val title: String = "",
     val bvid: String = "",
     val cid: Long = 0,
+    /**
+     * 实际在播的分 P cid。[cid] 是请求里带的，起播第一 P 时常为 0；
+     * 这里是取流补全后的真实值，弹幕等按分 P 取数据的功能用它。取流前为 0。
+     */
+    val resolvedCid: Long = 0,
     /** 当前条目封面，纯音频模式下顶替黑框 */
     val coverUrl: String = "",
     val lastSwitch: SwitchDiagnostics? = null,
@@ -155,6 +181,8 @@ data class PlaybackState(
     /** 「播完当前曲目再停」已生效。此模式剩余时间不可预估，故与上一字段并存。 */
     val sleepTimerEndOfTrack: Boolean = false,
     val speed: Float = 1.0f,
+    /** 用户要的音质（播放页临时选的优先，其次设置页默认）。 */
+    val requestedAudioQuality: AudioQuality = AudioQuality.AUTO,
     /** **实际生效**的音质，不是用户请求的那个。两者不一致时 [qualityFallback] 说明原因。 */
     val audioQuality: AudioQuality = AudioQuality.AUTO,
     val qualityFallback: QualityFallback = QualityFallback.NONE,
@@ -166,6 +194,15 @@ data class PlaybackState(
      * 全屏时也用它判断该转横屏还是保持竖屏。
      */
     val videoAspectRatio: Float? = null,
+    /** 当前视频的画质档位，按 qn 从高到低。只有一档或拿不到时为空，UI 不显示入口。 */
+    val videoQualities: List<VideoQualityOption> = emptyList(),
+    /** 用户选的画质（qn），[VIDEO_QUALITY_AUTO] 为自动。 */
+    val videoQualityPreference: Int = VIDEO_QUALITY_AUTO,
+    /**
+     * 实际锁定的画质。偏好的档位不存在时会往下找最接近的一档，所以可能与
+     * [videoQualityPreference] 不同；自动时为 null。
+     */
+    val currentVideoQn: Int? = null,
 ) {
     /** 定时器是否已设置——两种终止条件任一生效即为真。 */
     val sleepTimerActive: Boolean

@@ -16,6 +16,8 @@ import com.biliseek.core.player.internal.deadlineAfter
 import com.biliseek.core.player.internal.hasSleepTimerExpired
 import com.biliseek.core.player.internal.loudnessGain
 import com.biliseek.core.player.internal.resolveEffectiveQuality
+import com.biliseek.core.player.internal.resolveAskedAudioQuality
+import com.biliseek.core.player.internal.shouldReloadForAudioQuality
 import com.biliseek.core.player.internal.shouldRequestLossless
 import com.biliseek.core.player.internal.resolveEnqueueNextIndex
 import com.biliseek.core.player.internal.resolveIndexAfterInsert
@@ -27,6 +29,10 @@ import com.biliseek.core.player.internal.resolvePlaybackMode
 import com.biliseek.core.player.internal.resolvePresentationOnTrackChange
 import com.biliseek.core.player.internal.resolvePreviousIndex
 import com.biliseek.core.player.internal.resolveTrackSelectionParameters
+import com.biliseek.core.player.internal.VideoTrackCandidate
+import com.biliseek.core.player.internal.qnOfRepresentationId
+import com.biliseek.core.player.internal.resolveVideoQualityOptions
+import com.biliseek.core.player.internal.resolveVideoTrackIndex
 import com.biliseek.core.player.internal.shouldEnableVideoTrack
 import com.biliseek.core.player.internal.shouldStopOnTrackEnd
 import com.biliseek.core.player.internal.sleepTimerRemaining
@@ -156,6 +162,22 @@ class PlayerConnection(private val context: Context) {
     /** 上一次取流实际生效的音质。取流时算出，供 UI 如实显示。 */
     private var effective = EffectiveQuality(AudioQuality.AUTO, QualityFallback.NONE)
 
+    /** 上一次取流是否真的挑中了无损轨。换音质但不必重取时，据此重算 [effective]。 */
+    private var lastLosslessSelected = false
+
+    /** 当前在播的是本地文件。本地文件没有音质档位可换。 */
+    private var currentIsOffline = false
+
+    /**
+     * 本次会话里用户在播放页选过的音质，优先于设置页默认。
+     * 设置页改了默认值时清掉（[clearAudioQualityOverride]），以设置页为准。
+     */
+    private var sessionAudioQuality: AudioQuality? = null
+
+    /** 用户要的音质：会话选择优先，其次设置页默认。 */
+    private fun requestedAudioQuality(): AudioQuality =
+        sessionAudioQuality ?: (preferenceProvider?.invoke() ?: PlaybackPreferences()).audioQuality
+
     // 切换诊断窗口：setPresentation 期间统计 buffering 与 seek 不连续
     private var recording = false
     private var bufferingEvents = 0
@@ -166,6 +188,33 @@ class PlayerConnection(private val context: Context) {
     // 对不上就是上一首的陈旧值，不能用（详见 [trackGeneration] 的说明）。
     private var lastVideoSizeGeneration = -1
     private var lastVideoAspectRatio: Float? = null
+
+    // ── 画质 ──
+    /**
+     * 本次会话里用户在播放页选过的画质。选过就一直沿用到下一首、下下首，
+     * 直到 App 重启——比每首都退回设置页默认值更符合「我就要看 720P」的本意。
+     */
+    private var sessionVideoQuality: Int? = null
+
+    /** 当前生效的画质偏好（会话选择优先，其次设置页默认）。 */
+    private var videoQualityPreference: Int = VIDEO_QUALITY_AUTO
+
+    /** 当前条目 playurl 给的全部档位（含拿不到的）。 */
+    private var acceptQualities: List<Pair<Int, String>> = emptyList()
+
+    /**
+     * 新条目已 setMediaItem、画质偏好还没套上。轨道要等 prepare 后才出现，只能在
+     * onTracksChanged 里补。在 setMediaItem 那一刻才置位——取流期间上一条的轨道
+     * 仍可能触发 onTracksChanged，那时套上去的锁定指向旧轨道组，没有意义。
+     */
+    private var pendingQualityApply = false
+
+    /** 最近一次从轨道组里读出的档位列表与锁定档位，pushState 直接拿来用。 */
+    private var videoQualities: List<VideoQualityOption> = emptyList()
+    private var lockedVideoQn: Int? = null
+
+    /** 当前条目取流补全后的 cid（见 [PlaybackState.resolvedCid]）。 */
+    private var resolvedCid = 0L
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -198,7 +247,15 @@ class PlayerConnection(private val context: Context) {
             pushState()
         }
 
-        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) = pushState()
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            // 新条目的轨道刚出现：把画质偏好套上去。听模式下也要套——
+            // 视频轨虽然关着，锁定先生效，切到看时直接按偏好档位出画，不会先低清再跳高清
+            if (pendingQualityApply && applyVideoQuality()) {
+                pendingQualityApply = false
+            }
+            refreshVideoQualities()
+            pushState()
+        }
 
         // 拿到首帧尺寸后立刻推一次 state，UI 靠它判断按原始比例显示画面、
         // 全屏该转横屏还是保持竖屏——不等下一次 250ms 轮询。
@@ -314,6 +371,26 @@ class PlayerConnection(private val context: Context) {
         request: PlaybackRequest,
         fromQueue: Boolean = false,
         startPositionOverride: Long? = null,
+    ) = load(request, fromQueue, startPositionOverride, reload = false)
+
+    /**
+     * 同一条内容带进度重新取流：换音质、倍速跨过无损阈值时用。
+     *
+     * 与切歌不同，呈现态、播放/暂停、画面比例都要原样保留——
+     * 用户在全屏看着视频换个音质，不该被踢回听模式。
+     */
+    private fun reloadCurrent() {
+        val c = controller ?: return
+        val item = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili ?: return
+        val position = c.currentPosition.coerceAtLeast(0L)
+        scope?.launch { load(item, fromQueue = true, startPositionOverride = position, reload = true) }
+    }
+
+    private suspend fun load(
+        request: PlaybackRequest,
+        fromQueue: Boolean,
+        startPositionOverride: Long?,
+        reload: Boolean,
     ) {
         // 起播可能早于绑定完成——外部分享会新建一个 Activity，
         // onCreate 里就把链接喂了进来，而 connect() 还在路上。
@@ -329,12 +406,15 @@ class PlayerConnection(private val context: Context) {
         }
         // 新内容开始加载，跟之前解出的 videoSize 划清界限（见 trackGeneration 说明）。
         trackGeneration++
+        // 重新取流是同一个视频：比例沿用，不然竖屏视频的全屏会先转横屏再转回来
+        if (reload) lastVideoSizeGeneration = trackGeneration
+        val resumePlaying = if (reload) c.playWhenReady else true
         // 用户开始播放，清除恢复队列标志
         hasRestoredQueue = false
         _state.value = _state.value.copy(isResolving = true, error = null)
 
         // 先落库再取流，顺序不能反（见 trackStartRecorder 的说明）
-        (request as? PlaybackRequest.Bili)?.let { trackStartRecorder?.invoke(it) }
+        if (!reload) (request as? PlaybackRequest.Bili)?.let { trackStartRecorder?.invoke(it) }
 
         val prefs = preferenceProvider?.invoke() ?: PlaybackPreferences()
         val uri: String
@@ -349,14 +429,7 @@ class PlayerConnection(private val context: Context) {
                 }
                 is PlaybackRequest.Bili -> {
                     // 倍速能在取流前就否掉无损，省掉一次注定要回退的请求
-                    val requested = prefs.audioQuality
-                    val ask = if (shouldRequestLossless(requested, currentSpeed())) {
-                        AudioQuality.LOSSLESS
-                    } else if (requested == AudioQuality.LOSSLESS) {
-                        AudioQuality.AUTO
-                    } else {
-                        requested
-                    }
+                    val ask = resolveAskedAudioQuality(requestedAudioQuality(), currentSpeed())
                     val resolved = resolver.resolve(request.bvid, request.cid, ask)
                     media = resolved
                     uri = resolved.uri
@@ -431,12 +504,24 @@ class PlayerConnection(private val context: Context) {
             resolveStartPosition(saved, media?.durationMs ?: 0L)
         } ?: 0L
 
+        // 上一条的画质锁定指向上一条的轨道组，对新条目无效，先清掉；新轨道出现后在
+        // onTracksChanged 里按偏好重新锁定
+        resolvedCid = media?.resolvedCid ?: 0L
+        videoQualityPreference = sessionVideoQuality ?: prefs.videoQuality
+        acceptQualities = media?.acceptQualities.orEmpty()
+        videoQualities = emptyList()
+        lockedVideoQn = null
+        c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+            .build()
+
         c.setMediaItem(item, startPosition)
+        pendingQualityApply = true
 
         // 换内容即回到听。**禁轨、清 surface、复位呈现态三件事必须一起做**——
         // 早期只做了第一件，字段还停在 INLINE，界面于是渲染一块没有画面的 SurfaceView：
         // 黑屏、不显示封面、按钮还写着「退回听」。
-        val nextPresentation = resolvePresentationOnTrackChange(presentation)
+        val nextPresentation = resolvePresentationOnTrackChange(presentation, sameContent = reload)
         applyVideoTrack(enabled = shouldEnableVideoTrack(nextPresentation))
         if (nextPresentation != presentation) {
             presentation = nextPresentation
@@ -444,13 +529,15 @@ class PlayerConnection(private val context: Context) {
         }
         applyLoudness(media, prefs.loudnessNormalization)
         c.prepare()
-        c.playWhenReady = true
+        c.playWhenReady = resumePlaying
 
         // 记下这次实际生效的音质，供 UI 如实显示（含回退原因）
+        lastLosslessSelected = media?.losslessSelected == true
+        currentIsOffline = isOffline
         effective = resolveEffectiveQuality(
-            requested = prefs.audioQuality,
+            requested = requestedAudioQuality(),
             speed = currentSpeed(),
-            losslessSelected = media?.losslessSelected == true,
+            losslessSelected = lastLosslessSelected,
         )
         _state.value = _state.value.copy(
             isResolving = false,
@@ -668,15 +755,53 @@ class PlayerConnection(private val context: Context) {
 
         // 无损与高倍速不兼容（《架构设计篇》§4.4 边界 1）。跨过阈值必须**真的换一份
         // manifest**——只改状态文案的话，界面说着「已回退 AAC」，放的还是无损轨。
-        val requested = (preferenceProvider?.invoke() ?: PlaybackPreferences()).audioQuality
+        val requested = requestedAudioQuality()
         if (requested != AudioQuality.LOSSLESS) return
         val wasLossless = shouldRequestLossless(requested, before)
         val nowLossless = shouldRequestLossless(requested, speed)
         if (wasLossless == nowLossless) return
 
-        val item = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili ?: return
-        val position = c.currentPosition.coerceAtLeast(0L)
-        scope?.launch { play(item, fromQueue = true, startPositionOverride = position) }
+        reloadCurrent()
+    }
+
+    /**
+     * 播放页换音质：本次会话生效，并对当前这首**带进度重新取流**。
+     *
+     * 音质档位决定 manifest 里放哪些音轨（省流只放一条最低码率的），
+     * 所以换档必须换一份 manifest，会有一次短暂缓冲。实际要的档位没变
+     * （如 2× 下无损 ⇄ 自动）时不重取，只更新显示。
+     */
+    fun setAudioQuality(quality: AudioQuality) {
+        val before = requestedAudioQuality()
+        sessionAudioQuality = quality
+        if (shouldReloadForAudioQuality(before, quality, currentSpeed(), currentIsOffline) &&
+            queue.getOrNull(queueIndex) is PlaybackRequest.Bili
+        ) {
+            reloadCurrent()
+        } else {
+            effective = resolveEffectiveQuality(quality, currentSpeed(), lastLosslessSelected)
+        }
+        pushState()
+    }
+
+    /** 设置页改了默认音质：以设置页为准，清掉播放页的临时选择。下一首起生效。 */
+    fun clearAudioQualityOverride() {
+        sessionAudioQuality = null
+        pushState()
+    }
+
+    /**
+     * 切画质。[qn] 为 [VIDEO_QUALITY_AUTO] 时恢复自适应。
+     *
+     * 只锁定已在 manifest 里的视频轨，**不重新取流**：不 seek、不缓冲，
+     * 与听⇄看切换同一套无缝机制（见 VideoQualityPolicy）。
+     */
+    fun setVideoQuality(qn: Int) {
+        sessionVideoQuality = qn
+        videoQualityPreference = qn
+        applyVideoQuality()
+        refreshVideoQualities()
+        pushState()
     }
 
     /** 设倒计时睡眠定时器。[durationMs] 非正视为取消。 */
@@ -754,6 +879,49 @@ class PlayerConnection(private val context: Context) {
             resolveTrackSelectionParameters(c.trackSelectionParameters, enabled)
     }
 
+    /** 当前视频轨组，以及其中每条轨的最小信息。没有视频轨时返回 null。 */
+    private fun videoTrackGroup(): Pair<androidx.media3.common.Tracks.Group, List<VideoTrackCandidate>>? {
+        val c = controller ?: return null
+        val group = c.currentTracks.groups.firstOrNull {
+            it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO
+        } ?: return null
+        val candidates = (0 until group.length).map { i ->
+            val format = group.getTrackFormat(i)
+            VideoTrackCandidate(
+                qn = qnOfRepresentationId(format.id),
+                codecs = format.codecs.orEmpty(),
+                height = format.height.coerceAtLeast(0),
+                supported = group.isTrackSupported(i),
+            )
+        }
+        return group to candidates
+    }
+
+    /**
+     * 按 [videoQualityPreference] 锁定（或解除锁定）视频轨。
+     * 返回是否找到了视频轨组——还没 prepare 完时没有，调用方据此决定要不要稍后再补。
+     */
+    private fun applyVideoQuality(): Boolean {
+        val c = controller ?: return false
+        val (group, candidates) = videoTrackGroup() ?: return false
+        val index = resolveVideoTrackIndex(candidates, videoQualityPreference)
+        val builder = c.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+        if (index != null) {
+            builder.setOverrideForType(
+                androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, index),
+            )
+        }
+        c.trackSelectionParameters = builder.build()
+        lockedVideoQn = index?.let { candidates[it].qn }
+        return true
+    }
+
+    private fun refreshVideoQualities() {
+        val candidates = videoTrackGroup()?.second.orEmpty()
+        videoQualities = resolveVideoQualityOptions(acceptQualities, candidates)
+    }
+
     private fun beginRecording() {
         bufferingEvents = 0
         seekDiscontinuities = 0
@@ -802,6 +970,7 @@ class PlayerConnection(private val context: Context) {
             title = currentTrack?.title.orEmpty(),
             bvid = currentTrack?.bvid.orEmpty(),
             cid = currentTrack?.cid ?: 0L,
+            resolvedCid = resolvedCid,
             coverUrl = currentTrack?.coverUrl.orEmpty(),
             queue = queue,
             queueIndex = queueIndex,
@@ -809,9 +978,13 @@ class PlayerConnection(private val context: Context) {
             sleepTimerRemainingMs = sleepTimerRemaining(sleepTimer, now),
             sleepTimerEndOfTrack = sleepTimer is SleepTimerSpec.EndOfTrack,
             speed = c.playbackParameters.speed,
+            requestedAudioQuality = requestedAudioQuality(),
             audioQuality = effective.quality,
             qualityFallback = effective.fallback,
             videoAspectRatio = videoAspectRatio,
+            videoQualities = videoQualities,
+            videoQualityPreference = videoQualityPreference,
+            currentVideoQn = lockedVideoQn,
         )
         recordPositionIfNeeded()
     }

@@ -121,6 +121,13 @@ interface BiliApi {
     @GET("x/player/wbi/playurl")
     suspend fun getPlayUrl(@QueryMap params: Map<String, String>): BiliResponse<PlayUrlData>
 
+    /**
+     * 弹幕分段（protobuf，6 分钟一段，`segment_index` 从 1 起）。参数需 WBI 签名。
+     * 返回原始字节由调用方解码；出错时返回的是 JSON（见 `DanmakuProto.jsonErrorCode`）。
+     */
+    @GET("x/v2/dm/wbi/web/seg.so")
+    suspend fun danmakuSegment(@QueryMap params: Map<String, String>): Response<ResponseBody>
+
     // ── 搜索 ────────────────────────────────────────────
 
     /** 分类搜索。参数需 WBI 签名。MVP 只用 `search_type=video`。 */

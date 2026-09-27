@@ -37,6 +37,13 @@ internal data class ResolvedMedia(
      * 音质档位对本地文件无意义（M9 E-7 判据）。
      */
     val isOffline: Boolean = false,
+    /**
+     * playurl 的全部画质档位 (qn, 名字)，含当前账号拿不到的。
+     * 画质面板据此把锁住的档位也列出来（置灰），本地文件 / durl 回退时为空。
+     */
+    val acceptQualities: List<Pair<Int, String>> = emptyList(),
+    /** 实际播放的分 P cid。请求没指定 cid 时由取流补全；本地文件沿用请求里的值。 */
+    val resolvedCid: Long = 0,
 )
 
 /**
@@ -78,9 +85,11 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
                 measuredLoudness = null,
                 targetLoudness = null,
                 isOffline = true,
+                resolvedCid = cid ?: 0,
             )
         }
-        return resolveNetwork(bvid, cid, quality).media
+        val result = resolveNetwork(bvid, cid, quality)
+        return result.media.copy(resolvedCid = result.cid)
     }
 
     /** 下载用的取流结果：真实轨道直链 + 实际解析出的 cid。 */
@@ -177,6 +186,9 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
                 // 视频轨可能不存在——只下了音频的 m4a 就是这条路径的产物
                 audioUrl = tracks.audios.first().url(),
                 videoUrl = tracks.videos.firstOrNull()?.url().orEmpty(),
+                acceptQualities = data.acceptQuality.mapIndexed { i, qn ->
+                    qn to data.acceptDescription.getOrElse(i) { "" }
+                },
             )
         }
 

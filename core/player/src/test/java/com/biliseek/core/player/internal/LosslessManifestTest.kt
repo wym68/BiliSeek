@@ -82,7 +82,8 @@ class LosslessManifestTest {
         val mpd = manifestFor(AudioQuality.LOSSLESS)
         assertTrue(mpd.contains("""contentType="video""""))
         assertTrue(mpd.contains("""contentType="audio""""))
-        assertTrue(mpd.contains("""id="80""""))
+        // 视频轨 id 带下标（同一档多种编码会撞 id），qn 仍在前缀里
+        assertTrue(mpd.contains("""id="${videoRepresentationId(80, 0)}""""))
     }
 
     @Test

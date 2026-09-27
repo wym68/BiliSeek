@@ -32,7 +32,7 @@ internal fun buildLocalDashManifest(
     if (videoTracks.isNotEmpty()) {
         append("""    <AdaptationSet contentType="video" mimeType="${videoTracks.first().mimeType.esc()}">""")
         append('\n')
-        videoTracks.forEach { appendVideo(it) }
+        videoTracks.forEachIndexed { index, track -> appendVideo(track, index) }
         append("    </AdaptationSet>").append('\n')
     }
     if (audioTracks.isNotEmpty()) {
@@ -67,9 +67,10 @@ internal fun collectTracks(
     return CollectedTracks(videos, audio.tracks, audio.lossless)
 }
 
-private fun StringBuilder.appendVideo(t: DashTrack) {
+// id 不能直接用 qn：同一档常有 AVC / HEVC / AV1 三条轨，会撞 id（见 videoRepresentationId）
+private fun StringBuilder.appendVideo(t: DashTrack, index: Int) {
     append(
-        """      <Representation id="${t.id}" bandwidth="${t.bandwidth}" """ +
+        """      <Representation id="${videoRepresentationId(t.id, index)}" bandwidth="${t.bandwidth}" """ +
             """codecs="${t.codecs.esc()}" width="${t.width}" height="${t.height}" """ +
             """frameRate="${t.frameRate.ifBlank { "25" }.esc()}">""",
     ).append('\n')
