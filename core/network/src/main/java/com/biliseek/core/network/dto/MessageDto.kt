@@ -192,13 +192,21 @@ data class LikeFeedBucket(
     @SerialName("cursor") val cursor: MsgfeedCursor? = null,
 )
 
-/** `x/msgfeed/like` 响应按 latest/total 分桶；本期只用 latest（最近点赞），total 桶不解析。 */
+/**
+ * `x/msgfeed/like` 响应分两桶：
+ * - `latest`：上次查看之后的新点赞（无游标）。在官方 App 或本应用看过一次后通常就空了。
+ * - `total`：全部历史点赞，带分页游标。
+ * 只读 `latest` 会导致「看过一次后整页暂无内容」，所以两桶合并展示（新的在前，按 id 去重），
+ * 分页状态取 `total` 的游标。
+ */
 @Serializable
 data class LikeFeedData(
     @SerialName("latest") val latest: LikeFeedBucket? = null,
+    @SerialName("total") val total: LikeFeedBucket? = null,
 ) {
-    val items: List<LikeItem> get() = latest?.items.orEmpty()
-    val hasMore: Boolean get() = latest?.cursor?.isEnd == false
+    val items: List<LikeItem> get() =
+        (latest?.items.orEmpty() + total?.items.orEmpty()).distinctBy { it.id }
+    val hasMore: Boolean get() = total?.cursor?.isEnd == false
 }
 
 /** `x/msgfeed/unread` 返回聚合未读。 */

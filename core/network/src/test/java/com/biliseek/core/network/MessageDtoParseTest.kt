@@ -237,6 +237,46 @@ class MessageDtoParseTest {
     }
 
     @Test
+    fun `收到喜欢：latest 为空时展示 total 历史，两桶合并去重，分页看 total 游标`() {
+        val data = json.decodeFromString<BiliResponse<LikeFeedData>>(
+            """
+            {
+              "code": 0,
+              "data": {
+                "latest": {
+                  "items": [
+                    { "id": 30, "users": [{ "mid": 1, "nickname": "新赞", "avatar": "" }],
+                      "item": { "item_id": 3000, "type": "video", "title": "新" }, "like_time": 3 }
+                  ],
+                  "last_view_at": 2
+                },
+                "total": {
+                  "cursor": { "is_end": false, "id": 29, "time": 2 },
+                  "items": [
+                    { "id": 30, "users": [{ "mid": 1, "nickname": "新赞", "avatar": "" }],
+                      "item": { "item_id": 3000, "type": "video", "title": "新" }, "like_time": 3 },
+                    { "id": 29, "users": [{ "mid": 2, "nickname": "旧赞", "avatar": "" }],
+                      "item": { "item_id": 2900, "type": "reply", "title": "旧评论" }, "like_time": 2 }
+                  ]
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+        val items = data.data!!.items
+        assertEquals(listOf(30L, 29L), items.map { it.id })
+        assertEquals(true, data.data?.hasMore)
+
+        val onlyHistory = json.decodeFromString<BiliResponse<LikeFeedData>>(
+            """{"code":0,"data":{"latest":{"items":[],"last_view_at":9},
+               "total":{"cursor":{"is_end":true,"id":1,"time":1},
+               "items":[{"id":1,"users":[],"item":{"item_id":10,"type":"video","title":"历史"},"like_time":1}]}}}""",
+        )
+        assertEquals(1, onlyHistory.data!!.items.size)
+        assertEquals(false, onlyHistory.data?.hasMore)
+    }
+
+    @Test
     fun `用户卡片批量解析`() {
         val data = json.decodeFromString<BiliResponse<List<UserCard>>>(
             """{"code":0,"message":"0","ttl":1,"data":[{"mid":1001,"name":"真名","sex":"保密","face":"https://i0.hdslb.com/x.jpg","sign":"","rank":10000,"level":5}]}""",
