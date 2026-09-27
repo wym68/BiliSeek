@@ -95,6 +95,13 @@ data class PlayUrlData(
     val durl: List<Durl>? = null,
     /** 响度数据，`voice_balance=1` 时返回。B 站投稿音量参差，响度均衡靠它。 */
     val volume: VolumeInfo? = null,
+    /**
+     * 该视频**全部**画质档位（qn），含当前账号拿不到的（需登录 / 大会员）。
+     * `dash.video` 里只有拿得到的那些——两者之差就是「锁住的档位」。
+     */
+    @SerialName("accept_quality") val acceptQuality: List<Int> = emptyList(),
+    /** 与 [acceptQuality] 一一对应的档位名，如「1080P 高清」。 */
+    @SerialName("accept_description") val acceptDescription: List<String> = emptyList(),
 )
 
 @Serializable

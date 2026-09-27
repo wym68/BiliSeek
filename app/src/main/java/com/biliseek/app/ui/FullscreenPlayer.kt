@@ -141,6 +141,7 @@ fun FullscreenPlayerOverlay(
     onAddToList: () -> Unit = {},
     onShare: () -> Unit = {},
     onViewAuthor: () -> Unit = {},
+    onSetVideoQuality: (Int) -> Unit = {},
 ) {
     androidx.activity.compose.BackHandler(enabled = !isInPip) { onExit() }
 
@@ -427,6 +428,17 @@ fun FullscreenPlayerOverlay(
                                 FullscreenTextButton(speedButtonLabel(state.speed)) {
                                     openPanel(FullscreenPanelType.SPEED)
                                 }
+                                if (state.videoQualities.isNotEmpty()) {
+                                    FullscreenTextButton(
+                                        videoQualityButtonLabel(
+                                            state.videoQualities,
+                                            state.videoQualityPreference,
+                                            state.currentVideoQn,
+                                        ),
+                                    ) {
+                                        openPanel(FullscreenPanelType.QUALITY)
+                                    }
+                                }
                             }
                         }
                     }
@@ -447,6 +459,15 @@ fun FullscreenPlayerOverlay(
                         onSpeedSelected = {
                             touch()
                             onSetSpeed(it)
+                        },
+                    )
+                    FullscreenPanelType.QUALITY -> VideoQualityOptions(
+                        options = state.videoQualities,
+                        preference = state.videoQualityPreference,
+                        currentQn = state.currentVideoQn,
+                        onSelect = {
+                            touch()
+                            onSetVideoQuality(it)
                         },
                     )
                     FullscreenPanelType.TIMER -> TimerOptions(
@@ -499,6 +520,7 @@ fun PipVideoOverlay(
 /** 全屏里的面板种类。同一时刻只开一个。 */
 private enum class FullscreenPanelType(val title: String) {
     SPEED("倍速播放"),
+    QUALITY("画质"),
     TIMER("定时关闭"),
     MORE("更多"),
 }

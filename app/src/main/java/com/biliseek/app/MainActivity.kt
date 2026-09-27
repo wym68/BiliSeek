@@ -310,6 +310,7 @@ class MainActivity : ComponentActivity() {
                     danmakuEnabled = danmakuEnabled,
                     onDanmakuToggle = viewModel::toggleDanmaku,
                     isInPip = isInPip,
+                    onSetVideoQuality = viewModel::setVideoQuality,
                     onDownloadCurrent = {
                         val current = playback.queue.getOrNull(playback.queueIndex)
                             as? com.biliseek.core.player.PlaybackRequest.Bili
@@ -552,6 +553,8 @@ class MainActivity : ComponentActivity() {
                             onMiniBarStyleChange = viewModel::setMiniBarStyle,
                             onAllowVideoOnMeteredChange = viewModel::setAllowVideoOnMetered,
                             onAudioQualityChange = viewModel::setAudioQuality,
+                            onVideoQualityWifiChange = viewModel::setVideoQualityWifi,
+                            onVideoQualityMeteredChange = viewModel::setVideoQualityMetered,
                             onLoudnessChange = viewModel::setLoudnessNormalization,
                             accountContent = {
                                 LoginPanel(

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ModeComment
@@ -124,8 +125,10 @@ internal fun PlayerMoreMenuSheet(
     onAddToList: () -> Unit,
     onViewAuthor: () -> Unit,
     onShare: () -> Unit,
+    onSetVideoQuality: (Int) -> Unit = {},
 ) {
     var showSpeedSheet by remember { mutableStateOf(false) }
+    var showQualitySheet by remember { mutableStateOf(false) }
     var showTimerSheet by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
 
@@ -169,6 +172,9 @@ internal fun PlayerMoreMenuSheet(
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            if (state.videoQualities.isNotEmpty()) {
+                MenuItemRow(Icons.Filled.HighQuality, "画质") { showQualitySheet = true }
+            }
             MenuItemRow(Icons.Filled.PlaylistAdd, "添加到列表") { closeThen(onAddToList) }
             MenuItemRow(Icons.Filled.Person, "查看作者") { closeThen(onViewAuthor) }
             MenuItemRow(Icons.Filled.Share, "分享") { closeThen(onShare) }
@@ -183,6 +189,17 @@ internal fun PlayerMoreMenuSheet(
             onSpeedSelected = { onSetSpeed(it); showSpeedSheet = false },
             onDismiss = { showSpeedSheet = false },
         )
+    }
+
+    if (showQualitySheet) {
+        OptionsSheet(title = "画质", onDismiss = { showQualitySheet = false }) {
+            VideoQualityOptions(
+                options = state.videoQualities,
+                preference = state.videoQualityPreference,
+                currentQn = state.currentVideoQn,
+                onSelect = { onSetVideoQuality(it); showQualitySheet = false },
+            )
+        }
     }
 
     if (showTimerSheet) {
@@ -347,6 +364,71 @@ internal fun TimerOptions(
                 selected = endOfTrack,
                 onClick = { onSetTimer(-1) },
                 label = { Text("播完当前") },
+            )
+        }
+    }
+}
+
+/** 标题 + 任意选项内容的底部面板。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun OptionsSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            content()
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 画质档位选择（不含容器）。竖屏底部面板与全屏侧边面板共用。
+ *
+ * 拿不到的档位（需登录 / 大会员，或设备解不了）也列出来、置灰——
+ * 只列能选的会让人以为这个视频最高就这么清楚。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun VideoQualityOptions(
+    options: List<com.biliseek.core.player.VideoQualityOption>,
+    preference: Int,
+    currentQn: Int?,
+    onSelect: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = preference == com.biliseek.core.player.VIDEO_QUALITY_AUTO,
+                onClick = { onSelect(com.biliseek.core.player.VIDEO_QUALITY_AUTO) },
+                label = { Text("自动") },
+            )
+            options.forEach { option ->
+                FilterChip(
+                    selected = preference == option.qn,
+                    onClick = { onSelect(option.qn) },
+                    enabled = option.available,
+                    label = { Text(option.label) },
+                )
+            }
+        }
+        videoQualityFallbackLabel(options, preference, currentQn)?.let { actual ->
+            Text(
+                "所选档位暂不可用，当前为 $actual",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (options.any { !it.available }) {
+            Text(
+                "置灰的档位需要登录或大会员，或本机不支持该编码",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

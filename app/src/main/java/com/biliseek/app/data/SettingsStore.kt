@@ -3,6 +3,7 @@ package com.biliseek.app.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.biliseek.core.player.AudioQuality
@@ -38,7 +39,30 @@ data class AppSettings(
     val lastDownloadSafTreeUri: String = "",
     /** Ch5：minibar 风格（FLOAT 浮在底部上、BOTTOM 贴底）。默认 FLOAT。 */
     val miniBarStyle: MiniBarStyle = MiniBarStyle.FLOAT,
+    /** Wi-Fi 下的默认画质（B 站 qn），0 = 自动。 */
+    val videoQualityWifi: Int = VideoQualityDefaults.WIFI,
+    /** 移动网络下的默认画质。默认 480P——本 App 以听为主，看也要替流量着想。 */
+    val videoQualityMetered: Int = VideoQualityDefaults.METERED,
 )
+
+/** 默认画质的出厂值与设置页可选档位。 */
+object VideoQualityDefaults {
+    const val WIFI = 0
+    const val METERED = 32
+
+    /** 设置页可选的档位 (qn, 名字)。0 = 自动。 */
+    val CHOICES: List<Pair<Int, String>> = listOf(
+        0 to "自动",
+        80 to "1080P",
+        64 to "720P",
+        32 to "480P",
+        16 to "360P",
+    )
+}
+
+/** 按当前网络挑默认画质。 */
+fun AppSettings.defaultVideoQuality(isMetered: Boolean): Int =
+    if (isMetered) videoQualityMetered else videoQualityWifi
 
 /** minibar 风格（Ch5 §5.1.4）。 */
 enum class MiniBarStyle { FLOAT, BOTTOM }
@@ -79,6 +103,8 @@ class SettingsStore(private val context: Context) {
             miniBarStyle = p[KEY_MINI_BAR_STYLE]
                 ?.let { name -> MiniBarStyle.entries.firstOrNull { it.name == name } }
                 ?: MiniBarStyle.FLOAT,
+            videoQualityWifi = p[KEY_VIDEO_QUALITY_WIFI] ?: VideoQualityDefaults.WIFI,
+            videoQualityMetered = p[KEY_VIDEO_QUALITY_METERED] ?: VideoQualityDefaults.METERED,
         )
         publish(restored)
     }
@@ -108,6 +134,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setMiniBarStyle(value: MiniBarStyle) =
         update { it.copy(miniBarStyle = value) }
 
+    suspend fun setVideoQualityWifi(value: Int) = update { it.copy(videoQualityWifi = value) }
+
+    suspend fun setVideoQualityMetered(value: Int) = update { it.copy(videoQualityMetered = value) }
+
     private suspend fun update(transform: (AppSettings) -> AppSettings) {
         val next = transform(current)
         publish(next)
@@ -120,6 +150,8 @@ class SettingsStore(private val context: Context) {
             p[KEY_DOWNLOAD_LOCATION] = next.lastDownloadLocation
             p[KEY_DOWNLOAD_SAF_TREE] = next.lastDownloadSafTreeUri
             p[KEY_MINI_BAR_STYLE] = next.miniBarStyle.name
+            p[KEY_VIDEO_QUALITY_WIFI] = next.videoQualityWifi
+            p[KEY_VIDEO_QUALITY_METERED] = next.videoQualityMetered
         }
     }
 
@@ -137,6 +169,8 @@ class SettingsStore(private val context: Context) {
         val KEY_DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val KEY_DOWNLOAD_SAF_TREE = stringPreferencesKey("download_saf_tree")
         val KEY_MINI_BAR_STYLE = stringPreferencesKey("mini_bar_style")
+        val KEY_VIDEO_QUALITY_WIFI = intPreferencesKey("video_quality_wifi")
+        val KEY_VIDEO_QUALITY_METERED = intPreferencesKey("video_quality_metered")
         const val KEY_LAST_SESSION = "last_playback_session"
 
         val json = Json { ignoreUnknownKeys = true }

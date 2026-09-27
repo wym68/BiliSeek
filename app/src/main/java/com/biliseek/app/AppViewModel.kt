@@ -40,6 +40,7 @@ import com.biliseek.app.data.PlaylistTrack
 import com.biliseek.app.data.SettingsStore
 import com.biliseek.app.data.TrackEntity
 import com.biliseek.app.data.VideoGate
+import com.biliseek.app.data.defaultVideoQuality
 import com.biliseek.app.data.resolveVideoGate
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.comment.CommentThreadController
@@ -988,6 +989,7 @@ return pages.map { p ->
             PlaybackPreferences(
                 audioQuality = s.audioQuality,
                 loudnessNormalization = s.loudnessNormalization,
+                videoQuality = s.defaultVideoQuality(isMetered()),
             )
         }
         // 锁屏 / 通知栏封面。拉图 + 压缩 + 缩放到锁屏合适大小 (512px 长边)：
@@ -1247,6 +1249,9 @@ return pages.map { p ->
     fun seekTo(positionMs: Long) = connection.seekTo(positionMs)
     fun setSpeed(speed: Float) = connection.setSpeed(speed)
 
+    /** 播放页切画质：只对本次会话生效，默认值在设置页改。 */
+    fun setVideoQuality(qn: Int) = connection.setVideoQuality(qn)
+
     /** [durationMs] 为 0 表示取消；负数表示「播完当前曲目」。 */
     fun setSleepTimer(durationMs: Long) = when {
         durationMs < 0 -> connection.setSleepTimerEndOfTrack()
@@ -1306,6 +1311,12 @@ return pages.map { p ->
 
     fun setAudioQuality(value: com.biliseek.core.player.AudioQuality) =
         viewModelScope.launch { settingsStore.setAudioQuality(value) }
+
+    fun setVideoQualityWifi(value: Int) =
+        viewModelScope.launch { settingsStore.setVideoQualityWifi(value) }
+
+    fun setVideoQualityMetered(value: Int) =
+        viewModelScope.launch { settingsStore.setVideoQualityMetered(value) }
 
     fun setLoudnessNormalization(value: Boolean) =
         viewModelScope.launch { settingsStore.setLoudnessNormalization(value) }

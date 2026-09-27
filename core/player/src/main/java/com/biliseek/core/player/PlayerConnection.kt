@@ -27,6 +27,10 @@ import com.biliseek.core.player.internal.resolvePlaybackMode
 import com.biliseek.core.player.internal.resolvePresentationOnTrackChange
 import com.biliseek.core.player.internal.resolvePreviousIndex
 import com.biliseek.core.player.internal.resolveTrackSelectionParameters
+import com.biliseek.core.player.internal.VideoTrackCandidate
+import com.biliseek.core.player.internal.qnOfRepresentationId
+import com.biliseek.core.player.internal.resolveVideoQualityOptions
+import com.biliseek.core.player.internal.resolveVideoTrackIndex
 import com.biliseek.core.player.internal.shouldEnableVideoTrack
 import com.biliseek.core.player.internal.shouldStopOnTrackEnd
 import com.biliseek.core.player.internal.sleepTimerRemaining
@@ -167,6 +171,30 @@ class PlayerConnection(private val context: Context) {
     private var lastVideoSizeGeneration = -1
     private var lastVideoAspectRatio: Float? = null
 
+    // ── 画质 ──
+    /**
+     * 本次会话里用户在播放页选过的画质。选过就一直沿用到下一首、下下首，
+     * 直到 App 重启——比每首都退回设置页默认值更符合「我就要看 720P」的本意。
+     */
+    private var sessionVideoQuality: Int? = null
+
+    /** 当前生效的画质偏好（会话选择优先，其次设置页默认）。 */
+    private var videoQualityPreference: Int = VIDEO_QUALITY_AUTO
+
+    /** 当前条目 playurl 给的全部档位（含拿不到的）。 */
+    private var acceptQualities: List<Pair<Int, String>> = emptyList()
+
+    /**
+     * 新条目已 setMediaItem、画质偏好还没套上。轨道要等 prepare 后才出现，只能在
+     * onTracksChanged 里补。在 setMediaItem 那一刻才置位——取流期间上一条的轨道
+     * 仍可能触发 onTracksChanged，那时套上去的锁定指向旧轨道组，没有意义。
+     */
+    private var pendingQualityApply = false
+
+    /** 最近一次从轨道组里读出的档位列表与锁定档位，pushState 直接拿来用。 */
+    private var videoQualities: List<VideoQualityOption> = emptyList()
+    private var lockedVideoQn: Int? = null
+
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (recording && playbackState == Player.STATE_BUFFERING) bufferingEvents++
@@ -198,7 +226,15 @@ class PlayerConnection(private val context: Context) {
             pushState()
         }
 
-        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) = pushState()
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+            // 新条目的轨道刚出现：把画质偏好套上去。听模式下也要套——
+            // 视频轨虽然关着，锁定先生效，切到看时直接按偏好档位出画，不会先低清再跳高清
+            if (pendingQualityApply && applyVideoQuality()) {
+                pendingQualityApply = false
+            }
+            refreshVideoQualities()
+            pushState()
+        }
 
         // 拿到首帧尺寸后立刻推一次 state，UI 靠它判断按原始比例显示画面、
         // 全屏该转横屏还是保持竖屏——不等下一次 250ms 轮询。
@@ -431,7 +467,18 @@ class PlayerConnection(private val context: Context) {
             resolveStartPosition(saved, media?.durationMs ?: 0L)
         } ?: 0L
 
+        // 上一条的画质锁定指向上一条的轨道组，对新条目无效，先清掉；新轨道出现后在
+        // onTracksChanged 里按偏好重新锁定
+        videoQualityPreference = sessionVideoQuality ?: prefs.videoQuality
+        acceptQualities = media?.acceptQualities.orEmpty()
+        videoQualities = emptyList()
+        lockedVideoQn = null
+        c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+            .build()
+
         c.setMediaItem(item, startPosition)
+        pendingQualityApply = true
 
         // 换内容即回到听。**禁轨、清 surface、复位呈现态三件事必须一起做**——
         // 早期只做了第一件，字段还停在 INLINE，界面于是渲染一块没有画面的 SurfaceView：
@@ -679,6 +726,20 @@ class PlayerConnection(private val context: Context) {
         scope?.launch { play(item, fromQueue = true, startPositionOverride = position) }
     }
 
+    /**
+     * 切画质。[qn] 为 [VIDEO_QUALITY_AUTO] 时恢复自适应。
+     *
+     * 只锁定已在 manifest 里的视频轨，**不重新取流**：不 seek、不缓冲，
+     * 与听⇄看切换同一套无缝机制（见 VideoQualityPolicy）。
+     */
+    fun setVideoQuality(qn: Int) {
+        sessionVideoQuality = qn
+        videoQualityPreference = qn
+        applyVideoQuality()
+        refreshVideoQualities()
+        pushState()
+    }
+
     /** 设倒计时睡眠定时器。[durationMs] 非正视为取消。 */
     fun setSleepTimer(durationMs: Long) {
         sleepTimer = deadlineAfter(System.currentTimeMillis(), durationMs)
@@ -754,6 +815,49 @@ class PlayerConnection(private val context: Context) {
             resolveTrackSelectionParameters(c.trackSelectionParameters, enabled)
     }
 
+    /** 当前视频轨组，以及其中每条轨的最小信息。没有视频轨时返回 null。 */
+    private fun videoTrackGroup(): Pair<androidx.media3.common.Tracks.Group, List<VideoTrackCandidate>>? {
+        val c = controller ?: return null
+        val group = c.currentTracks.groups.firstOrNull {
+            it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO
+        } ?: return null
+        val candidates = (0 until group.length).map { i ->
+            val format = group.getTrackFormat(i)
+            VideoTrackCandidate(
+                qn = qnOfRepresentationId(format.id),
+                codecs = format.codecs.orEmpty(),
+                height = format.height.coerceAtLeast(0),
+                supported = group.isTrackSupported(i),
+            )
+        }
+        return group to candidates
+    }
+
+    /**
+     * 按 [videoQualityPreference] 锁定（或解除锁定）视频轨。
+     * 返回是否找到了视频轨组——还没 prepare 完时没有，调用方据此决定要不要稍后再补。
+     */
+    private fun applyVideoQuality(): Boolean {
+        val c = controller ?: return false
+        val (group, candidates) = videoTrackGroup() ?: return false
+        val index = resolveVideoTrackIndex(candidates, videoQualityPreference)
+        val builder = c.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+        if (index != null) {
+            builder.setOverrideForType(
+                androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, index),
+            )
+        }
+        c.trackSelectionParameters = builder.build()
+        lockedVideoQn = index?.let { candidates[it].qn }
+        return true
+    }
+
+    private fun refreshVideoQualities() {
+        val candidates = videoTrackGroup()?.second.orEmpty()
+        videoQualities = resolveVideoQualityOptions(acceptQualities, candidates)
+    }
+
     private fun beginRecording() {
         bufferingEvents = 0
         seekDiscontinuities = 0
@@ -812,6 +916,9 @@ class PlayerConnection(private val context: Context) {
             audioQuality = effective.quality,
             qualityFallback = effective.fallback,
             videoAspectRatio = videoAspectRatio,
+            videoQualities = videoQualities,
+            videoQualityPreference = videoQualityPreference,
+            currentVideoQn = lockedVideoQn,
         )
         recordPositionIfNeeded()
     }

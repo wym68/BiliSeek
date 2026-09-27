@@ -110,6 +110,8 @@ fun AppShell(
     onOpenUpSpace: () -> Unit = {},
     /** 下载当前在播的视频（走与搜索结果相同的下载弹窗）。 */
     onDownloadCurrent: () -> Unit = {},
+    /** 切画质（只锁定已有视频轨，不重新取流）。 */
+    onSetVideoQuality: (Int) -> Unit = {},
     /** 全屏弹幕开关状态。 */
     danmakuEnabled: Boolean = false,
     /** 全屏弹幕开关切换。 */
@@ -363,6 +365,7 @@ fun AppShell(
                         onOpenAddToList = onOpenAddToList,
                         onOpenUpSpace = onOpenUpSpace,
                         onDownload = onDownloadCurrent,
+                        onSetVideoQuality = onSetVideoQuality,
                         accent = accent,
                         // 全屏层或 PiP 层接管 SurfaceView 时，内联封面区让路
                         isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN || isInPip,
@@ -428,6 +431,7 @@ fun AppShell(
                 onAddToList = onOpenAddToList,
                 onShare = onShare,
                 onViewAuthor = onOpenUpSpace,
+                onSetVideoQuality = onSetVideoQuality,
             )
         } else if (isInPip && playback.presentation != PresentationMode.NONE) {
             PipVideoOverlay(surfaceView = surfaceView, state = playback)
