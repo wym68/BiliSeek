@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 /**
  * 可拖动进度条（Ch5 §5.1.1）。
  *
- * 与 PlayerContainer.ProgressBar 同款"本地态 + onValueChangeFinished"模式：
+ * 与 PlayerControls.kt 的 ProgressBar 同款"本地态 + onValueChangeFinished"模式：
  * Slider 默认触摸区比视觉条大；minibar 上用 height=2dp 时触摸区被外层 Box 撑到 24dp。
  */
 @OptIn(ExperimentalMaterial3Api::class)

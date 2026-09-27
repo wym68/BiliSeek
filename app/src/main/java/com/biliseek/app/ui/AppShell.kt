@@ -265,18 +265,13 @@ fun AppShell(
             bottomBar = {
                 Column {
                     if (showMiniPlayer) {
-                        PlayerContainer(
+                        MiniPlayer(
                             state = playback,
-                            expansion = PlayerExpansion.COLLAPSED,
-                            surfaceView = surfaceView,
-                            onExpansionChange = onExpansionChange,
                             onTogglePlayPause = onTogglePlayPause,
-                            onPresentationChange = onPresentationChange,
                             onSeek = onSeek,
                             onOpenQueue = onOpenQueue,
                             miniBarStyle = miniBarStyle,
-                            // 点 MiniPlayer 跳 player route；EXPANDED 不再是状态，
-                            // 设了反而让上面对的 showMiniPlayer 判走错。
+                            // 点 MiniPlayer 跳 player route；EXPANDED 不再是状态
                             onExpand = {
                                 navController.navigate(Destination.PLAYER.route) {
                                     launchSingleTop = true
@@ -322,12 +317,7 @@ fun AppShell(
                 composable(Destination.SETTINGS.route) { settingsContent() }
                 composable(Destination.PLAYER.route) {
                     // 只有进入 player route 才计算取色，避免每个 tab 都跳调色
-                    val palette = rememberCoverPalette(playback.coverUrl)
-                    val darkTheme = isSystemInDarkTheme()
-                    val surface = MaterialTheme.colorScheme.surface
-                    val accent = remember(palette.dominant, darkTheme, surface) {
-                        AdaptiveAccentColorPolicy.resolve(palette.dominant, darkTheme, surface)
-                    }
+                    val accent = rememberAccentDecision(rememberCoverPalette(playback.coverUrl))
 
                     // z-ordering fix: 如果当前处于视频模式，先切回音频模式
                     // （触发 clearVideoSurface），等状态更新后再 popBackStack。
