@@ -85,8 +85,13 @@ fun FullscreenPanel(
             modifier = Modifier.align(if (landscape) Alignment.CenterEnd else Alignment.BottomCenter),
         ) {
             BiliSeekTheme(darkTheme = true) {
+                // 内容色必须显式给白色：Surface 的默认 contentColor 取不在配色表里的颜色时
+                // 会退回外层的 LocalContentColor——全屏层在 Scaffold 之外，那是默认的黑色，
+                // 结果就是深灰底上一片近乎黑的字（真机截图反馈）。
+                // 底色不透明：半透明时底下的视频和控制层会透上来，再次拉低对比度。
                 Surface(
-                    color = Color(0xF0181818),
+                    color = PANEL_BACKGROUND,
+                    contentColor = Color.White,
                     shape = if (landscape) {
                         RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
                     } else {
@@ -115,4 +120,6 @@ fun FullscreenPanel(
 }
 
 private val PANEL_WIDTH = 320.dp
+
+private val PANEL_BACKGROUND = Color(0xFF1E1E1E)
 private val PANEL_MAX_HEIGHT = 480.dp
