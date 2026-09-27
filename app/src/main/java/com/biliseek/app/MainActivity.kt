@@ -94,6 +94,7 @@ class MainActivity : ComponentActivity() {
             BiliSeekTheme {
                 val playback by viewModel.connection.state.collectAsState()
                 val search by viewModel.search.state.collectAsState()
+                val pagePanel by viewModel.pagePanel.collectAsState()
                 val loginState by viewModel.loginState.collectAsState()
                 val session by viewModel.session.collectAsState()
                 val playlists by viewModel.playlists.collectAsState()
@@ -331,9 +332,10 @@ class MainActivity : ComponentActivity() {
                         val showEmptyState = search.items.isEmpty() &&
                             search.keyword.isBlank() &&
                             search.error == null &&
-                            search.pages.isEmpty()
+                            !pagePanel.isOpen
                         SearchScreen(
                             state = search,
+                            pagePanel = pagePanel,
                             onKeywordChange = viewModel.search::onKeywordChange,
                             onSubmit = viewModel.search::submitSearch,
                             onResultClick = viewModel::onResultClick,
@@ -351,7 +353,7 @@ class MainActivity : ComponentActivity() {
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
                             onLoadMore = viewModel.search::loadMore,
-                            onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
+                            onPageClick = { viewModel.playPage(pagePanel.bvid, it) },
                             onDismissPages = viewModel::dismissPages,
                             // 多 P 面板：复选与动作
                             isPageSelection = pageSelectionActive,
@@ -371,11 +373,11 @@ class MainActivity : ComponentActivity() {
                             onPageCopyLink = { copyToClipboard(viewModel.pageVideoUrl(it)) },
                             onPageDownload = {
                                 downloadFor = com.biliseek.app.ui.DownloadTarget(
-                                    bvid = search.pagesOfBvid,
+                                    bvid = pagePanel.bvid,
                                     cid = it.cid,
                                     title = "P${it.page} ${it.title}".trim(),
-                                    coverUrl = search.pagesCover,
-                                    author = search.pagesAuthor,
+                                    coverUrl = pagePanel.cover,
+                                    author = pagePanel.author,
                                 )
                             },
                             // Ch3 复选模式

@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -30,16 +29,14 @@ import kotlinx.coroutines.launch
  *
  * 从 AppViewModel 拆出，由 `AppViewModel.search` 持有；生命周期挂在宿主的 [scope] 上。
  * 直达播放经 [play] 回到宿主。
- *
- * 注意：[SearchUiState] 里还装着多 P 选择面板（pages / pagesOfBvid / pagesCover / pagesAuthor），
- * 那部分逻辑仍在宿主（与播放、复选、下载交织），经 [update] 写入。把它拆成独立状态需要连带改
- * SearchScreen，留作后续。
+ * 多 P 面板是宿主的独立状态（PagePanelState）；新一轮搜索时经 [onNewSearch] 通知宿主收起。
  */
 class SearchController(
     private val scope: CoroutineScope,
     private val repository: BiliRepository,
     private val library: LibraryRepository,
     private val play: (PlaybackRequest) -> Unit,
+    private val onNewSearch: () -> Unit = {},
 ) {
     private val _search = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _search.asStateFlow()
@@ -47,9 +44,6 @@ class SearchController(
     /** 搜索历史（本地）。 */
     val history: StateFlow<List<SearchHistoryEntity>> = library.observeSearchHistory()
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** 宿主写多 P 面板字段用。搜索本身的字段只由本类维护。 */
-    fun update(transform: (SearchUiState) -> SearchUiState) = _search.update(transform)
 
     fun onKeywordChange(text: String) {
         // 清空搜索框即回到首页空状态：结果一并清掉，否则会停留在上次的列表上
@@ -131,8 +125,8 @@ class SearchController(
                 isLoading = page == 1,
                 isLoadingMore = page > 1,
                 error = null,
-                pages = if (page == 1) emptyList() else _search.value.pages,
             )
+            if (page == 1) onNewSearch()
             repository.search(keyword, page, filters.order, filters.duration)
                 .onSuccess { result -> applyPage(result, keyword, append = page > 1) }
                 .onFailure { e ->

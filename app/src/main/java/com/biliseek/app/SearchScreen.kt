@@ -88,6 +88,8 @@ import com.biliseek.core.player.formatDuration
 @Composable
 fun SearchScreen(
     state: SearchUiState,
+    /** 多 P 面板。默认关闭，便于不涉及分 P 的调用方 / 测试省略。 */
+    pagePanel: PagePanelState = PagePanelState(),
     onKeywordChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onResultClick: (SearchVideo) -> Unit,
@@ -215,7 +217,7 @@ fun SearchScreen(
     val isResultsVideoView = !isSelectionMode &&
         state.keyword.isNotBlank() &&
         state.searchMode == SearchMode.VIDEO &&
-        state.pages.isEmpty()
+        !pagePanel.isOpen
     var titleHeightPx by remember { mutableIntStateOf(0) }
     var titleOffset by remember { mutableFloatStateOf(0f) }
     val collapsingActive = androidx.compose.runtime.rememberUpdatedState(isResultsVideoView)
@@ -396,7 +398,7 @@ fun SearchScreen(
         // 结果页系统返回手势：先收子页（多 P 面板自带 BackHandler，见下方），否则清空关键词并
         // 把焦点还给搜索框、弹起键盘——回到空状态显示历史，模拟「撤销这次搜索」。
         // 清空后 keyword 变空走上面的空状态分支（不拦截返回），下一次返回即系统默认退栈。
-        BackHandler(enabled = state.pages.isEmpty()) {
+        BackHandler(enabled = !pagePanel.isOpen) {
             onKeywordChange("")
             searchFieldFocus.requestFocus()
             keyboardController?.show()
@@ -420,10 +422,10 @@ fun SearchScreen(
         // 多 P 展开：一个 BV 在结果里只占一条，点入才展开成列表。
         // 面板自带纵向 LazyColumn，塞进结果列表的 LazyColumn 会触发嵌套同向滚动崩溃，
         // 故作为独立整屏子页处理（M11 真机：返回手势收面板而非退桌面）。
-        if (state.pages.isNotEmpty()) {
+        if (pagePanel.isOpen) {
             BackHandler(onBack = onDismissPages)
             MultiPagePanel(
-                state = state,
+                state = pagePanel,
                 isLoggedIn = isLoggedIn,
                 isSelection = isPageSelection,
                 selectedCids = selectedPageCids,
@@ -846,7 +848,7 @@ private fun ResultRow(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MultiPagePanel(
-    state: SearchUiState,
+    state: PagePanelState,
     isLoggedIn: Boolean,
     isSelection: Boolean,
     selectedCids: Set<Long>,
@@ -908,7 +910,7 @@ private fun MultiPagePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    "${state.pagesOfBvid} · ${state.pages.size} 个分 P",
+                    "${state.bvid} · ${state.pages.size} 个分 P",
                     style = MaterialTheme.typography.titleSmall,
                 )
                 TextButton(onClick = onDismiss) { Text("返回结果") }

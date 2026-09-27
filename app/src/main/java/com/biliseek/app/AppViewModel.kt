@@ -147,6 +147,21 @@ data class MultiPagePickerState(
     val pendingAction: PendingAction,
 )
 
+/**
+ * 多 P 面板：点多 P 视频或「查看分 P」时在搜索页展开。`pages` 为空 = 面板关闭。
+ * 与搜索结果无关（原先塞在 SearchUiState 里），独立成一份状态。
+ */
+data class PagePanelState(
+    val bvid: String = "",
+    val pages: List<PageEntry> = emptyList(),
+    /** 分 P 接口不返回封面，只能从点入的搜索结果带过来。 */
+    val cover: String = "",
+    /** 加歌单 / 下载 / 播放历史落库要用，同封面一起带过来。 */
+    val author: String = "",
+) {
+    val isOpen: Boolean get() = pages.isNotEmpty()
+}
+
 /** 收藏夹内容条目（可播放形状）。 */
 data class FavoriteTrack(
     val bvid: String,
@@ -224,13 +239,6 @@ data class SearchUiState(
     /** 搜索筛选（时长 / 排序）。变化时必须重置到第 1 页，否则页码与结果集错位。 */
     val order: SearchOrder = SearchOrder.COMPREHENSIVE,
     val duration: SearchDuration = SearchDuration.ANY,
-    /** 展开的多 P 列表，非空时显示分 P 选择 */
-    val pages: List<PageEntry> = emptyList(),
-    val pagesOfBvid: String = "",
-    /** 展开的多 P 视频封面。分 P 接口不返回封面，只能从点入的搜索结果带过来。 */
-    val pagesCover: String = "",
-    /** 展开的多 P 视频 UP 主。加歌单 / 下载 / 播放历史落库要用，同封面一起带过来。 */
-    val pagesAuthor: String = "",
     /** 搜索目标：视频 / UP 主。切换重置页码重搜（M11-D）。 */
     val searchMode: SearchMode = SearchMode.VIDEO,
     /** UP 主搜索结果（searchMode == USER 时使用）。 */
@@ -645,19 +653,19 @@ return pages.map { p ->
     }
 
     fun togglePageSelection(cid: Long) = pageSelection.toggle(cid.toString())
-    fun selectAllPages() = pageSelection.selectAll(search.state.value.pages.map { it.cid.toString() })
+    fun selectAllPages() = pageSelection.selectAll(_pagePanel.value.pages.map { it.cid.toString() })
     fun clearPageSelection() = pageSelection.clear()
     fun exitPageSelection() = pageSelection.exit()
 
     /** 多 P 条目 → 播放请求：标题带 P 序号，封面 / UP 主从面板头部状态带。 */
     private fun PageEntry.toPageRequest(): PlaybackRequest.Bili {
-        val s = search.state.value
+        val p = _pagePanel.value
         return PlaybackRequest.Bili(
-            bvid = s.pagesOfBvid,
+            bvid = p.bvid,
             cid = cid,
             title = "P$page $title".trim(),
-            coverUrl = s.pagesCover,
-            author = s.pagesAuthor,
+            coverUrl = p.cover,
+            author = p.author,
             durationSec = durationSec,
         )
     }
@@ -665,7 +673,7 @@ return pages.map { p ->
     /** 多 P 面板批量动作：选中 P（保持自然顺序）执行；执行前退出复选。 */
     fun runPageBatch(action: PendingAction) = viewModelScope.launch {
         val sel = pageSelection.selected.value
-        val chosen = search.state.value.pages.filter { it.cid.toString() in sel }
+        val chosen = _pagePanel.value.pages.filter { it.cid.toString() in sel }
         pageSelection.exit()
         execute(action, chosen.map { it.toPageRequest() })
     }
@@ -676,7 +684,7 @@ return pages.map { p ->
     }
 
     fun pageVideoUrl(entry: PageEntry) =
-        "https://www.bilibili.com/video/${search.state.value.pagesOfBvid}?p=${entry.page}"
+        "https://www.bilibili.com/video/${_pagePanel.value.bvid}?p=${entry.page}"
 
     // ── UP 空间投稿的复选与动作 ──────────────────────────
 
@@ -912,12 +920,12 @@ return pages.map { p ->
     fun showPages(video: SearchVideo) {
         viewModelScope.launch {
             network.repository.pages(video.bvid).onSuccess { pages ->
-                search.update { it.copy(
+                _pagePanel.value = PagePanelState(
+                    bvid = video.bvid,
                     pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
-                    pagesOfBvid = video.bvid,
-                    pagesCover = coverOf(video),
-                    pagesAuthor = video.author,
-                ) }
+                    cover = coverOf(video),
+                    author = video.author,
+                )
             }
         }
     }
@@ -1084,7 +1092,13 @@ return pages.map { p ->
         repository = network.repository,
         library = library,
         play = ::play,
+        // 新一轮搜索收起多 P 面板（原先是搜索第 1 页时顺手清掉 SearchUiState.pages）
+        onNewSearch = { _pagePanel.value = PagePanelState() },
     )
+
+    /** 多 P 面板（搜索页内展开的分 P 列表）。 */
+    private val _pagePanel = MutableStateFlow(PagePanelState())
+    val pagePanel: StateFlow<PagePanelState> = _pagePanel.asStateFlow()
 
     /** 取流失败后的「重试」：重放队列里当前这条。 */
     fun retryPlayback() = connection.retry()
@@ -1149,22 +1163,17 @@ return pages.map { p ->
             network.repository.pages(video.bvid)
                 .onSuccess { pages ->
                     if (pages.size <= 1) {
-                        search.update { it.copy(
-                            pages = emptyList(),
-                            pagesOfBvid = "",
-                            pagesCover = "",
-                            pagesAuthor = "",
-                        ) }
+                        _pagePanel.value = PagePanelState()
                         play(video.toRequest(cid = pages.firstOrNull()?.cid))
                     } else {
-                        search.update { it.copy(
+                        _pagePanel.value = PagePanelState(
+                            bvid = video.bvid,
                             pages = pages.map {
                                 PageEntry(it.cid, it.page, it.part, it.duration)
                             },
-                            pagesOfBvid = video.bvid,
-                            pagesCover = coverOf(video),
-                            pagesAuthor = video.author,
-                        ) }
+                            cover = coverOf(video),
+                            author = video.author,
+                        )
                     }
                 }
                 .onFailure { play(video.toRequest()) }
@@ -1189,9 +1198,10 @@ return pages.map { p ->
 
     /** 点某个分 P：整张多 P 视频作为队列，从该 P 开始播。 */
     fun playPage(bvid: String, entry: PageEntry) {
-        val all = search.state.value.pages
-        val cover = search.state.value.pagesCover
-        val author = search.state.value.pagesAuthor
+        val panel = _pagePanel.value
+        val all = panel.pages
+        val cover = panel.cover
+        val author = panel.author
         val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
         viewModelScope.launch {
             connection.playQueue(
@@ -1365,7 +1375,7 @@ return pages.map { p ->
 
     fun dismissPages() {
         pageSelection.exit()
-        search.update { it.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "", pagesAuthor = "") }
+        _pagePanel.value = PagePanelState()
     }
 
     /**
