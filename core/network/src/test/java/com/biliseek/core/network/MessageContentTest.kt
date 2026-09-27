@@ -142,4 +142,42 @@ class MessageContentTest {
         assertEquals("UP主小助手", merged[1].accountInfo?.name)
         assertNull(merged[2].accountInfo)
     }
+
+    // ── 回复与 @ 合并 ──
+
+    @Test
+    fun `回复与 @ 按时间新到旧合并，key 不撞号`() {
+        val r = ReplyAtItem(id = 1, replyTime = 100)
+        val a = ReplyAtItem(id = 1, replyTime = 200, isAt = true)
+        val merged = mergeReplyAndAt(listOf(r), listOf(a))
+        assertEquals(listOf(200L, 100L), merged.map { it.replyTime })
+        assertEquals(2, merged.map { it.listKey() }.toSet().size)
+    }
+
+    @Test
+    fun `@ 条目缺 subject_id 时从视频链接反推 aid，可站内回复`() {
+        val at = ReplyAtItem(
+            id = 1,
+            isAt = true,
+            item = ReplyAtContent(businessId = 1, sourceId = 888, uri = "https://www.bilibili.com/video/BV17x411w7KC"),
+        )
+        assertEquals(bvToAv("BV17x411w7KC"), at.replyOid())
+        assertTrue(at.canReplyInApp())
+    }
+
+    @Test
+    fun `非视频评论区的 @ 不反推 aid，不可站内回复`() {
+        val at = ReplyAtItem(
+            id = 1,
+            isAt = true,
+            item = ReplyAtContent(businessId = 17, sourceId = 888, uri = "https://t.bilibili.com/123"),
+        )
+        assertEquals(0L, at.replyOid())
+        assertFalse(at.canReplyInApp())
+    }
+
+    @Test
+    fun `回复条目有 subject_id 时直接用它`() {
+        assertEquals(170001L, reply().replyOid())
+    }
 }

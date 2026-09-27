@@ -10,6 +10,7 @@ import com.biliseek.core.network.dto.PrivateMessage
 import com.biliseek.core.network.dto.ReplyAtItem
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.Session
+import com.biliseek.core.network.mergeReplyAndAt
 import com.biliseek.core.network.videoBvid
 import com.biliseek.core.player.PlaybackRequest
 import kotlinx.coroutines.CoroutineScope
@@ -137,25 +138,34 @@ class MessageCenterController(
     /** "回复与@"子页面 onInit / 下拉刷新共用。 */
     fun retryReplyFeed() = loadReplyFeed()
 
+    /**
+     * 回复与 @ 各拉一页后按时间合并。任一成功就展示成功那部分；两路都失败才报错。
+     * 第一路撞 -352 时全局冷却生效，第二路会在本地快速失败，不会真的发出请求。
+     */
     private fun loadReplyFeed() {
         _replyFeed.value = _replyFeed.value.copy(isLoading = true, errorMessage = null)
         scope.launch {
-            repository.replyFeed()
-                .onSuccess { data ->
-                    _replyFeed.value = _replyFeed.value.copy(
-                        items = data.items,
-                        hasMore = data.hasMore,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                    refreshUnreadCount()
-                }
-                .onFailure { e ->
-                    _replyFeed.value = _replyFeed.value.copy(
-                        isLoading = false,
-                        errorMessage = e.message ?: "加载失败",
-                    )
-                }
+            val replies = repository.replyFeed()
+            val ats = repository.atFeed()
+            if (replies.isFailure && ats.isFailure) {
+                _replyFeed.value = _replyFeed.value.copy(
+                    isLoading = false,
+                    errorMessage = replies.exceptionOrNull()?.message ?: "加载失败",
+                )
+                return@launch
+            }
+            val replyData = replies.getOrNull()
+            val atData = ats.getOrNull()
+            _replyFeed.value = _replyFeed.value.copy(
+                items = mergeReplyAndAt(
+                    replyData?.items.orEmpty(),
+                    atData?.items.orEmpty().map { it.toReplyAtItem() },
+                ),
+                hasMore = replyData?.hasMore == true || atData?.hasMore == true,
+                isLoading = false,
+                errorMessage = null,
+            )
+            refreshUnreadCount()
         }
     }
 

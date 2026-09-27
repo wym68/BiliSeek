@@ -1,5 +1,6 @@
 package com.biliseek.core.network
 
+import com.biliseek.core.network.dto.AtFeedData
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.FollowersData
 import com.biliseek.core.network.dto.LikeFeedData
@@ -274,6 +275,46 @@ class MessageDtoParseTest {
         )
         assertEquals(1, onlyHistory.data!!.items.size)
         assertEquals(false, onlyHistory.data?.hasMore)
+    }
+
+    /** 字段形状按 bilibili-API-collect `message/msg.md` 的 x/msgfeed/at 示例构造（非线上抓取）。 */
+    @Test
+    fun `@我的 列表解析，转成回复形状后带 isAt 标记与 at_time`() {
+        val data = json.decodeFromString<BiliResponse<AtFeedData>>(
+            """
+            {
+              "code": 0,
+              "data": {
+                "cursor": { "is_end": false, "id": 55, "time": 1700000100 },
+                "items": [
+                  {
+                    "id": 55,
+                    "user": { "mid": 444, "nickname": "用户D", "avatar": "//fd" },
+                    "item": {
+                      "type": "reply",
+                      "business": "评论",
+                      "business_id": 1,
+                      "title": "某视频",
+                      "uri": "https://www.bilibili.com/video/BV17x411w7KC",
+                      "source_content": "@我 快来看",
+                      "source_id": 888,
+                      "target_id": 0,
+                      "root_id": 0,
+                      "native_uri": "bilibili://comment/detail/1/170001/888/?subType=0"
+                    },
+                    "at_time": 1700000100
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        val at = data.data!!.items.single().toReplyAtItem()
+        assertTrue(at.isAt)
+        assertEquals(1700000100L, at.replyTime)
+        assertEquals("@我 快来看", at.content)
+        assertEquals("用户D", at.user?.name)
+        assertEquals(true, data.data?.hasMore)
     }
 
     @Test

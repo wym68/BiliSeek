@@ -92,8 +92,25 @@ fun LikeItem.likeActionText(): String = when (type) {
     else -> business.takeIf { it.isNotBlank() }?.let { "赞了你的$it" } ?: "赞了你的内容"
 }
 
+/**
+ * 站内回复要写入的视频 aid（`oid`）。回复条目带 `subject_id`；@ 条目可能不带，
+ * 此时只在评论区确定是视频（business_id=1）且链接能指回视频时从链接反推，否则 0。
+ */
+fun ReplyAtItem.replyOid(): Long = when {
+    subjectId > 0 -> subjectId
+    businessId == 1 -> videoBvidFromUris(uri, nativeUri)?.let { runCatching { bvToAv(it) }.getOrNull() } ?: 0L
+    else -> 0L
+}
+
 /** 回复与@ 条目是否支持站内回复：目前 `postCommentReply` 只写视频评论区（type=1）。 */
-fun ReplyAtItem.canReplyInApp(): Boolean = businessId == 1 && subjectId > 0 && replyParentId > 0
+fun ReplyAtItem.canReplyInApp(): Boolean = businessId == 1 && replyOid() > 0 && replyParentId > 0
+
+/** 「回复与@」列表：回复与 @ 合并，按时间新→旧。 */
+fun mergeReplyAndAt(replies: List<ReplyAtItem>, ats: List<ReplyAtItem>): List<ReplyAtItem> =
+    (replies + ats).sortedByDescending { it.replyTime }
+
+/** 列表 key：回复与 @ 的 id 来自两套序列，可能撞号。 */
+fun ReplyAtItem.listKey(): String = (if (isAt) "at-" else "reply-") + id
 
 /** 把批量查到的用户卡片并入会话；已有 `account_info` 昵称的会话（官方号）保持原样。 */
 internal fun mergeSessionPeers(

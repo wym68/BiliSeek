@@ -1081,6 +1081,19 @@ class BiliRepository internal constructor(
         checkMessageRead(response, "回复与@") ?: com.biliseek.core.network.dto.ReplyFeedData()
     }
 
+    /** @我的 列表。与回复合并展示在「回复与@」子页面，懒加载。 */
+    suspend fun atFeed(): Result<com.biliseek.core.network.dto.AtFeedData> = runCatching {
+        requireLoggedInMid()
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(
+            ThrottleBucket.MESSAGE,
+            MESSAGE_MIN_INTERVAL_MS,
+            THROTTLE_JITTER_MS,
+        ) { api.getMsgfeedAt() }
+        checkMessageRead(response, "@我的") ?: com.biliseek.core.network.dto.AtFeedData()
+    }
+
     /** 收到喜欢 列表。「收到喜欢」子页面专用，懒加载。 */
     suspend fun likeFeed(): Result<com.biliseek.core.network.dto.LikeFeedData> = runCatching {
         requireLoggedInMid()

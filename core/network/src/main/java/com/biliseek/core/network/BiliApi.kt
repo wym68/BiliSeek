@@ -519,6 +519,17 @@ interface BiliApi {
         @Query("web_location") webLocation: String = "333.40164",
     ): BiliResponse<com.biliseek.core.network.dto.ReplyFeedData>
 
+    /** @我的 列表（`api.bilibili.com x/msgfeed/at`）。`id`/`at_time` 用于分页游标。 */
+    @GET("https://api.bilibili.com/x/msgfeed/at")
+    suspend fun getMsgfeedAt(
+        @Query("id") cursorId: Long? = null,
+        @Query("at_time") cursorTime: Long? = null,
+        @Query("platform") platform: String = "web",
+        @Query("mobi_app") mobiApp: String = "web",
+        @Query("build") build: Int = 0,
+        @Query("web_location") webLocation: String = "333.40164",
+    ): BiliResponse<com.biliseek.core.network.dto.AtFeedData>
+
     /** 收到喜欢列表（`api.bilibili.com x/msgfeed/like`）。 */
     @GET("https://api.bilibili.com/x/msgfeed/like")
     suspend fun getMsgfeedLike(
