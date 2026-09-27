@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import androidx.compose.material3.LeadingIconTab
 import com.biliseek.designsystem.component.BsLoadingState
 import com.biliseek.designsystem.component.BsErrorState
 import com.biliseek.designsystem.component.BsEmptyState
@@ -272,10 +273,12 @@ fun LibraryScreen(
             modifier = Modifier.padding(horizontal = 16.dp),
         ) {
             LibraryTab.entries.forEach { tab ->
-                Tab(
+                // 图标在文字左侧（LeadingIconTab），比上图下文的 Tab 矮，不挤占列表空间
+                LeadingIconTab(
                     selected = selectedTab == tab,
                     onClick = { onTabSelected(tab) },
                     text = { Text(tab.label) },
+                    icon = { Icon(tab.icon, contentDescription = null, modifier = Modifier.size(BsSize.iconSm)) },
                 )
             }
         }

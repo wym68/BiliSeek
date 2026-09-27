@@ -1,13 +1,25 @@
 package com.biliseek.app.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.DynamicFeed
+import androidx.compose.material.icons.outlined.DynamicFeed
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -30,7 +42,6 @@ import androidx.navigation.navArgument
 import com.biliseek.core.player.PlaybackMode
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
-import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 
@@ -58,6 +69,15 @@ enum class Destination(val route: String, val label: String) {
     /** 私信聊天页（push，参数化 talkerId/peerName/peerFace）。 */
     PRIVATE_CHAT("privateChat/{talkerId}/{peerName}/{peerFace}", "私信"),
     ;
+
+    /** 底部导航图标：选中实心、未选中描边（M3 导航栏惯例）。只有四个 tab 会用到。 */
+    fun navIcon(selected: Boolean): ImageVector = when (this) {
+        SEARCH -> Icons.Filled.Search
+        DYNAMIC -> if (selected) Icons.Filled.DynamicFeed else Icons.Outlined.DynamicFeed
+        LIBRARY -> if (selected) Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic
+        SETTINGS -> if (selected) Icons.Filled.Settings else Icons.Outlined.Settings
+        else -> Icons.Outlined.Circle
+    }
 
     companion object {
         fun privateChatRoute(talkerId: Long, peerName: String, peerFace: String): String =
@@ -319,7 +339,10 @@ fun AppShell(
                                         restoreState = true
                                     }
                                 },
-                                icon = { Text(dest.label.take(1)) },
+                                icon = {
+                                    val selected = currentRoute?.hierarchy?.any { it.route == dest.route } == true
+                                    Icon(dest.navIcon(selected), contentDescription = null)
+                                },
                                 label = { Text(dest.label) },
                             )
                         }
