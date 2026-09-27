@@ -112,6 +112,8 @@ fun AppShell(
     danmakuEnabled: Boolean = false,
     /** 全屏弹幕开关切换。 */
     onDanmakuToggle: () -> Unit = {},
+    /** Activity 当前处于画中画。此时只渲染画面，不渲染任何控件。 */
+    isInPip: Boolean = false,
     /** Ch5：minibar 风格（FLOAT/BOTTOM）。 */
     miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
     /**
@@ -359,7 +361,8 @@ fun AppShell(
                         onOpenAddToList = onOpenAddToList,
                         onOpenUpSpace = onOpenUpSpace,
                         accent = accent,
-                        isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN,
+                        // 全屏层或 PiP 层接管 SurfaceView 时，内联封面区让路
+                        isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN || isInPip,
                     )
                 }
                 composable(Destination.UP_SPACE.route) {
@@ -413,9 +416,11 @@ fun AppShell(
                 onSeek = onSeek,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
-                hasPrevious = playback.hasPrevious,
-                hasNext = playback.hasNext,
+                onEnterPip = onEnterPip,
+                isInPip = isInPip,
             )
+        } else if (isInPip && playback.presentation != PresentationMode.NONE) {
+            PipVideoOverlay(surfaceView = surfaceView, state = playback)
         }
     }
 }

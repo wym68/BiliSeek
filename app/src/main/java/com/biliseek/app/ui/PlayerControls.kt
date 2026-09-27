@@ -212,6 +212,8 @@ internal fun PlayerControlBar(
     // fillMaxWidth 反而会把外层其他兄弟节点的空间占满，必须关掉，让本组件
     // 只按内容大小占位。
     fillWidth: Boolean = true,
+    // 上一首 / 播放 / 下一首的触感。全屏控制层用更轻的一档
+    hapticType: HapticFeedbackType = HapticFeedbackType.LongPress,
 ) {
     var optimisticPlaying by remember(isPlaying) { mutableStateOf(isPlaying) }
     val displayPlaying = optimisticPlaying
@@ -224,7 +226,7 @@ internal fun PlayerControlBar(
     ) {
         IconButton(
             onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptic.performHapticFeedback(hapticType)
                 onSkipPrevious()
             },
             modifier = Modifier.size(buttonSize),
@@ -240,7 +242,7 @@ internal fun PlayerControlBar(
         Spacer(Modifier.width(spacing))
         FilledIconButton(
             onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptic.performHapticFeedback(hapticType)
                 optimisticPlaying = !optimisticPlaying
                 onTogglePlayPause()
             },
@@ -257,7 +259,7 @@ internal fun PlayerControlBar(
         Spacer(Modifier.width(spacing))
         IconButton(
             onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptic.performHapticFeedback(hapticType)
                 onSkipNext()
             },
             modifier = Modifier.size(buttonSize),
@@ -342,6 +344,8 @@ internal fun ProgressBar(
     labelColor: Color = Color.Unspecified,
     // 全屏下默认的轨道粗细 + 圆点大小太显眼，调用方可以要一份更细的。
     compact: Boolean = false,
+    // 拖动开始 / 结束。全屏控制层靠它在拖动期间暂停自动隐藏
+    onDraggingChange: (Boolean) -> Unit = {},
 ) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
@@ -354,12 +358,14 @@ internal fun ProgressBar(
         Slider(
             value = value,
             onValueChange = {
+                if (!dragging) onDraggingChange(true)
                 dragging = true
                 dragValue = it
             },
             onValueChangeFinished = {
                 onSeek(dragValue.toLong())
                 dragging = false
+                onDraggingChange(false)
             },
             valueRange = 0f..max,
             enabled = duration > 0,

@@ -65,8 +65,14 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: AppViewModel by viewModels()
 
-    /** 记录进入 PiP 前的呈现态，退出 PiP 时恢复。 */
+    /** 当前是否处于 PiP。onStop 判定回落要用，[inPipState] 是给 Compose 看的同一份。 */
     private var wasInPip = false
+
+    /** PiP 状态的 Compose 版：PiP 窗口里只渲染画面，不渲染控件。 */
+    private val inPipState = androidx.compose.runtime.mutableStateOf(false)
+
+    /** 承载画面的 SurfaceView（Compose 里创建）。进 PiP 时用它的位置做 sourceRectHint。 */
+    private var videoSurface: SurfaceView? = null
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒绝也不阻断 */ }
@@ -170,6 +176,31 @@ class MainActivity : ComponentActivity() {
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT,
                         )
+                    }.also { videoSurface = it }
+                }
+                val isInPip by inPipState
+
+                // 看模式播放中保持常亮——内联与全屏一视同仁，不只全屏
+                val keepScreenOn = com.biliseek.app.ui.shouldKeepScreenOn(
+                    playback.presentation,
+                    playback.isPlaying,
+                )
+                androidx.compose.runtime.DisposableEffect(keepScreenOn) {
+                    if (keepScreenOn) {
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                    onDispose {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
+
+                // 画面被回落成纯听（息屏 / 进后台）后，全屏层没有存在意义：
+                // 留着只剩一个有声音的黑框，退回展开态
+                LaunchedEffect(expansion, playback.presentation) {
+                    if (expansion == PlayerExpansion.FULLSCREEN &&
+                        com.biliseek.app.ui.shouldLeaveFullscreen(playback.presentation)
+                    ) {
+                        expansion = PlayerExpansion.EXPANDED
                     }
                 }
 
@@ -278,6 +309,7 @@ class MainActivity : ComponentActivity() {
                     },
                     danmakuEnabled = danmakuEnabled,
                     onDanmakuToggle = viewModel::toggleDanmaku,
+                    isInPip = isInPip,
                     miniBarStyle = settings.miniBarStyle,
                     dynamicContent = {
                         DynamicScreen(
@@ -835,13 +867,18 @@ class MainActivity : ComponentActivity() {
     private fun enterPip() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
-        runCatching {
-            enterPictureInPictureMode(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build(),
-            )
+        val (num, den) = com.biliseek.app.ui.resolvePipAspectRatio(
+            viewModel.connection.state.value.videoAspectRatio,
+        )
+        val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(num, den))
+        // 从画面当前位置放大/缩小进小窗，而不是从整个窗口
+        videoSurface?.let { view ->
+            val rect = android.graphics.Rect()
+            if (view.isAttachedToWindow && view.getGlobalVisibleRect(rect)) {
+                builder.setSourceRectHint(rect)
+            }
         }
+        runCatching { enterPictureInPictureMode(builder.build()) }
     }
 
     /**
@@ -850,7 +887,8 @@ class MainActivity : ComponentActivity() {
      * 看模式下若支持 PiP 则进 PiP（呈现态仍为可见，**不回落音频**）；
      * 否则回落纯音频，避免解码没人看的画面。
      */
-    override fun onUserLeaveHint() {        super.onUserLeaveHint()
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
         val state = viewModel.connection.state.value
         if (state.presentation != com.biliseek.core.player.PresentationMode.NONE) {
             enterPip()
@@ -865,6 +903,7 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         wasInPip = isInPictureInPictureMode
+        inPipState.value = isInPictureInPictureMode
         viewModel.onPipChanged(isInPictureInPictureMode)
     }
 

@@ -1362,15 +1362,20 @@ return pages.map { p ->
         return cm.isActiveNetworkMetered
     }
 
+    /** 进 PiP 之前的呈现态。退出 PiP 时回到它（全屏进的就回全屏）。 */
+    private var presentationBeforePip: PresentationMode? = null
+
     /** PiP 进出。PiP 是可见呈现态，视频轨保持启用。 */
     fun onPipChanged(inPip: Boolean) {
-        connection.setPresentation(
-            if (inPip) {
-                com.biliseek.core.player.PresentationMode.PIP
-            } else {
-                com.biliseek.core.player.PresentationMode.INLINE
-            },
-        )
+        if (inPip) {
+            presentationBeforePip = connection.state.value.presentation
+            connection.setPresentation(PresentationMode.PIP)
+        } else {
+            connection.setPresentation(
+                com.biliseek.app.ui.resolvePresentationAfterPip(presentationBeforePip),
+            )
+            presentationBeforePip = null
+        }
     }
 
     fun dismissPages() {

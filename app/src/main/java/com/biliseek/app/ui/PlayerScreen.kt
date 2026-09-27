@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
@@ -190,6 +191,8 @@ fun PlayerScreen(
             PlayerTopBar(
                 onCollapse = onCollapse,
                 onOpenMenu = { showMenu = true },
+                // 小窗只对看模式有意义：纯听本来就能在后台放
+                onEnterPip = if (isAudio) null else onEnterPip,
             )
 
             CoverArea(
@@ -263,27 +266,34 @@ fun PlayerScreen(
 }
 
 /**
- * 播放页顶部栏：收起 + 标题 + 三点菜单。
+ * 播放页顶部栏：收起 + 标题 + （看模式）小窗 + 三点菜单。
  */
 @Composable
 private fun PlayerTopBar(
     onCollapse: () -> Unit,
     onOpenMenu: () -> Unit,
+    onEnterPip: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Box(
         modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+        contentAlignment = Alignment.Center,
     ) {
-        IconButton(onClick = onCollapse) {
+        IconButton(onClick = onCollapse, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "收起")
         }
         Text("正在播放", style = MaterialTheme.typography.titleSmall)
-        IconButton(onClick = onOpenMenu) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "菜单")
+        Row(Modifier.align(Alignment.CenterEnd)) {
+            if (onEnterPip != null) {
+                IconButton(onClick = onEnterPip) {
+                    Icon(Icons.Filled.PictureInPictureAlt, contentDescription = "小窗播放")
+                }
+            }
+            IconButton(onClick = onOpenMenu) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "菜单")
+            }
         }
     }
 }
