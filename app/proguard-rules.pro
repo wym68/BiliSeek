@@ -20,6 +20,13 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 -dontnote kotlinx.serialization.AnnotationsKt
+# dto 包之外唯一的 @Serializable：设备指纹持久化（core/network/internal）。
+# 用具体化类型解码，序列化器本应编译期静态解析；仍显式保留——一旦被裁，解码静默失败会
+# 导致每次启动都重新生成指纹，这本身就是风控信号。
+-keep,includedescriptorclasses class com.biliseek.core.network.internal.DeviceFingerprint$$serializer { *; }
+-keepclassmembers class com.biliseek.core.network.internal.DeviceFingerprint {
+    *** Companion;
+}
 
 # ── Room：实体 / DAO / 数据库 ────────────────────────────────────
 # Room 生成的实现类按全名引用实体与 DAO；混淆后打开即崩。
