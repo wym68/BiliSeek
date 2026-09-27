@@ -39,6 +39,8 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.ModeComment
 import androidx.compose.material.icons.filled.MusicNote
@@ -157,6 +159,16 @@ fun FullscreenPlayerOverlay(
     var lastPanel by remember { mutableStateOf<FullscreenPanelType?>(null) }
     LaunchedEffect(panel) { if (panel != null) lastPanel = panel }
     val shownPanel = panel ?: lastPanel
+    // 锁定：防误触（躺着看、揣兜里听）。锁定后只剩单击唤出解锁按钮
+    var locked by remember { mutableStateOf(false) }
+    var hud by remember { mutableStateOf<GestureHud?>(null) }
+    val latestState = androidx.compose.runtime.rememberUpdatedState(state)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audioManager = remember {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+    }
+    val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
+    val edgeExclusion = with(androidx.compose.ui.platform.LocalDensity.current) { GESTURE_EDGE.toPx() }
     val landscape = LocalConfiguration.current.orientation ==
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val view = LocalView.current
@@ -228,6 +240,12 @@ fun FullscreenPlayerOverlay(
         }
     }
 
+    // 手势调过的亮度只属于全屏：退出即还给系统
+    DisposableEffect(Unit) {
+        val window = view.context.findActivity()?.window
+        onDispose { resetBrightness(window) }
+    }
+
     DisposableEffect(view) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -260,12 +278,31 @@ fun FullscreenPlayerOverlay(
                     if (isInPip) {
                         Modifier
                     } else {
-                        Modifier.pointerInput(Unit) {
-                            detectTapGestures {
-                                controlsVisible = !controlsVisible
-                                touch()
-                            }
-                        }
+                        Modifier.fullscreenGestures(
+                            locked = locked,
+                            state = latestState,
+                            window = view.context.findActivity()?.window,
+                            audioManager = audioManager,
+                            touchSlop = touchSlop,
+                            edgeExclusion = edgeExclusion,
+                            callbacks = FullscreenGestureCallbacks(
+                                onTap = {
+                                    controlsVisible = !controlsVisible
+                                    touch()
+                                },
+                                onDoubleTap = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                    onTogglePlayPause()
+                                    touch()
+                                },
+                                onSeek = {
+                                    onSeek(it)
+                                    touch()
+                                },
+                                onSetSpeed = onSetSpeed,
+                                onHud = { hud = it },
+                            ),
+                        )
                     },
                 ),
             contentAlignment = Alignment.Center,
@@ -280,8 +317,36 @@ fun FullscreenPlayerOverlay(
                 onRetryPlayback()
             })
 
+            hud?.let { GestureHudBubble(it) }
+
+            // 锁定按钮：锁定前后都在，跟着控制层显隐
             AnimatedVisibility(
                 visible = controlsVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(start = 16.dp),
+            ) {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        locked = !locked
+                        touch()
+                    },
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.4f), CircleShape),
+                ) {
+                    Icon(
+                        if (locked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        contentDescription = if (locked) "解锁" else "锁定",
+                        tint = Color.White,
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = controlsVisible && !locked,
                 enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(200)),
                 exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(300)),
                 modifier = Modifier.fillMaxSize(),
@@ -630,6 +695,9 @@ private fun FullscreenMenuRow(icon: ImageVector, label: String, onClick: () -> U
 }
 
 private const val AUTO_HIDE_DELAY_MS = 4000L
+
+/** 屏幕边缘这么宽的一条留给系统手势（侧边返回、边缘唤出系统栏）。 */
+private val GESTURE_EDGE = 24.dp
 
 /** Compose 里拿 Activity：主题包装后 context 往往是 ContextWrapper，得一层层剥。 */
 internal tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
