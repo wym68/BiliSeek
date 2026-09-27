@@ -92,6 +92,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
@@ -133,6 +134,13 @@ fun FullscreenPlayerOverlay(
     onEnterPip: () -> Unit,
     modifier: Modifier = Modifier,
     isInPip: Boolean = false,
+    onSetSpeed: (Float) -> Unit = {},
+    onSetSleepTimer: (Long) -> Unit = {},
+    onRetryPlayback: () -> Unit = {},
+    onDownload: () -> Unit = {},
+    onAddToList: () -> Unit = {},
+    onShare: () -> Unit = {},
+    onViewAuthor: () -> Unit = {},
 ) {
     androidx.activity.compose.BackHandler(enabled = !isInPip) { onExit() }
 
@@ -140,6 +148,13 @@ fun FullscreenPlayerOverlay(
     // 每次操作都换一个值，让自动隐藏的倒计时重新开始
     var interactionTick by remember { mutableStateOf(0L) }
     var draggingProgress by remember { mutableStateOf(false) }
+    var panel by remember { mutableStateOf<FullscreenPanelType?>(null) }
+    // 面板滑出动画期间 panel 已经是 null，内容仍按最后一个面板画，不闪空
+    var lastPanel by remember { mutableStateOf<FullscreenPanelType?>(null) }
+    LaunchedEffect(panel) { if (panel != null) lastPanel = panel }
+    val shownPanel = panel ?: lastPanel
+    val landscape = LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val view = LocalView.current
     val haptic = LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -148,6 +163,18 @@ fun FullscreenPlayerOverlay(
 
     fun touch() {
         interactionTick++
+    }
+
+    fun openPanel(type: FullscreenPanelType) {
+        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+        panel = type
+    }
+
+    // 面板从全屏层里「带走」动作：先关面板，再执行
+    fun closePanelThen(action: () -> Unit) {
+        panel = null
+        touch()
+        action()
     }
 
     DisposableEffect(orientation) {
@@ -212,8 +239,10 @@ fun FullscreenPlayerOverlay(
     }
 
     // key 带上 isPlaying：暂停后恢复播放要重新开始倒计时，否则控制层一直挂着
-    LaunchedEffect(controlsVisible, interactionTick, state.isPlaying, draggingProgress) {
-        if (shouldAutoHideControls(controlsVisible, state.isPlaying, interacting = draggingProgress)) {
+    // 面板开着时控制层不隐藏：面板是控制层的一部分
+    val interacting = draggingProgress || panel != null
+    LaunchedEffect(controlsVisible, interactionTick, state.isPlaying, interacting) {
+        if (shouldAutoHideControls(controlsVisible, state.isPlaying, interacting)) {
             kotlinx.coroutines.delay(AUTO_HIDE_DELAY_MS)
             controlsVisible = false
         }
@@ -240,6 +269,12 @@ fun FullscreenPlayerOverlay(
             PlayerSurface(surfaceView, videoSurfaceModifier(state.videoAspectRatio))
 
             if (isInPip) return@Box
+
+            // 加载与错误不跟控制层一起藏：黑屏时用户得知道是在等还是坏了
+            FullscreenStatus(state = state, onRetry = {
+                touch()
+                onRetryPlayback()
+            })
 
             AnimatedVisibility(
                 visible = controlsVisible,
@@ -298,6 +333,13 @@ fun FullscreenPlayerOverlay(
                             Icon(
                                 Icons.Filled.PictureInPictureAlt,
                                 contentDescription = "小窗播放",
+                                tint = Color.White,
+                            )
+                        }
+                        IconButton(onClick = { openPanel(FullscreenPanelType.MORE) }) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "更多",
                                 tint = Color.White,
                             )
                         }
@@ -381,9 +423,52 @@ fun FullscreenPlayerOverlay(
                                 Modifier.weight(1f),
                                 horizontalArrangement = Arrangement.End,
                                 verticalAlignment = Alignment.CenterVertically,
-                            ) {}
+                            ) {
+                                FullscreenTextButton(speedButtonLabel(state.speed)) {
+                                    openPanel(FullscreenPanelType.SPEED)
+                                }
+                            }
                         }
                     }
+                }
+            }
+
+            FullscreenPanel(
+                visible = panel != null,
+                landscape = landscape,
+                title = shownPanel?.title.orEmpty(),
+                onDismiss = { panel = null },
+            ) {
+                when (shownPanel) {
+                    FullscreenPanelType.SPEED -> SpeedOptions(
+                        currentSpeed = state.speed,
+                        speedIncompatibleLossless =
+                            state.qualityFallback == com.biliseek.core.player.QualityFallback.SPEED_INCOMPATIBLE,
+                        onSpeedSelected = {
+                            touch()
+                            onSetSpeed(it)
+                        },
+                    )
+                    FullscreenPanelType.TIMER -> TimerOptions(
+                        isActive = state.sleepTimerActive,
+                        remainingMs = state.sleepTimerRemainingMs,
+                        endOfTrack = state.sleepTimerEndOfTrack,
+                        onSetTimer = { closePanelThen { onSetSleepTimer(it) } },
+                    )
+                    FullscreenPanelType.MORE -> FullscreenMoreOptions(
+                        onTimer = { panel = FullscreenPanelType.TIMER },
+                        onDownload = { closePanelThen(onDownload) },
+                        onAddToList = { closePanelThen(onAddToList) },
+                        onShare = { closePanelThen(onShare) },
+                        // 作者空间页是个导航目的地，被全屏层盖着看不见——先退全屏
+                        onViewAuthor = {
+                            closePanelThen {
+                                onExit()
+                                onViewAuthor()
+                            }
+                        },
+                    )
+                    null -> Unit
                 }
             }
         }
@@ -408,6 +493,74 @@ fun PipVideoOverlay(
         contentAlignment = Alignment.Center,
     ) {
         PlayerSurface(surfaceView, videoSurfaceModifier(state.videoAspectRatio))
+    }
+}
+
+/** 全屏里的面板种类。同一时刻只开一个。 */
+private enum class FullscreenPanelType(val title: String) {
+    SPEED("倍速播放"),
+    TIMER("定时关闭"),
+    MORE("更多"),
+}
+
+/** 全屏中央的加载圈 / 错误提示。 */
+@Composable
+private fun FullscreenStatus(state: PlaybackState, onRetry: () -> Unit) {
+    val error = state.error
+    when {
+        error != null -> Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+        ) {
+            Text(error, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = onRetry) { Text("重试") }
+        }
+        state.isResolving || state.isBuffering -> CircularProgressIndicator(color = Color.White)
+    }
+}
+
+/** 全屏底栏右侧的文字按钮（倍速 / 画质 / 音质）。 */
+@Composable
+private fun FullscreenTextButton(label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick) {
+        Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** 全屏「更多」面板的菜单项。 */
+@Composable
+private fun FullscreenMoreOptions(
+    onTimer: () -> Unit,
+    onDownload: () -> Unit,
+    onAddToList: () -> Unit,
+    onShare: () -> Unit,
+    onViewAuthor: () -> Unit,
+) {
+    Column {
+        FullscreenMenuRow(Icons.Filled.Timer, "定时关闭", onTimer)
+        FullscreenMenuRow(Icons.Filled.Download, "下载", onDownload)
+        FullscreenMenuRow(Icons.Filled.PlaylistAdd, "添加到列表", onAddToList)
+        FullscreenMenuRow(Icons.Filled.Share, "分享", onShare)
+        FullscreenMenuRow(Icons.Filled.Person, "查看作者", onViewAuthor)
+    }
+}
+
+@Composable
+private fun FullscreenMenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Icon(icon, contentDescription = null)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

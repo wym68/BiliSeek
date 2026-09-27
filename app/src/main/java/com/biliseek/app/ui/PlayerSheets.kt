@@ -178,6 +178,8 @@ internal fun PlayerMoreMenuSheet(
     if (showSpeedSheet) {
         SpeedSelectionSheet(
             currentSpeed = state.speed,
+            speedIncompatibleLossless =
+                state.qualityFallback == com.biliseek.core.player.QualityFallback.SPEED_INCOMPATIBLE,
             onSpeedSelected = { onSetSpeed(it); showSpeedSheet = false },
             onDismiss = { showSpeedSheet = false },
         )
@@ -235,36 +237,58 @@ private fun MenuItemRow(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SpeedSelectionSheet(
     currentSpeed: Float,
+    speedIncompatibleLossless: Boolean,
     onSpeedSelected: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text("倍速播放", style = MaterialTheme.typography.titleMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SPEEDS.forEach { speed ->
-                    FilterChip(
-                        selected = kotlin.math.abs(currentSpeed - speed) < 0.01f,
-                        onClick = { onSpeedSelected(speed) },
-                        label = { Text("${speed}×") },
-                    )
-                }
-            }
+            Spacer(Modifier.height(8.dp))
+            SpeedOptions(currentSpeed, speedIncompatibleLossless, onSpeedSelected)
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+/**
+ * 倍速档位选择（不含容器）。竖屏底部面板与全屏侧边面板共用。
+ *
+ * [speedIncompatibleLossless]：当前倍速下无损已回退 AAC——如实告诉用户，
+ * 而不是让「选了无损」在倍速下悄悄失效。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun SpeedOptions(
+    currentSpeed: Float,
+    speedIncompatibleLossless: Boolean,
+    onSpeedSelected: (Float) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PLAYBACK_SPEEDS.forEach { speed ->
+                FilterChip(
+                    selected = isSameSpeed(currentSpeed, speed),
+                    onClick = { onSpeedSelected(speed) },
+                    label = { Text(formatSpeed(speed)) },
+                )
+            }
+        }
+        if (speedIncompatibleLossless) {
+            Text(
+                "当前倍速下无损音质已切换为 AAC，降回 1.5× 及以下自动恢复",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimerSelectionSheet(
     isActive: Boolean,
@@ -274,50 +298,58 @@ private fun TimerSelectionSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("定时关闭", style = MaterialTheme.typography.titleMedium)
-                if (isActive) {
-                    TextButton(onClick = { onSetTimer(0) }) { Text("取消") }
-                }
-            }
-            if (isActive) {
-                Text(
-                    buildString {
-                        append("剩余 ")
-                        remainingMs?.let { append(formatDuration(it)) }
-                        if (endOfTrack) append(" · 播完当前")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SLEEP_MINUTES.forEach { minutes ->
-                    FilterChip(
-                        selected = false,
-                        onClick = { onSetTimer(minutes * 60_000L) },
-                        label = { Text("$minutes 分钟") },
-                    )
-                }
-                FilterChip(
-                    selected = endOfTrack,
-                    onClick = { onSetTimer(-1) },
-                    label = { Text("播完当前") },
-                )
-            }
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            TimerOptions(isActive, remainingMs, endOfTrack, onSetTimer)
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-private val SPEEDS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+/** 睡眠定时选项（含标题行，不含容器）。竖屏底部面板与全屏侧边面板共用。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun TimerOptions(
+    isActive: Boolean,
+    remainingMs: Long?,
+    endOfTrack: Boolean,
+    onSetTimer: (Long) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("定时关闭", style = MaterialTheme.typography.titleMedium)
+            if (isActive) {
+                TextButton(onClick = { onSetTimer(0) }) { Text("取消") }
+            }
+        }
+        if (isActive) {
+            Text(
+                buildString {
+                    append("剩余 ")
+                    remainingMs?.let { append(formatDuration(it)) }
+                    if (endOfTrack) append(" · 播完当前")
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SLEEP_MINUTES.forEach { minutes ->
+                FilterChip(
+                    selected = false,
+                    onClick = { onSetTimer(minutes * 60_000L) },
+                    label = { Text("$minutes 分钟") },
+                )
+            }
+            FilterChip(
+                selected = endOfTrack,
+                onClick = { onSetTimer(-1) },
+                label = { Text("播完当前") },
+            )
+        }
+    }
+}
+
 private val SLEEP_MINUTES = listOf(15, 30, 60)

@@ -310,6 +310,19 @@ class MainActivity : ComponentActivity() {
                     danmakuEnabled = danmakuEnabled,
                     onDanmakuToggle = viewModel::toggleDanmaku,
                     isInPip = isInPip,
+                    onDownloadCurrent = {
+                        val current = playback.queue.getOrNull(playback.queueIndex)
+                            as? com.biliseek.core.player.PlaybackRequest.Bili
+                        if (playback.bvid.isNotBlank()) {
+                            downloadFor = com.biliseek.app.ui.DownloadTarget(
+                                bvid = playback.bvid,
+                                cid = playback.cid,
+                                title = playback.title,
+                                coverUrl = playback.coverUrl,
+                                author = current?.author.orEmpty(),
+                            )
+                        }
+                    },
                     miniBarStyle = settings.miniBarStyle,
                     dynamicContent = {
                         DynamicScreen(
