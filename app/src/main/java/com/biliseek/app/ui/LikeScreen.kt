@@ -1,7 +1,11 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsEmptyState
+import androidx.compose.material.icons.outlined.ThumbUp
+import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,15 +20,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -54,19 +52,7 @@ fun LikeScreen(
     LaunchedEffect(Unit) { onInit() }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-            }
-            Text(
-                "收到喜欢",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f).padding(start = 8.dp),
-            )
-        }
+        BsTopBar(title = "收到喜欢", onNavigate = onBack)
 
         val refreshState = rememberPullToRefreshState()
         Box(Modifier.fillMaxSize()) {
@@ -78,22 +64,11 @@ fun LikeScreen(
             ) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                     when {
-                        state.isLoading && state.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        }
+                        state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
                         state.errorMessage != null && state.items.isEmpty() -> item {
-                            Column(Modifier.fillMaxWidth().padding(24.dp), Arrangement.spacedBy(8.dp)) {
-                                Text("加载失败：${state.errorMessage}", color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = onRetry) { Text("重试") }
-                            }
+                            BsErrorState("加载失败：${state.errorMessage}", onRetry = onRetry)
                         }
-                        state.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                Text("暂无内容")
-                            }
-                        }
+                        state.items.isEmpty() -> item { BsEmptyState("还没有收到喜欢", icon = Icons.Outlined.ThumbUp) }
                         else -> items(state.items, key = { it.id }) { entry ->
                             LikeRow(item = entry, onClick = { onPlayItem(entry) })
                             HorizontalDivider()

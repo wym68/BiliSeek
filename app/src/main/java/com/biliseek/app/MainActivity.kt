@@ -98,7 +98,18 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             BiliSeekTheme {
+                // 表情：进程级字典（富文本兜底）+ 表情面板宿主（评论输入栏用）
+                val emoteDictionary by viewModel.emotes.dictionary.collectAsState()
+                val emotePanel by viewModel.emotes.panel.collectAsState()
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.biliseek.app.ui.richtext.LocalEmoteDictionary provides emoteDictionary,
+                    com.biliseek.app.ui.richtext.LocalEmotePanelHost provides com.biliseek.app.ui.richtext.EmotePanelHost(
+                        state = emotePanel,
+                        ensureLoaded = viewModel.emotes::ensureLoaded,
+                    ),
+                ) {
                 val playback by viewModel.connection.state.collectAsState()
+                val videoInteraction by viewModel.videoInteraction.state.collectAsState()
                 val search by viewModel.search.state.collectAsState()
                 val pagePanel by viewModel.pagePanel.collectAsState()
                 val loginState by viewModel.loginState.collectAsState()
@@ -301,6 +312,15 @@ class MainActivity : ComponentActivity() {
                     onRetryPlayback = viewModel::retryPlayback,
                     onOpenQueue = viewModel::openQueueSheet,
                     onOpenComments = viewModel::openPlayerComment,
+                    videoInteraction = videoInteraction,
+                    videoActionHandlers = remember {
+                        com.biliseek.app.ui.VideoActionHandlers(
+                            onBind = viewModel.videoInteraction::bind,
+                            onToggleLike = viewModel.videoInteraction::toggleLike,
+                            onTriple = viewModel.videoInteraction::triple,
+                            onCoin = viewModel.videoInteraction::addCoin,
+                        )
+                    },
                     onShare = {
                         viewModel.currentVideoUrl()?.let { url ->
                             copyToClipboard(url)
@@ -771,6 +791,11 @@ class MainActivity : ComponentActivity() {
                         onClearReplyTarget = viewModel.dynamics.comments::clearReplyTarget,
                         onSubmit = viewModel.dynamics.comments::submit,
                         onDismiss = viewModel.dynamics.comments::dismiss,
+                        onOpenUser = { mid ->
+                            viewModel.dynamics.comments.dismiss()
+                            viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
+                            openUpSpaceRequests.tryEmit(Unit)
+                        },
                     )
                 }
 
@@ -793,6 +818,11 @@ class MainActivity : ComponentActivity() {
                         onClearReplyTarget = viewModel.playerComments::clearReplyTarget,
                         onSubmit = viewModel.playerComments::submit,
                         onDismiss = viewModel.playerComments::dismiss,
+                        onOpenUser = { mid ->
+                            viewModel.playerComments.dismiss()
+                            viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
+                            openUpSpaceRequests.tryEmit(Unit)
+                        },
                     )
                 }
                 val currentPreviewImage = previewImage
@@ -837,6 +867,7 @@ class MainActivity : ComponentActivity() {
                         onRememberLocation = viewModel::setDownloadLocation,
                         onRememberSafTree = viewModel::setDownloadSafTreeUri,
                     )
+                }
                 }
             }
         }

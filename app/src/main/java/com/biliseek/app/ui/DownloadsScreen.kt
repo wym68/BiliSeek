@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -52,14 +52,7 @@ fun DownloadsScreen(
     var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("已下载 · ${tasks.count { it.isDone }} 个", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = onClose) { Text("返回") }
-        }
+        BsTopBar(title = "已下载", subtitle = "${tasks.count { it.isDone }} 个", onNavigate = onClose)
         if (tasks.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text(

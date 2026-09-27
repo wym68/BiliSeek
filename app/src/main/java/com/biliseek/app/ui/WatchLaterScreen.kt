@@ -1,5 +1,11 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsEmptyState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Schedule
+import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,12 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -75,14 +78,7 @@ fun WatchLaterScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("稍后再看", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = onClose) { Text("返回") }
-        }
+        BsTopBar(title = "稍后再看", onNavigate = onClose)
 
         val refreshState = rememberPullToRefreshState()
         Box(Modifier.fillMaxSize()) {
@@ -105,28 +101,12 @@ fun WatchLaterScreen(
                         }
                     }
 
-                    state.isLoading && state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                    }
+                    state.isLoading && state.items.isEmpty() -> BsLoadingState()
 
-                    state.errorMessage != null && state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    state.errorMessage,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(16.dp),
-                                )
-                                Button(onClick = onRetry) { Text("重试") }
-                            }
-                        }
-                    }
+                    state.errorMessage != null && state.items.isEmpty() ->
+                        BsErrorState(state.errorMessage, onRetry = onRetry)
 
-                    state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            Text("稍后再看是空的", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                    state.items.isEmpty() -> BsEmptyState("稍后再看是空的", icon = Icons.Outlined.Schedule)
 
                     else -> {
                         LazyColumn(Modifier.fillMaxWidth()) {

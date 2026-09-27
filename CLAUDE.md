@@ -60,4 +60,4 @@ Two cross-cutting invariants that shape everything:
 
 ## Documentation map
 
-Deep docs live in `docs/` (Chinese): architecture (`架构设计篇`), feature selection/rationale (`功能选型篇`), milestone planning + outstanding-work ledger (`功能优化篇 §10`), manual test guide (`手动测试指南`, includes known gaps), and acceptance records under `docs/验收记录/`.
+Deep docs live in `docs/` (Chinese): architecture (`架构设计篇`), feature selection/rationale (`功能选型篇`), milestone planning + outstanding-work ledger (`功能优化篇 §10`), UI tokens / shared components / button rules (`09-UI规范与重构`), manual test guide (`手动测试指南`, includes known gaps), and acceptance records under `docs/验收记录/`.

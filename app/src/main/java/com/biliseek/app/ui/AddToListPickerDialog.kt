@@ -1,8 +1,11 @@
 package com.biliseek.app.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -44,8 +47,8 @@ import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.PlaylistEntity
 
 /**
- * 列表行右侧的 ⋮ 触发器。40dp 居中 Box 保证 tap target + 字符本身垂直居中。
- * 调用方需要在右侧再放一个 12dp [Spacer]，让 ⋮ 与 header 行的「＋ 新建」中线对齐。
+ * 列表行右侧的「更多」触发器。40dp 居中 Box 保证 tap target + 图标垂直居中。
+ * 调用方需要在右侧再放一个 12dp [Spacer]，让图标与 header 行的「新建」按钮中线对齐。
  */
 @Composable
 private fun RowMoreIcon(onClick: () -> Unit) {
@@ -55,7 +58,7 @@ private fun RowMoreIcon(onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text("⋮", style = MaterialTheme.typography.titleMedium)
+        Icon(Icons.Filled.MoreVert, contentDescription = "更多操作", modifier = Modifier.size(20.dp))
     }
 }
 
@@ -169,7 +172,10 @@ fun AddToListPickerDialog(
                     TextButton(
                         onClick = { creatingPlaylist = true },
                         contentPadding = PaddingValues(horizontal = 8.dp),
-                    ) { Text("＋ 新建") }
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("新建")
+                    }
                 }
                 val playlistItemDp = 40.dp
                 val playlistVisible = minOf(playlists.size, 3)
@@ -239,7 +245,10 @@ fun AddToListPickerDialog(
                         TextButton(
                             onClick = { creatingFavorite = true },
                             contentPadding = PaddingValues(horizontal = 8.dp),
-                        ) { Text("＋ 新建") }
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text("新建")
+                        }
                     }
                     val favoriteItemDp = 40.dp
                     val favoriteVisible = minOf(favoriteFolders.size, 3)

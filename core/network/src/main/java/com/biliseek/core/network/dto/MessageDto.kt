@@ -63,7 +63,20 @@ data class MessageHistoryData(
     @SerialName("max_seqno") val maxSeqno: Long = 0,
     @SerialName("min_seqno") val minSeqno: Long = 0,
     @SerialName("has_more") val hasMore: Int = 0,
+    /** 本页消息里出现过的表情：`[doge]` → 图片。 */
+    @SerialName("e_infos") val emoteInfos: List<MessageEmoteInfo> = emptyList(),
 )
+
+/** `fetch_session_msgs` 的 `e_infos[]`。 */
+@Serializable
+data class MessageEmoteInfo(
+    val text: String = "",
+    val url: String = "",
+    /** 1=小 2=大。 */
+    val size: Int = 1,
+) {
+    fun toEmote(): Emote = Emote(text = text, url = url, meta = EmoteMeta(size = size))
+}
 
 /** `send_msg` 返回。msg_seqno 用于本地立即插入。 */
 @Serializable

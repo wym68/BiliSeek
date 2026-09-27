@@ -45,6 +45,11 @@ data class DynamicEntry(
     val stat: DynamicStatModule? = null,
     /** UP 主 mid，用于头像/昵称点击跳转空间页；来自 `module_author.mid`。 */
     val authorMid: Long = 0,
+    /**
+     * 正文里出现的表情：`[doge]` → 图片。收自 desc / opus.summary 的 rich_text_nodes
+     * （转发时含 orig 的），UI 按占位串替换成行内图片。
+     */
+    val emotes: Map<String, com.biliseek.core.network.dto.Emote> = emptyMap(),
 )
 
 data class DynamicVideo(
@@ -79,6 +84,25 @@ private fun opusBodyText(opus: com.biliseek.core.network.dto.DynamicOpus?): Stri
     opus.summary?.text?.takeIf { it.isNotBlank() }?.let { return it }
     return opus.summary?.richTextNodes.orEmpty()
         .joinToString("") { node -> node.origText.ifBlank { node.text } }
+}
+
+/** 从一条动态（及其 orig）的全部富文本节点里收集表情。 */
+internal fun collectDynamicEmotes(item: DynamicItem?): Map<String, com.biliseek.core.network.dto.Emote> {
+    if (item == null) return emptyMap()
+    val dynamic = item.modules?.dynamic
+    val nodes = dynamic?.desc?.richTextNodes.orEmpty() +
+        dynamic?.major?.opus?.summary?.richTextNodes.orEmpty()
+    val own = nodes.mapNotNull { node ->
+        val emoji = node.emoji ?: return@mapNotNull null
+        val key = emoji.text.ifBlank { node.text }
+        if (key.isBlank() || emoji.iconUrl.isBlank()) return@mapNotNull null
+        key to com.biliseek.core.network.dto.Emote(
+            text = key,
+            url = normalizeCoverUrl(emoji.iconUrl),
+            meta = com.biliseek.core.network.dto.EmoteMeta(size = emoji.size),
+        )
+    }.toMap()
+    return collectDynamicEmotes(item.orig) + own
 }
 
 /**
@@ -127,6 +151,7 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         commentType = item.basic?.commentType ?: 0,
         ridStr = item.basic?.ridStr.orEmpty(),
         stat = stat,
+        emotes = collectDynamicEmotes(item),
     )
 
     // 多图抽取：去空 src、normalizeCoverUrl

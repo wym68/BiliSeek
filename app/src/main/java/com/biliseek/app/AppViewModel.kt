@@ -315,6 +315,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settingsStore.setMiniBarStyle(style)
     }
 
+    // ── 表情（面板 + 进程级字典）：见 EmoteController ──
+
+    val emotes: com.biliseek.app.emote.EmoteController = com.biliseek.app.emote.EmoteController(
+        scope = viewModelScope,
+        repository = network.repository,
+    )
+
     // ── Ch4 状态 ──────────────────────────────────────
 
     /** 动态：关注流 + 卡片互动（评论对话框在 `dynamics.comments`）。 */
@@ -769,6 +776,7 @@ return pages.map { p ->
         }
         viewModelScope.launch {
             val (ok, failed) = dealTracksToFolder(tracks, mediaId)
+            if (ok > 0) videoInteraction.markFavored(tracks.map { it.bvid })
             when {
                 failed == 0 -> emitMessage("已加入 $ok 项到收藏夹")
                 ok == 0 -> emitMessage("收藏失败：网络错误，请稍后再试")
@@ -790,6 +798,7 @@ return pages.map { p ->
             network.repository.addFavoriteFolder(title, intro)
                 .onSuccess { mediaId ->
                     val (ok, failed) = dealTracksToFolder(tracks, mediaId)
+                    if (ok > 0) videoInteraction.markFavored(tracks.map { it.bvid })
                     when {
                         failed == 0 -> emitMessage("已创建收藏夹并加入 $ok 项")
                         ok == 0 -> emitMessage("收藏夹已创建，但视频加入失败")
@@ -1464,6 +1473,14 @@ return pages.map { p ->
 
     /** 播放页评论区（视频评论 oid=aid, type=1）。 */
     val playerComments = CommentThreadController(
+        scope = viewModelScope,
+        repository = network.repository,
+        session = session,
+        emitMessage = ::emitMessage,
+    )
+
+    /** 播放页视频互动栏（点赞 / 投币 / 收藏 / 三连）。 */
+    val videoInteraction = com.biliseek.app.interaction.VideoInteractionController(
         scope = viewModelScope,
         repository = network.repository,
         session = session,

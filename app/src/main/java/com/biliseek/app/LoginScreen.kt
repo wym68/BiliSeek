@@ -1,5 +1,8 @@
 package com.biliseek.app
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.Icon
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -76,7 +79,7 @@ fun LoginPanel(
                 }
 
                 is LoginState.Scanned -> {
-                    Text("✓ 已扫描，请在手机上确认", style = MaterialTheme.typography.bodyMedium)
+                    StatusLine(Icons.Filled.CheckCircle, "已扫描，请在手机上确认")
                     OutlinedButton(onClick = onCancel) { Text("取消") }
                 }
 
@@ -90,9 +93,26 @@ fun LoginPanel(
                     Button(onClick = onStart) { Text("重试") }
                 }
 
-                is LoginState.Success -> Text("✓ 登录成功", style = MaterialTheme.typography.bodyMedium)
+                is LoginState.Success -> StatusLine(Icons.Filled.CheckCircle, "登录成功")
             }
         }
+    }
+}
+
+/** 图标 + 文案的状态行（替代「✓ xxx」字符拼法）。 */
+@Composable
+private fun StatusLine(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(com.biliseek.designsystem.theme.BsSpacing.xs),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = androidx.compose.ui.Modifier.size(com.biliseek.designsystem.theme.BsSize.iconSm),
+        )
+        Text(text, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

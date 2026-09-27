@@ -81,6 +81,8 @@ data class DynamicContent(
 @Serializable
 data class DynamicDesc(
     val text: String = "",
+    /** 富文本节点：表情图、@、话题都在这里（text 里只有占位文本）。 */
+    @SerialName("rich_text_nodes") val richTextNodes: List<DynamicRichTextNode> = emptyList(),
 )
 
 @Serializable
@@ -162,6 +164,19 @@ data class DynamicRichTextNode(
     val type: String = "",
     val text: String = "",
     @SerialName("orig_text") val origText: String = "",
+    /** 仅 `RICH_TEXT_NODE_TYPE_EMOJI`：表情图。 */
+    val emoji: DynamicEmoji? = null,
+    /** `RICH_TEXT_NODE_TYPE_AT`：被 @ 用户的 mid（字符串）。 */
+    val rid: String = "",
+)
+
+/** `rich_text_nodes[].emoji`。 */
+@Serializable
+data class DynamicEmoji(
+    val text: String = "",
+    @SerialName("icon_url") val iconUrl: String = "",
+    /** 1=小 2=大。 */
+    val size: Int = 1,
 )
 
 /** `x/relation/followings` —— 关注列表（UP 筛选 chips 的数据源）。 */

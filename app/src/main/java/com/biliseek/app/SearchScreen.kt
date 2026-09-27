@@ -1,5 +1,10 @@
 package com.biliseek.app
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Cancel
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -335,15 +340,9 @@ fun SearchScreen(
                 trailingIcon = {
                     // 圆叉：点击快速清空。仅有关键词时显示
                     if (state.keyword.isNotEmpty()) {
-                        Text(
-                            "✕",
-                            Modifier
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { onKeywordChange("") }
-                                .padding(horizontal = 7.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
+                        androidx.compose.material3.IconButton(onClick = { onKeywordChange("") }) {
+                            Icon(Icons.Filled.Cancel, contentDescription = "清空")
+                        }
                     }
                 },
             )
@@ -533,7 +532,7 @@ fun SearchScreen(
                                     )
                                 } else {
                                     androidx.compose.material3.IconButton(onClick = { actionsFor = video }) {
-                                        Text("⋮", style = MaterialTheme.typography.titleLarge)
+                                        Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
                                     }
                                 }
                             },
@@ -721,7 +720,11 @@ private fun UserRow(user: SearchUser, onClick: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
             )
         }
-        Text("›", style = MaterialTheme.typography.titleMedium)
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -945,7 +948,7 @@ private fun MultiPagePanel(
                         )
                     } else {
                         androidx.compose.material3.IconButton(onClick = { actionsFor = entry }) {
-                            Text("⋮", style = MaterialTheme.typography.titleLarge)
+                            Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
                         }
                     }
                 }

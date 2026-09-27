@@ -1,5 +1,10 @@
 package com.biliseek.app.ui.components
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
+import com.biliseek.designsystem.theme.BsSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -131,9 +136,17 @@ private fun QueueRow(
             style = MaterialTheme.typography.labelMedium,
             color = tint,
         )
+        if (isCurrent) {
+            Icon(
+                Icons.Filled.GraphicEq,
+                contentDescription = "当前播放",
+                tint = tint,
+                modifier = Modifier.size(BsSize.iconSm),
+            )
+        }
         Column(Modifier.weight(1f)) {
             Text(
-                (if (isCurrent) "✓ 当前播放  " else "") + title,
+                title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = tint,
                 maxLines = 1,

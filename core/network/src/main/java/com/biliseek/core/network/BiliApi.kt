@@ -565,6 +565,23 @@ interface BiliApi {
     @GET("x/relation")
     suspend fun relation(@Query("fid") fid: Long): BiliResponse<RelationData>
 
+    // ── 视频互动状态 / 表情面板（UI 重构）────────────────────
+
+    /**
+     * 当前账号对某视频的互动状态：是否已赞、已投几枚币、是否已收藏。**需登录**。
+     * 只在播放页展开时按 bvid 拉一次（有内存缓存），纯听后台不请求。
+     */
+    @GET("x/web-interface/archive/relation")
+    suspend fun archiveRelation(
+        @Query("bvid") bvid: String,
+    ): BiliResponse<com.biliseek.core.network.dto.ArchiveRelation>
+
+    /** 表情面板（评论业务）。进程内只拉一次，见 BiliRepository.emotePanel。 */
+    @GET("x/emote/user/panel/web")
+    suspend fun emotePanel(
+        @Query("business") business: String = "reply",
+    ): BiliResponse<com.biliseek.core.network.dto.EmotePanelData>
+
     companion object {
         const val QR_GENERATE = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
         const val QR_POLL = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"

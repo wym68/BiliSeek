@@ -1,5 +1,22 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsEmptyState
+import androidx.compose.material.icons.outlined.StarBorder
+import com.biliseek.designsystem.component.BsTopBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.DownloadDone
+import androidx.compose.material3.Icon
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.width
+import com.biliseek.designsystem.component.BsListRow
+import com.biliseek.designsystem.theme.BsSize
+import com.biliseek.designsystem.theme.BsSpacing
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -20,7 +37,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.AlertDialog
@@ -28,7 +44,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
@@ -64,7 +79,6 @@ import com.biliseek.app.LoginPanel
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
 import com.biliseek.core.network.dto.SeriesArchive
-import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.player.formatDuration
@@ -242,7 +256,12 @@ fun LibraryScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Text("›", style = MaterialTheme.typography.titleMedium)
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(BsSize.iconSm),
+                    )
                 }
             }
         }
@@ -271,30 +290,12 @@ fun LibraryScreen(
                     // 稍后再看入口（仅登录时显示）
                     if (session.isLoggedIn) {
                         item(key = "watch-later") {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable(onClick = onOpenWatchLater)
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Text("⏱", style = MaterialTheme.typography.bodyLarge)
-                                    Column {
-                                        Text("稍后再看", style = MaterialTheme.typography.bodyLarge)
-                                        Text(
-                                            "与 B 站「稍后再看」同步",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                                Text("›", style = MaterialTheme.typography.titleMedium)
-                            }
+                            BsListRow(
+                                title = "稍后再看",
+                                subtitle = "与 B 站「稍后再看」同步",
+                                leadingIcon = Icons.Outlined.Schedule,
+                                onClick = onOpenWatchLater,
+                            )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
@@ -310,32 +311,34 @@ fun LibraryScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text("本地列表", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    if (playlistsExpanded) " ▾" else " ▸",
-                                    style = MaterialTheme.typography.labelSmall,
+                                Icon(
+                                    if (playlistsExpanded) Icons.Filled.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = if (playlistsExpanded) "收起" else "展开",
+                                    modifier = Modifier.size(BsSize.iconSm),
                                 )
                             }
-                            Button(onClick = { showCreate = true }) { Text("新建") }
+                            FilledTonalButton(onClick = { showCreate = true }) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(BsSize.iconSm))
+                                Spacer(Modifier.width(BsSpacing.xs))
+                                Text("新建")
+                            }
                         }
                     }
 
                     if (downloads.isNotEmpty()) {
                         item(key = "downloads-entry") {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable(onClick = onOpenDownloads)
-                                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("已下载", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "${downloads.count { it.isDone }} 个 ›",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
+                            BsListRow(
+                                title = "已下载",
+                                leadingIcon = Icons.Outlined.DownloadDone,
+                                onClick = onOpenDownloads,
+                                trailing = {
+                                    Text(
+                                        "${downloads.count { it.isDone }} 个",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                            )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
@@ -409,7 +412,11 @@ fun LibraryScreen(
                                 TextButton(
                                     onClick = { creatingFavorite = true },
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                ) { Text("＋ 新建收藏夹") }
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(BsSize.iconSm))
+                                    Spacer(Modifier.width(BsSpacing.xs))
+                                    Text("新建收藏夹")
+                                }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                             if (favoriteFolders.isEmpty()) {
@@ -459,7 +466,11 @@ fun LibraryScreen(
                                                 style = MaterialTheme.typography.labelSmall,
                                             )
                                         }
-                                        Text("›", style = MaterialTheme.typography.titleMedium)
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 }
@@ -741,14 +752,7 @@ private fun PlaylistDetail(
     val rowHeightPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("${playlist.name} · ${tracks.size} 首", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = onClose) { Text("返回") }
-        }
+        BsTopBar(title = playlist.name, subtitle = "${tracks.size} 首", onNavigate = onClose)
         if (tracks.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text("空列表。在搜索结果里长按可加入", style = MaterialTheme.typography.bodySmall)
@@ -845,45 +849,15 @@ private fun FavoriteDetail(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "${state.title} · ${state.items.size} 首",
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            TextButton(onClick = onClose) { Text("返回") }
-        }
+        BsTopBar(title = state.title, subtitle = "${state.items.size} 首", onNavigate = onClose)
 
         when {
-            state.isLoading && state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
+            state.isLoading && state.items.isEmpty() -> BsLoadingState()
 
-            state.errorMessage != null && state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            state.errorMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                        Button(onClick = { onLoadMore(1) }) { Text("重试") }
-                    }
-                }
-            }
+            state.errorMessage != null && state.items.isEmpty() ->
+                BsErrorState(state.errorMessage, onRetry = { onLoadMore(1) })
 
-            state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("这个收藏夹是空的", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            state.items.isEmpty() -> BsEmptyState("这个收藏夹是空的", icon = Icons.Outlined.StarBorder)
 
             else -> {
                 LazyColumn(Modifier.fillMaxSize()) {
