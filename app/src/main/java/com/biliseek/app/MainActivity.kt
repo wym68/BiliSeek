@@ -93,23 +93,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             BiliSeekTheme {
                 val playback by viewModel.connection.state.collectAsState()
-                val search by viewModel.search.collectAsState()
+                val search by viewModel.search.state.collectAsState()
                 val loginState by viewModel.loginState.collectAsState()
                 val session by viewModel.session.collectAsState()
                 val playlists by viewModel.playlists.collectAsState()
                 val playlistTrackCounts by viewModel.playlistTrackCounts.collectAsState()
                 val openedPlaylist by viewModel.openedPlaylist.collectAsState()
                 val openedTracks by viewModel.openedTracks.collectAsState()
-                val searchHistory by viewModel.searchHistory.collectAsState()
+                val searchHistory by viewModel.search.history.collectAsState()
                 val heatmap by viewModel.heatmap.collectAsState()
-                val favoriteFolders by viewModel.favoriteFolders.collectAsState()
-                val favoriteSync by viewModel.favoriteSync.collectAsState()
-                val openedFavorite by viewModel.openedFavorite.collectAsState()
-                val dynamic by viewModel.dynamic.collectAsState()
-                val upSpace by viewModel.upSpace.collectAsState()
+                val favoriteFolders by viewModel.remoteLibrary.favoriteFolders.collectAsState()
+                val favoriteSync by viewModel.remoteLibrary.favoriteSync.collectAsState()
+                val openedFavorite by viewModel.remoteLibrary.openedFavorite.collectAsState()
+                val dynamic by viewModel.dynamics.dynamic.collectAsState()
+                val upSpace by viewModel.upSpace.state.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayHistory by viewModel.dayHistory.collectAsState()
-                val watchLater by viewModel.watchLater.collectAsState()
+                val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
                 val deletingFavoriteMediaId by viewModel.deletingFavoriteMediaId.collectAsState()
                 val selectionMode by viewModel.selectionMode.collectAsState()
@@ -120,19 +120,19 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
-                val commentDialog by viewModel.commentDialog.collectAsState()
-                val playerComment by viewModel.playerComment.collectAsState()
+                val commentDialog by viewModel.dynamics.comments.state.collectAsState()
+                val playerComment by viewModel.playerComments.state.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
-                val dynamicExpand by viewModel.dynamicExpand.collectAsState()
+                val dynamicExpand by viewModel.dynamics.dynamicExpand.collectAsState()
                 val queueSheetOpen by viewModel.queueSheetOpen.collectAsState()
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
                 val downloadTasks by viewModel.downloadTasks.collectAsState()
-                val openedSeries by viewModel.openedSeries.collectAsState()
-                val collectedList by viewModel.collectedList.collectAsState()
-                val collectedListState by viewModel.collectedListState.collectAsState()
-                val unreadSummary by viewModel.unreadSummary.collectAsState()
+                val openedSeries by viewModel.remoteLibrary.openedSeries.collectAsState()
+                val collectedList by viewModel.remoteLibrary.collectedList.collectAsState()
+                val collectedListState by viewModel.remoteLibrary.collectedListState.collectAsState()
+                val unreadSummary by viewModel.messages.unreadSummary.collectAsState()
 
                 val coroutineScope = rememberCoroutineScope()
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
@@ -151,7 +151,7 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
                     val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                         if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                            viewModel.refreshUnreadCount()
+                            viewModel.messages.refreshUnreadCount()
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -196,22 +196,22 @@ class MainActivity : ComponentActivity() {
                         favoriteSync !is com.biliseek.app.SyncState.Syncing &&
                         favoriteSync !is com.biliseek.app.SyncState.NotLoggedIn
                     ) {
-                        viewModel.syncFavoriteFolders()
+                        viewModel.remoteLibrary.syncFavoriteFolders()
                     }
                 }
 
                 // 已登录且合集列表从未加载过 → 自动拉一次订阅合集列表
                 LaunchedEffect(session.isLoggedIn) {
-                    if (session.isLoggedIn && viewModel.collectedList.value.isEmpty() &&
-                        viewModel.collectedListState.value.isLoading.not()
+                    if (session.isLoggedIn && viewModel.remoteLibrary.collectedList.value.isEmpty() &&
+                        viewModel.remoteLibrary.collectedListState.value.isLoading.not()
                     ) {
-                        viewModel.loadCollectedList(1)
+                        viewModel.remoteLibrary.loadCollectedList(1)
                     }
                 }
 
                 // 首次进入也刷新一次未读小红点（LifecycleObserver 只覆盖 ON_RESUME）
                 LaunchedEffect(Unit) {
-                    viewModel.refreshUnreadCount()
+                    viewModel.messages.refreshUnreadCount()
                 }
 
                 AppShell(
@@ -222,11 +222,11 @@ class MainActivity : ComponentActivity() {
                     tabSwitchRequests = tabSwitchRequests,
                     openUpSpaceRequests = openUpSpaceRequests,
                     openFollowingListRequests = openFollowingListRequests,
-                    openMessagesRequests = viewModel.openMessagesRequests,
-                    openReplyFeedRequests = viewModel.openReplyFeedRequests,
-                    openLikeFeedRequests = viewModel.openLikeFeedRequests,
-                    openFollowerFeedRequests = viewModel.openFollowerFeedRequests,
-                    openPrivateChatRequests = viewModel.openPrivateChatRequests,
+                    openMessagesRequests = viewModel.messages.openMessagesRequests,
+                    openReplyFeedRequests = viewModel.messages.openReplyFeedRequests,
+                    openLikeFeedRequests = viewModel.messages.openLikeFeedRequests,
+                    openFollowerFeedRequests = viewModel.messages.openFollowerFeedRequests,
+                    openPrivateChatRequests = viewModel.messages.openPrivateChatRequests,
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
                     surfaceView = surfaceView,
@@ -283,12 +283,12 @@ class MainActivity : ComponentActivity() {
                             state = dynamic,
                             session = session,
                             loginState = loginState,
-                            onInit = viewModel::initDynamic,
-                            onRefresh = viewModel::initDynamic,
-                            onTypeFilterChange = viewModel::setDynamicTypeFilter,
-                            onSelectUp = viewModel::selectDynamicUp,
-                            onLoadMore = viewModel::loadMoreDynamic,
-                            onRetryInit = viewModel::initDynamic,
+                            onInit = viewModel.dynamics::initDynamic,
+                            onRefresh = viewModel.dynamics::initDynamic,
+                            onTypeFilterChange = viewModel.dynamics::setDynamicTypeFilter,
+                            onSelectUp = viewModel.dynamics::selectDynamicUp,
+                            onLoadMore = viewModel.dynamics::loadMoreDynamic,
+                            onRetryInit = viewModel.dynamics::initDynamic,
                             onEntryClick = viewModel::playDynamic,
                             onStartLogin = viewModel::startLogin,
                             onCancelLogin = viewModel::cancelLogin,
@@ -298,13 +298,13 @@ class MainActivity : ComponentActivity() {
                                 copyToClipboard(viewModel.dynamicUrl(idStr))
                                 viewModel.notifyLinkCopied()
                             },
-                            onOpenComment = viewModel::openCommentDialog,
-                            onToggleLike = viewModel::toggleDynamicLike,
+                            onOpenComment = viewModel.dynamics::openCommentDialog,
+                            onToggleLike = viewModel.dynamics::toggleDynamicLike,
                             onOpenFollowList = {
                                 openFollowingListRequests.tryEmit(Unit)
                             },
                             unreadCount = unreadSummary.total,
-                            onOpenMessages = viewModel::openMessages,
+                            onOpenMessages = viewModel.messages::openMessages,
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
@@ -312,7 +312,7 @@ class MainActivity : ComponentActivity() {
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
                             dynamicExpand = dynamicExpand,
-                            onToggleExpand = viewModel::toggleDynamicExpand,
+                            onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
                         )
                     },
                     searchContent = {
@@ -334,8 +334,8 @@ class MainActivity : ComponentActivity() {
                             search.pages.isEmpty()
                         SearchScreen(
                             state = search,
-                            onKeywordChange = viewModel::onKeywordChange,
-                            onSubmit = viewModel::submitSearch,
+                            onKeywordChange = viewModel.search::onKeywordChange,
+                            onSubmit = viewModel.search::submitSearch,
                             onResultClick = viewModel::onResultClick,
                             onAddToPlaylist = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
                             // 加入队列 = 追加到播放队列末尾（多 P 走挑 P 页，默认全选）
@@ -350,7 +350,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
-                            onLoadMore = viewModel::loadMore,
+                            onLoadMore = viewModel.search::loadMore,
                             onPageClick = { viewModel.playPage(search.pagesOfBvid, it) },
                             onDismissPages = viewModel::dismissPages,
                             // 多 P 面板：复选与动作
@@ -391,20 +391,20 @@ class MainActivity : ComponentActivity() {
                             onEnqueueSelectionNext = viewModel::enqueueSelectionNext,
                             onDownloadSelection = viewModel::downloadSelection,
                             isLoggedIn = session.isLoggedIn,
-                            onRetry = viewModel::retrySearch,
-                            onOrderChange = { viewModel.setSearchFilters(it, search.duration) },
-                            onDurationChange = { viewModel.setSearchFilters(search.order, it) },
-                            onModeChange = viewModel::setSearchMode,
+                            onRetry = viewModel.search::retrySearch,
+                            onOrderChange = { viewModel.search.setSearchFilters(it, search.duration) },
+                            onDurationChange = { viewModel.search.setSearchFilters(search.order, it) },
+                            onModeChange = viewModel.search::setSearchMode,
                             onUserClick = { user ->
                                 viewModel.openUpSpace(user)
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
-                            onRetryUser = viewModel::retryUserSearch,
-                            onLoadMoreUsers = viewModel::loadMoreUsers,
+                            onRetryUser = viewModel.search::retryUserSearch,
+                            onLoadMoreUsers = viewModel.search::loadMoreUsers,
                             searchHistory = searchHistory,
-                            onHistoryClick = viewModel::searchKeyword,
-                            onDeleteHistory = viewModel::deleteSearchKeyword,
-                            onClearHistory = viewModel::clearSearchHistory,
+                            onHistoryClick = viewModel.search::searchKeyword,
+                            onDeleteHistory = viewModel.search::deleteSearchKeyword,
+                            onClearHistory = viewModel.search::clearSearchHistory,
                             onAvatarClick = {
                                 viewModel.openUpSpace(
                                     SearchUser(
@@ -421,13 +421,13 @@ class MainActivity : ComponentActivity() {
                                     HomeEmptyState(
                                         searchHistory = searchHistory,
                                         heatmap = heatmap,
-                                        onKeywordClick = viewModel::searchKeyword,
-                                        onDeleteKeyword = viewModel::deleteSearchKeyword,
-                                        onClearHistory = viewModel::clearSearchHistory,
+                                        onKeywordClick = viewModel.search::searchKeyword,
+                                        onDeleteKeyword = viewModel.search::deleteSearchKeyword,
+                                        onClearHistory = viewModel.search::clearSearchHistory,
                                         onDayClick = { date -> viewModel.openDayHistory(date) },
                                         onOpenWatchLater = {
                                             tabSwitchRequests.tryEmit(Destination.LIBRARY)
-                                            viewModel.openWatchLater()
+                                            viewModel.remoteLibrary.openWatchLater()
                                         },
                                         onOpenRecentPlaylists = { tabSwitchRequests.tryEmit(Destination.LIBRARY) },
                                         isLoggedIn = session.isLoggedIn,
@@ -470,31 +470,31 @@ class MainActivity : ComponentActivity() {
                                 favoriteContent = openedFavorite,
                                 loginState = loginState,
                                 session = session,
-                                onSyncFavorites = viewModel::syncFavoriteFolders,
-                                onOpenFavorite = viewModel::openFavorite,
-                                onCloseFavorite = viewModel::closeFavorite,
+                                onSyncFavorites = viewModel.remoteLibrary::syncFavoriteFolders,
+                                onOpenFavorite = viewModel.remoteLibrary::openFavorite,
+                                onCloseFavorite = viewModel.remoteLibrary::closeFavorite,
                                 onCreateFavoriteFolder = viewModel::createFavoriteFolder,
                                 onEditFavoriteFolder = viewModel::editFavoriteFolder,
                                 onDeleteFavoriteFolder = viewModel::deleteFavoriteFolder,
-                                onFavoriteTrackClick = viewModel::playFavoriteTrack,
-                                onFavoriteLoadMore = viewModel::loadFavoritePage,
+                                onFavoriteTrackClick = viewModel.remoteLibrary::playFavoriteTrack,
+                                onFavoriteLoadMore = viewModel.remoteLibrary::loadFavoritePage,
                                 onStartLogin = viewModel::startLogin,
                                 onCancelLogin = viewModel::cancelLogin,
                                 watchLaterContent = watchLater,
-                                onOpenWatchLater = viewModel::openWatchLater,
-                                onCloseWatchLater = viewModel::closeWatchLater,
-                                onWatchLaterRetry = viewModel::retryWatchLater,
-                                onWatchLaterItemClick = viewModel::playWatchLaterItem,
+                                onOpenWatchLater = viewModel.remoteLibrary::openWatchLater,
+                                onCloseWatchLater = viewModel.remoteLibrary::closeWatchLater,
+                                onWatchLaterRetry = viewModel.remoteLibrary::retryWatchLater,
+                                onWatchLaterItemClick = viewModel.remoteLibrary::playWatchLaterItem,
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = openedSeries,
-                                onCloseSeries = viewModel::closeSeries,
+                                onCloseSeries = viewModel.remoteLibrary::closeSeries,
                                 collectedList = collectedList,
                                 collectedListState = collectedListState,
-                                onOpenSeries = viewModel::openSeries,
-                                onCollectedLoadMore = viewModel::loadCollectedList,
-                                onSeriesLoadMore = viewModel::loadSeriesPage,
-                                onPlaySeriesArchive = viewModel::playSeriesArchive,
+                                onOpenSeries = viewModel.remoteLibrary::openSeries,
+                                onCollectedLoadMore = viewModel.remoteLibrary::loadCollectedList,
+                                onSeriesLoadMore = viewModel.remoteLibrary::loadSeriesPage,
+                                onPlaySeriesArchive = viewModel.remoteLibrary::playSeriesArchive,
                             )
                         }
                     },
@@ -518,32 +518,32 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     upSpaceContent = { onBack ->
-                        BackHandler(onBack = { viewModel.closeUpSpace(); onBack() })
+                        BackHandler(onBack = { viewModel.upSpace.closeUpSpace(); onBack() })
                         UpSpaceScreen(
                             state = upSpace,
-                            onClose = { viewModel.closeUpSpace(); onBack() },
-                            onViewChange = viewModel::setUpSpaceView,
+                            onClose = { viewModel.upSpace.closeUpSpace(); onBack() },
+                            onViewChange = viewModel.upSpace::setUpSpaceView,
                             onPostClick = viewModel::playUpPost,
-                            onLoadMorePosts = viewModel::loadMoreUpPosts,
-                            onRetryPosts = { viewModel.loadUpPosts(1) },
+                            onLoadMorePosts = viewModel.upSpace::loadMoreUpPosts,
+                            onRetryPosts = { viewModel.upSpace.loadUpPosts(1) },
                             onDynamicClick = viewModel::playDynamic,
-                            onLoadMoreDynamic = viewModel::loadMoreUpDynamic,
+                            onLoadMoreDynamic = viewModel.upSpace::loadMoreUpDynamic,
                             // Ch4
-                            onToggleFollow = viewModel::toggleRelation,
+                            onToggleFollow = viewModel.upSpace::toggleRelation,
                             onOpenImagePreview = viewModel::openImagePreview,
                             onOpenRepost = { idStr ->
                                 copyToClipboard(viewModel.dynamicUrl(idStr))
                                 viewModel.notifyLinkCopied()
                             },
-                            onOpenComment = viewModel::openCommentDialog,
-                            onToggleLike = viewModel::toggleDynamicLike,
+                            onOpenComment = viewModel.dynamics::openCommentDialog,
+                            onToggleLike = viewModel.dynamics::toggleDynamicLike,
                             onAuthorClick = { entry ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
                                 )
                             },
                             dynamicExpand = dynamicExpand,
-                            onToggleExpand = viewModel::toggleDynamicExpand,
+                            onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
                             // 投稿复选与动作
                             isSelection = upSelectionActive,
                             selectedBvids = selectedUpKeys,
@@ -577,75 +577,75 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     messagesContent = { onBack ->
-                        val sessions by viewModel.privateSessions.collectAsState()
+                        val sessions by viewModel.messages.privateSessions.collectAsState()
                         MessageCenterScreen(
                             sessions = sessions,
                             unreadSummary = unreadSummary,
                             session = session,
                             loginState = loginState,
-                            onInit = viewModel::retryPrivateSessions,
-                            onRetry = viewModel::retryPrivateSessions,
+                            onInit = viewModel.messages::retryPrivateSessions,
+                            onRetry = viewModel.messages::retryPrivateSessions,
                             onClose = onBack,
                             onStartLogin = viewModel::startLogin,
                             onCancelLogin = viewModel::cancelLogin,
-                            onOpenChat = { s -> viewModel.openPrivateChat(s) },
-                            onOpenReplyFeed = viewModel::openReplyFeed,
-                            onOpenLikeFeed = viewModel::openLikeFeed,
-                            onOpenFollowerFeed = viewModel::openFollowerFeed,
+                            onOpenChat = { s -> viewModel.messages.openPrivateChat(s) },
+                            onOpenReplyFeed = viewModel.messages::openReplyFeed,
+                            onOpenLikeFeed = viewModel.messages::openLikeFeed,
+                            onOpenFollowerFeed = viewModel.messages::openFollowerFeed,
                         )
                     },
                     replyFeedContent = { onBack ->
-                        val replyState by viewModel.replyFeed.collectAsState()
+                        val replyState by viewModel.messages.replyFeed.collectAsState()
                         ReplyAtScreen(
                             state = replyState,
-                            onInit = viewModel::retryReplyFeed,
-                            onRetry = viewModel::retryReplyFeed,
+                            onInit = viewModel.messages::retryReplyFeed,
+                            onRetry = viewModel.messages::retryReplyFeed,
                             onBack = onBack,
-                            onPlayItem = viewModel::playReplyAtItem,
+                            onPlayItem = viewModel.messages::playReplyAtItem,
                             onSubmitReply = { aid, root, parent, content, onResult ->
-                                viewModel.submitCommentReply(aid, root, parent, content, onResult)
+                                viewModel.messages.submitCommentReply(aid, root, parent, content, onResult)
                             },
                         )
                     },
                     likeFeedContent = { onBack ->
-                        val likeState by viewModel.likeFeed.collectAsState()
+                        val likeState by viewModel.messages.likeFeed.collectAsState()
                         LikeScreen(
                             state = likeState,
-                            onInit = viewModel::retryLikeFeed,
-                            onRetry = viewModel::retryLikeFeed,
+                            onInit = viewModel.messages::retryLikeFeed,
+                            onRetry = viewModel.messages::retryLikeFeed,
                             onBack = onBack,
-                            onPlayItem = viewModel::playLikeItem,
+                            onPlayItem = viewModel.messages::playLikeItem,
                         )
                     },
                     followerFeedContent = { onBack ->
-                        val followerState by viewModel.followerFeed.collectAsState()
+                        val followerState by viewModel.messages.followerFeed.collectAsState()
                         FollowerScreen(
                             state = followerState,
-                            onInit = viewModel::retryFollowerFeed,
-                            onRetry = viewModel::retryFollowerFeed,
+                            onInit = viewModel.messages::retryFollowerFeed,
+                            onRetry = viewModel.messages::retryFollowerFeed,
                             onBack = onBack,
                             onOpenSpace = { f ->
-                                viewModel.openFollowerSpace(f)
+                                viewModel.messages.openFollowerSpace(f)
                                 openUpSpaceRequests.tryEmit(Unit)
                             },
                         )
                     },
                     privateChatContent = { talkerId, peerName, peerFace, onBack ->
-                        val chats by viewModel.chatByTalker.collectAsState()
-                        val state = chats[talkerId] ?: com.biliseek.app.AppViewModel.PrivateChatState()
+                        val chats by viewModel.messages.chatByTalker.collectAsState()
+                        val state = chats[talkerId] ?: com.biliseek.app.message.PrivateChatState()
                         PrivateChatScreen(
                             peerName = peerName,
                             peerFace = peerFace,
                             currentUid = session.dedeUserId.toLongOrNull() ?: 0L,
                             state = state,
                             onBack = {
-                                viewModel.closeChat(talkerId)
+                                viewModel.messages.closeChat(talkerId)
                                 onBack()
                             },
-                            onOpen = { viewModel.openChat(talkerId) },
-                            onLoadMore = { viewModel.loadMoreChat(talkerId) },
-                            onDraftChange = { viewModel.updateChatDraft(talkerId, it) },
-                            onSend = { viewModel.sendChatMessage(talkerId) },
+                            onOpen = { viewModel.messages.openChat(talkerId) },
+                            onLoadMore = { viewModel.messages.loadMoreChat(talkerId) },
+                            onDraftChange = { viewModel.messages.updateChatDraft(talkerId, it) },
+                            onSend = { viewModel.messages.sendChatMessage(talkerId) },
                         )
                     },
                 )
@@ -697,16 +697,16 @@ class MainActivity : ComponentActivity() {
                         content = state.content,
                         isPosting = state.isPosting,
                         expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel::setCommentSort,
-                        onLoadMore = viewModel::loadMoreComments,
-                        onLike = { reply, root -> viewModel.toggleCommentLike(reply, root) },
-                        onReply = { reply, root -> viewModel.startReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel::expandSubReplies,
-                        onLoadMoreSubReplies = viewModel::loadMoreSubReplies,
-                        onContentChange = viewModel::updateCommentContent,
-                        onClearReplyTarget = viewModel::clearReplyTarget,
-                        onSubmit = viewModel::submitComment,
-                        onDismiss = viewModel::dismissCommentDialog,
+                        onSortChange = viewModel.dynamics.comments::setSort,
+                        onLoadMore = viewModel.dynamics.comments::loadMore,
+                        onLike = { reply, root -> viewModel.dynamics.comments.toggleLike(reply, root) },
+                        onReply = { reply, root -> viewModel.dynamics.comments.startReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel.dynamics.comments::expandSubReplies,
+                        onLoadMoreSubReplies = viewModel.dynamics.comments::loadMoreSubReplies,
+                        onContentChange = viewModel.dynamics.comments::updateContent,
+                        onClearReplyTarget = viewModel.dynamics.comments::clearReplyTarget,
+                        onSubmit = viewModel.dynamics.comments::submit,
+                        onDismiss = viewModel.dynamics.comments::dismiss,
                     )
                 }
 
@@ -719,16 +719,16 @@ class MainActivity : ComponentActivity() {
                         content = state.content,
                         isPosting = state.isPosting,
                         expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel::setPlayerCommentSort,
-                        onLoadMore = viewModel::loadMorePlayerComments,
-                        onLike = { reply, root -> viewModel.togglePlayerCommentLike(reply, root) },
-                        onReply = { reply, root -> viewModel.startPlayerReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel::expandPlayerSubReplies,
-                        onLoadMoreSubReplies = viewModel::loadMorePlayerSubReplies,
-                        onContentChange = viewModel::updatePlayerCommentContent,
-                        onClearReplyTarget = viewModel::clearPlayerReplyTarget,
-                        onSubmit = viewModel::submitPlayerComment,
-                        onDismiss = viewModel::dismissPlayerComment,
+                        onSortChange = viewModel.playerComments::setSort,
+                        onLoadMore = viewModel.playerComments::loadMore,
+                        onLike = { reply, root -> viewModel.playerComments.toggleLike(reply, root) },
+                        onReply = { reply, root -> viewModel.playerComments.startReplyTo(reply, root) },
+                        onExpandSubReplies = viewModel.playerComments::expandSubReplies,
+                        onLoadMoreSubReplies = viewModel.playerComments::loadMoreSubReplies,
+                        onContentChange = viewModel.playerComments::updateContent,
+                        onClearReplyTarget = viewModel.playerComments::clearReplyTarget,
+                        onSubmit = viewModel.playerComments::submit,
+                        onDismiss = viewModel.playerComments::dismiss,
                     )
                 }
                 val currentPreviewImage = previewImage
@@ -802,7 +802,7 @@ class MainActivity : ComponentActivity() {
             extraText = intent?.getStringExtra(Intent.EXTRA_TEXT),
             dataString = intent?.dataString,
         ) ?: return
-        viewModel.handleSharedText(text)
+        viewModel.search.handleSharedText(text)
     }
 
     /**

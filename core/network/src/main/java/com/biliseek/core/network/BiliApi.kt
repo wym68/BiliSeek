@@ -456,6 +456,15 @@ interface BiliApi {
         @Query("mobi_app") mobiApp: String = "web",
     ): BiliResponse<com.biliseek.core.network.dto.MessageHistoryData>
 
+    /**
+     * 批量用户卡片（`api.vc.bilibili.com`）。`get_sessions` 不给普通用户带昵称/头像，
+     * 靠这个一次补齐一页会话的对方信息。`uids` 逗号分隔。
+     */
+    @GET("https://api.vc.bilibili.com/account/v1/user/cards")
+    suspend fun getUserCards(
+        @Query("uids") uids: String,
+    ): BiliResponse<List<com.biliseek.core.network.dto.UserCard>>
+
     /** 私信未读聚合（`api.vc.bilibili.com`）。 */
     @GET("https://api.vc.bilibili.com/session_svr/v1/session_svr/single_unread")
     suspend fun getSessionUnread(

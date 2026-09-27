@@ -1002,7 +1002,38 @@ class BiliRepository internal constructor(
             THROTTLE_JITTER_MS,
         ) { api.getSessions() }
         require(response.code == 0) { "私信会话加载失败：code=${response.code} ${response.message}" }
-        response.data ?: com.biliseek.core.network.dto.SessionListData()
+        val data = response.data ?: com.biliseek.core.network.dto.SessionListData()
+        data.copy(sessionList = fillSessionPeers(data.sessionList))
+    }
+
+    /**
+     * 给缺 `account_info` 的会话补昵称/头像（`get_sessions` 只给官方号带）。
+     * best-effort：查询失败就原样返回，列表照常显示（UI 退回「用户{uid}」）。
+     */
+    private suspend fun fillSessionPeers(
+        sessions: List<com.biliseek.core.network.dto.Session>,
+    ): List<com.biliseek.core.network.dto.Session> {
+        val missing = sessions.asSequence()
+            .filter { it.accountInfo?.name.isNullOrBlank() && it.talkerId > 0 }
+            .map { it.talkerId }
+            .distinct()
+            .toList()
+        if (missing.isEmpty()) return sessions
+        val cards = runCatching {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.getUserCards(missing.joinToString(",")) }
+                .also { if (resolveRetryAction(it.code) == RetryAction.BACKOFF_NO_RETRY) riskCooldown.onRiskControl() }
+                .takeIf { it.code == 0 }
+                ?.data.orEmpty()
+                .associateBy { it.mid }
+        }.getOrElse { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            emptyMap()
+        }
+        return mergeSessionPeers(sessions, cards)
     }
 
     /** 回复与@ 列表。「回复与@」子页面专用，懒加载——只有用户点开这个子页面才请求。 */

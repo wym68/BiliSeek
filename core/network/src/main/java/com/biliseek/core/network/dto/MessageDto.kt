@@ -27,7 +27,10 @@ data class LastMessage(
     @SerialName("msg_seqno") val msgSeqno: Long = 0,
 )
 
-/** 对方用户卡片（昵称/头像）。 */
+/**
+ * 对方用户卡片（昵称/头像）。注意：`get_sessions` 只给官方号/系统号带这个字段，
+ * 普通用户会话里是缺失的——由 `BiliRepository.privateSessions()` 另查 `user/cards` 补齐。
+ */
 @Serializable
 data class SessionPeer(
     @SerialName("name") val name: String = "",
@@ -86,13 +89,30 @@ data class MsgfeedCursor(
     @SerialName("is_end") val isEnd: Boolean = false,
 )
 
-/** `x/msgfeed/reply` 单条业务内容，真实响应嵌在 item.item 里，不是平铺在顶层。 */
+/**
+ * `x/msgfeed/reply` 单条业务内容，真实响应嵌在 item.item 里，不是平铺在顶层。
+ *
+ * 字段语义（对照 bilibili-API-collect `message/msg.md`，容易望文生义搞反）：
+ * - `subject_id`：评论区所属对象 id（business_id=1 时是视频 aid）——跳转/回复用它当 `oid`
+ * - `source_id`：**对方发来的这条回复**的 rpid——站内回复时当 `parent`
+ * - `target_id`：对方回复的那条评论（通常是我的评论）的 rpid；直接评论视频时为 0
+ * - `root_id`：楼层根评论 rpid；对方发的就是根评论时为 0
+ * - `source_content`：**对方回复的正文**（不是视频标题）
+ * - `target_reply_content` / `root_reply_content`：被回复的我的评论 / 根评论正文，可能为空
+ * - `title`：评论区所属对象的标题（视频标题）
+ */
 @Serializable
 data class ReplyAtContent(
+    @SerialName("subject_id") val subjectId: Long = 0,
     @SerialName("root_id") val rootId: Long = 0,
     @SerialName("target_id") val targetId: Long = 0,
     @SerialName("source_id") val sourceId: Long = 0,
+    @SerialName("type") val type: String = "",
     @SerialName("business_id") val businessId: Int = 0,
+    @SerialName("business") val business: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("uri") val uri: String = "",
+    @SerialName("native_uri") val nativeUri: String = "",
     @SerialName("source_content") val sourceContent: String = "",
     @SerialName("root_reply_content") val rootReplyContent: String = "",
     @SerialName("target_reply_content") val targetReplyContent: String = "",
@@ -106,15 +126,22 @@ data class ReplyAtItem(
     @SerialName("item") val item: ReplyAtContent? = null,
     @SerialName("reply_time") val replyTime: Long = 0,
 ) {
-    /** 优先取楼中楼回复内容，取不到时退回一级回复内容。 */
-    val content: String get() =
+    /** 对方回复的正文。 */
+    val content: String get() = item?.sourceContent.orEmpty()
+    /** 被回复的我的那条评论（楼中楼优先，退回根评论）；对方直接评论视频时为空。 */
+    val quotedContent: String get() =
         item?.targetReplyContent?.takeIf { it.isNotBlank() } ?: item?.rootReplyContent.orEmpty()
+    /** 评论区所属对象标题（视频标题）。 */
+    val title: String get() = item?.title.orEmpty()
     val businessId: Int get() = item?.businessId ?: 0
-    val sourceId: Long get() = item?.sourceId ?: 0
-    val sourceContent: String get() = item?.sourceContent.orEmpty()
-    val rootId: Long get() = item?.rootId ?: 0
-    /** 站内回复评论时用作 `parent`（被回复的具体那条评论）。 */
-    val parentId: Long get() = item?.targetId ?: 0
+    /** 评论区所属对象 id；business_id=1 时是视频 aid。 */
+    val subjectId: Long get() = item?.subjectId ?: 0
+    val uri: String get() = item?.uri.orEmpty()
+    val nativeUri: String get() = item?.nativeUri.orEmpty()
+    /** 站内回复对方时的 `parent`：就是对方这条回复本身。 */
+    val replyParentId: Long get() = item?.sourceId ?: 0
+    /** 站内回复对方时的 `root`：对方回复挂在某楼下就用该楼，否则它自己就是根。 */
+    val replyRootId: Long get() = item?.rootId?.takeIf { it > 0 } ?: replyParentId
 }
 
 @Serializable
@@ -125,26 +152,38 @@ data class ReplyFeedData(
     val hasMore: Boolean get() = cursor?.isEnd == false
 }
 
-/** `x/msgfeed/like` 单条业务内容，嵌在 item.item 里。 */
+/**
+ * `x/msgfeed/like` 单条业务内容，嵌在 item.item 里。
+ * 对象 id 字段是 `item_id`（没有 `source_id`）；`type` 区分被赞的是视频还是评论等，
+ * 被赞的是评论时 `item_id` 是评论 rpid 而不是 aid，不能直接当视频播放。
+ */
 @Serializable
 data class LikeContent(
-    @SerialName("source_id") val sourceId: Long = 0,
+    @SerialName("item_id") val itemId: Long = 0,
+    @SerialName("type") val type: String = "",
+    @SerialName("business") val business: String = "",
     @SerialName("business_id") val businessId: Int = 0,
     @SerialName("title") val title: String = "",
+    @SerialName("uri") val uri: String = "",
+    @SerialName("native_uri") val nativeUri: String = "",
 )
 
-/** `x/msgfeed/like` 单条（收到喜欢 tab）。`users` 是复数——可能多人点赞合并展示，本期只取第一个。 */
+/** `x/msgfeed/like` 单条（收到喜欢 tab）。`users` 是复数——多人点赞合并成一条，`counts` 是总人数。 */
 @Serializable
 data class LikeItem(
     @SerialName("id") val id: Long = 0,
     @SerialName("users") val users: List<MsgfeedUser> = emptyList(),
     @SerialName("item") val item: LikeContent? = null,
+    @SerialName("counts") val counts: Int = 0,
     @SerialName("like_time") val likeTime: Long = 0,
 ) {
     val firstUser: MsgfeedUser? get() = users.firstOrNull()
     val title: String get() = item?.title.orEmpty()
-    val sourceId: Long get() = item?.sourceId ?: 0
-    val businessId: Int get() = item?.businessId ?: 0
+    val itemId: Long get() = item?.itemId ?: 0
+    val type: String get() = item?.type.orEmpty()
+    val business: String get() = item?.business.orEmpty()
+    val uri: String get() = item?.uri.orEmpty()
+    val nativeUri: String get() = item?.nativeUri.orEmpty()
 }
 
 @Serializable
@@ -153,13 +192,21 @@ data class LikeFeedBucket(
     @SerialName("cursor") val cursor: MsgfeedCursor? = null,
 )
 
-/** `x/msgfeed/like` 响应按 latest/total 分桶；本期只用 latest（最近点赞），total 桶不解析。 */
+/**
+ * `x/msgfeed/like` 响应分两桶：
+ * - `latest`：上次查看之后的新点赞（无游标）。在官方 App 或本应用看过一次后通常就空了。
+ * - `total`：全部历史点赞，带分页游标。
+ * 只读 `latest` 会导致「看过一次后整页暂无内容」，所以两桶合并展示（新的在前，按 id 去重），
+ * 分页状态取 `total` 的游标。
+ */
 @Serializable
 data class LikeFeedData(
     @SerialName("latest") val latest: LikeFeedBucket? = null,
+    @SerialName("total") val total: LikeFeedBucket? = null,
 ) {
-    val items: List<LikeItem> get() = latest?.items.orEmpty()
-    val hasMore: Boolean get() = latest?.cursor?.isEnd == false
+    val items: List<LikeItem> get() =
+        (latest?.items.orEmpty() + total?.items.orEmpty()).distinctBy { it.id }
+    val hasMore: Boolean get() = total?.cursor?.isEnd == false
 }
 
 /** `x/msgfeed/unread` 返回聚合未读。 */
@@ -194,4 +241,14 @@ data class FollowerEntry(
 data class FollowersData(
     @SerialName("list") val list: List<FollowerEntry> = emptyList(),
     @SerialName("total") val total: Int = 0,
+)
+
+// ───────────────── 用户卡片批量查询（api.vc.bilibili.com account/v1/user/cards）─────────────────
+
+/** `account/v1/user/cards` 单条。只取会话列表需要的昵称与头像。 */
+@Serializable
+data class UserCard(
+    @SerialName("mid") val mid: Long = 0,
+    @SerialName("name") val name: String = "",
+    @SerialName("face") val face: String = "",
 )

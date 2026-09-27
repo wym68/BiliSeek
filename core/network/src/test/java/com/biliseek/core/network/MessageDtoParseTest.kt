@@ -8,6 +8,7 @@ import com.biliseek.core.network.dto.MsgfeedUnreadData
 import com.biliseek.core.network.dto.ReplyFeedData
 import com.biliseek.core.network.dto.SessionListData
 import com.biliseek.core.network.dto.SessionUnreadData
+import com.biliseek.core.network.dto.UserCard
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -92,96 +93,134 @@ class MessageDtoParseTest {
         assertEquals(7L, data.data?.maxSeqno)
     }
 
+    /** 字段形状按 bilibili-API-collect `message/msg.md` 的 x/msgfeed/reply 示例构造（非线上抓取）。 */
     @Test
-    fun `回复与@ 列表解析`() {
+    fun `回复与@ 列表解析：正文取 source_content，视频 aid 取 subject_id`() {
         val data = json.decodeFromString<BiliResponse<ReplyFeedData>>(
             """
             {
               "code": 0,
               "data": {
+                "cursor": { "is_end": false, "id": 11, "time": 1700000000 },
                 "items": [
                   {
                     "id": 11,
-                    "user": { "mid": 222, "nickname": "用户A", "avatar": "//fa" },
-                    "reply_time": 1700000000,
+                    "user": { "mid": 222, "fans": 0, "nickname": "用户A", "avatar": "//fa", "follow": false },
                     "item": {
+                      "subject_id": 170001,
                       "root_id": 5,
+                      "source_id": 7,
                       "target_id": 6,
-                      "source_id": 1000,
+                      "type": "reply",
                       "business_id": 1,
-                      "source_content": "原视频标题",
+                      "business": "评论",
+                      "title": "我的视频标题",
+                      "desc": "",
+                      "image": "",
+                      "uri": "https://www.bilibili.com/video/BV17x411w7KC",
+                      "native_uri": "bilibili://comment/detail/1/170001/5/?subType=0&anchor=7",
+                      "detail_title": "",
                       "root_reply_content": "根评论内容",
-                      "target_reply_content": "评论内容"
-                    }
+                      "source_content": "对方回复我的正文",
+                      "target_reply_content": "我被回复的那条评论"
+                    },
+                    "counts": 1,
+                    "is_multi": 0,
+                    "reply_time": 1700000000
                   }
-                ],
-                "cursor": { "id": 11, "time": 1700000000, "is_end": false }
+                ]
               }
             }
             """.trimIndent(),
         )
         val items = data.data?.items.orEmpty()
         assertEquals(1, items.size)
-        assertEquals(1000L, items[0].sourceId)
-        assertEquals(5L, items[0].rootId)
-        assertEquals(6L, items[0].parentId)
-        assertEquals("用户A", items[0].user?.name)
-        assertEquals("//fa", items[0].user?.face)
-        assertEquals("评论内容", items[0].content)
+        val it = items[0]
+        assertEquals("对方回复我的正文", it.content)
+        assertEquals("我被回复的那条评论", it.quotedContent)
+        assertEquals("我的视频标题", it.title)
+        assertEquals(170001L, it.subjectId)
+        assertEquals(5L, it.replyRootId)
+        assertEquals(7L, it.replyParentId)
+        assertEquals("用户A", it.user?.name)
+        assertEquals("//fa", it.user?.face)
         assertEquals(true, data.data?.hasMore)
     }
 
     @Test
-    fun `回复与@ 正文优先取 target_reply_content，取不到退回 root_reply_content`() {
+    fun `回复与@ 直接评论视频：无被引用评论，root 退回对方这条自身`() {
         val data = json.decodeFromString<BiliResponse<ReplyFeedData>>(
             """
             {
               "code": 0,
               "data": {
+                "cursor": { "is_end": true, "id": 12, "time": 1700000001 },
                 "items": [
                   {
                     "id": 12,
                     "user": { "mid": 223, "nickname": "用户B", "avatar": "//fb" },
-                    "reply_time": 1700000001,
                     "item": {
-                      "root_id": 1,
-                      "target_id": 2,
-                      "source_id": 1001,
+                      "subject_id": 170002,
+                      "root_id": 0,
+                      "source_id": 9,
+                      "target_id": 0,
                       "business_id": 1,
-                      "source_content": "",
-                      "root_reply_content": "根评论内容",
+                      "title": "视频",
+                      "root_reply_content": "",
+                      "source_content": "沙发",
                       "target_reply_content": ""
-                    }
+                    },
+                    "reply_time": 1700000001
                   }
-                ],
-                "cursor": { "id": 12, "time": 1700000001, "is_end": true }
+                ]
               }
             }
             """.trimIndent(),
         )
-        assertEquals("根评论内容", data.data?.items?.first()?.content)
+        val it = data.data!!.items.first()
+        assertEquals("沙发", it.content)
+        assertEquals("", it.quotedContent)
+        assertEquals(9L, it.replyRootId)
+        assertEquals(9L, it.replyParentId)
         assertEquals(false, data.data?.hasMore)
     }
 
+    /** 字段形状按 bilibili-API-collect `message/msg.md` 的 x/msgfeed/like 示例构造（非线上抓取）。 */
     @Test
-    fun `收到喜欢列表解析`() {
+    fun `收到喜欢列表解析：对象 id 取 item_id`() {
         val data = json.decodeFromString<BiliResponse<LikeFeedData>>(
             """
             {
               "code": 0,
               "data": {
+                "total": { "cursor": { "is_end": true, "id": 1, "time": 1 }, "items": [] },
                 "latest": {
                   "items": [
                     {
                       "id": 22,
                       "users": [
-                        { "mid": 333, "nickname": "用户C", "avatar": "//fc" }
+                        { "mid": 333, "nickname": "用户C", "avatar": "//fc" },
+                        { "mid": 334, "nickname": "用户D", "avatar": "//fd" }
                       ],
-                      "item": { "source_id": 2000, "business_id": 1, "title": "被点赞视频" },
-                      "like_time": 1700000000
+                      "item": {
+                        "item_id": 2000,
+                        "pid": 0,
+                        "type": "video",
+                        "business": "视频",
+                        "business_id": 0,
+                        "reply_business_id": 1,
+                        "title": "被点赞视频",
+                        "desc": "",
+                        "image": "",
+                        "uri": "https://www.bilibili.com/video/BV1xx411c7mD",
+                        "native_uri": "bilibili://video/2000"
+                      },
+                      "counts": 5,
+                      "like_time": 1700000000,
+                      "notice_state": 0
                     }
                   ],
-                  "cursor": { "id": 22, "time": 1700000000, "is_end": true }
+                  "last_view_at": 0
                 }
               }
             }
@@ -189,10 +228,61 @@ class MessageDtoParseTest {
         )
         val items = data.data?.items.orEmpty()
         assertEquals(1, items.size)
-        assertEquals(2000L, items[0].sourceId)
+        assertEquals(2000L, items[0].itemId)
+        assertEquals("video", items[0].type)
         assertEquals("被点赞视频", items[0].title)
         assertEquals("用户C", items[0].firstUser?.name)
+        assertEquals(5, items[0].counts)
         assertEquals(false, data.data?.hasMore)
+    }
+
+    @Test
+    fun `收到喜欢：latest 为空时展示 total 历史，两桶合并去重，分页看 total 游标`() {
+        val data = json.decodeFromString<BiliResponse<LikeFeedData>>(
+            """
+            {
+              "code": 0,
+              "data": {
+                "latest": {
+                  "items": [
+                    { "id": 30, "users": [{ "mid": 1, "nickname": "新赞", "avatar": "" }],
+                      "item": { "item_id": 3000, "type": "video", "title": "新" }, "like_time": 3 }
+                  ],
+                  "last_view_at": 2
+                },
+                "total": {
+                  "cursor": { "is_end": false, "id": 29, "time": 2 },
+                  "items": [
+                    { "id": 30, "users": [{ "mid": 1, "nickname": "新赞", "avatar": "" }],
+                      "item": { "item_id": 3000, "type": "video", "title": "新" }, "like_time": 3 },
+                    { "id": 29, "users": [{ "mid": 2, "nickname": "旧赞", "avatar": "" }],
+                      "item": { "item_id": 2900, "type": "reply", "title": "旧评论" }, "like_time": 2 }
+                  ]
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+        val items = data.data!!.items
+        assertEquals(listOf(30L, 29L), items.map { it.id })
+        assertEquals(true, data.data?.hasMore)
+
+        val onlyHistory = json.decodeFromString<BiliResponse<LikeFeedData>>(
+            """{"code":0,"data":{"latest":{"items":[],"last_view_at":9},
+               "total":{"cursor":{"is_end":true,"id":1,"time":1},
+               "items":[{"id":1,"users":[],"item":{"item_id":10,"type":"video","title":"历史"},"like_time":1}]}}}""",
+        )
+        assertEquals(1, onlyHistory.data!!.items.size)
+        assertEquals(false, onlyHistory.data?.hasMore)
+    }
+
+    @Test
+    fun `用户卡片批量解析`() {
+        val data = json.decodeFromString<BiliResponse<List<UserCard>>>(
+            """{"code":0,"message":"0","ttl":1,"data":[{"mid":1001,"name":"真名","sex":"保密","face":"https://i0.hdslb.com/x.jpg","sign":"","rank":10000,"level":5}]}""",
+        )
+        assertEquals("真名", data.data?.first()?.name)
+        assertEquals(1001L, data.data?.first()?.mid)
     }
 
     @Test

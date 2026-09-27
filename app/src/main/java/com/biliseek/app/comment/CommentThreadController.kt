@@ -1,0 +1,286 @@
+package com.biliseek.app.comment
+
+import com.biliseek.app.data.RemoteListState
+import com.biliseek.core.network.BiliRepository
+import com.biliseek.core.network.BiliSession
+import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.internal.resolveReplyRootParent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
+
+/** 评论回复目标：null=发表新评论；非 null=回复某条一级评论。 */
+data class CommentReplyTarget(
+    val root: Long,
+    val parent: Long,
+    val uname: String,
+)
+
+/** 一个评论区对话框的状态：列表 + 分页 + 楼中楼 + 回复目标 + 输入框。 */
+data class CommentThreadState(
+    val oid: Long,
+    val type: Int,
+    /** 宿主自定的来源标识（动态 = dyn_id_str，播放页 = bvid），回调里用来定位要同步的外部状态。 */
+    val key: String = "",
+    val content: String = "",
+    val isPosting: Boolean = false,
+    /** 1=热度 0=时间，对应 [BiliRepository.comments] 的 sort 参数。 */
+    val sort: Int = 1,
+    val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
+    /** key=一级评论 rpid，value=其楼中楼的分页状态。未展开的评论不在这个 map 里。 */
+    val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
+    val replyTarget: CommentReplyTarget? = null,
+)
+
+/**
+ * 评论区对话框的状态与动作（读列表、翻页、楼中楼、点赞、回复、发表）。
+ *
+ * 从 AppViewModel 拆出：动态评论与播放页评论原先各有一份几乎逐行相同的实现，现在各持一个实例。
+ * 不是 ViewModel，生命周期挂在宿主的 [scope] 上。发表评论前后的外部副作用（如动态卡片评论数的
+ * 乐观 +1 / 回滚）通过 [onPostStarted] / [onPostFailed] 交给宿主。
+ */
+class CommentThreadController(
+    private val scope: CoroutineScope,
+    private val repository: BiliRepository,
+    private val session: StateFlow<BiliSession>,
+    private val emitMessage: (String) -> Unit,
+    private val onPostStarted: (CommentThreadState) -> Unit = {},
+    private val onPostFailed: (CommentThreadState) -> Unit = {},
+) {
+    private val _state = MutableStateFlow<CommentThreadState?>(null)
+    /** null = 对话框关闭。 */
+    val state: StateFlow<CommentThreadState?> = _state.asStateFlow()
+
+    /** 点赞防抖：记录每条评论最近一次发起请求的时间戳。 */
+    private val likeRequestGate = ConcurrentHashMap<Long, Long>()
+
+    /** 打开对话框并立即加载第一页。未登录也可读。 */
+    fun open(oid: Long, type: Int, key: String = "") {
+        _state.value = CommentThreadState(oid = oid, type = type, key = key)
+        load(reset = true)
+    }
+
+    fun dismiss() { _state.value = null }
+
+    fun updateContent(text: String) {
+        val cur = _state.value ?: return
+        _state.value = cur.copy(content = text)
+    }
+
+    /** 切换热度/时间排序：清空列表重新拉第 1 页。 */
+    fun setSort(sort: Int) {
+        val cur = _state.value ?: return
+        if (cur.sort == sort) return
+        _state.value = cur.copy(sort = sort, comments = RemoteListState.empty())
+        load(reset = true)
+    }
+
+    fun loadMore() {
+        val cur = _state.value ?: return
+        if (!cur.comments.hasMore) return
+        load(reset = false)
+    }
+
+    /** 加载评论列表。reset=true 重新拉第 1 页；false 翻页追加。 */
+    private fun load(reset: Boolean) {
+        val cur = _state.value ?: return
+        val base = if (reset) RemoteListState.empty<ReplyItem>() else cur.comments
+        if (base.isLoading || base.isLoadingMore) return
+        val nextPage = if (reset) 1 else base.page + 1
+        val loadingMore = !reset
+        _state.value = cur.copy(
+            comments = base.copy(isLoading = !loadingMore, isLoadingMore = loadingMore, errorMessage = null),
+        )
+        scope.launch {
+            repository.comments(cur.oid, cur.type, nextPage, cur.sort)
+                .onSuccess { page ->
+                    val dialog = _state.value ?: return@onSuccess
+                    val mergedItems = if (reset) page.items else dialog.comments.items + page.items
+                    _state.value = dialog.copy(
+                        comments = dialog.comments.copy(
+                            items = mergedItems,
+                            page = nextPage,
+                            hasMore = mergedItems.size < page.count,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = null,
+                        ),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _state.value ?: return@onFailure
+                    _state.value = dialog.copy(
+                        comments = dialog.comments.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = err.message ?: "评论加载失败",
+                        ),
+                    )
+                }
+        }
+    }
+
+    /** 设置回复目标：`rootRpid=null` 表示回复一级评论；非 null 表示回复该一级评论下的楼中楼。 */
+    fun startReplyTo(reply: ReplyItem, rootRpid: Long? = null) {
+        val cur = _state.value ?: return
+        val (root, parent) = resolveReplyRootParent(reply.rpid, rootRpid)
+        _state.value = cur.copy(
+            replyTarget = CommentReplyTarget(root = root, parent = parent, uname = reply.member.uname),
+        )
+    }
+
+    fun clearReplyTarget() {
+        val cur = _state.value ?: return
+        _state.value = cur.copy(replyTarget = null)
+    }
+
+    /** 评论点赞 / 取消：500ms 防抖，乐观更新，失败回滚。`rootRpid` 非 null 表示这是楼中楼里的评论。 */
+    fun toggleLike(reply: ReplyItem, rootRpid: Long? = null) {
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再点赞")
+            return
+        }
+        val cur = _state.value ?: return
+        val like = reply.action != 1
+        val now = System.currentTimeMillis()
+        val last = likeRequestGate[reply.rpid] ?: 0L
+        if (now - last < 500) return
+        likeRequestGate[reply.rpid] = now
+        patchLike(reply.rpid, rootRpid, like)
+        scope.launch {
+            repository.replyAction(cur.oid, cur.type, reply.rpid, like)
+                .onFailure { err ->
+                    patchLike(reply.rpid, rootRpid, !like)
+                    emitMessage("点赞失败：${err.message ?: "未知错误"}")
+                }
+        }
+    }
+
+    /** 乐观更新某条评论（或楼中楼）的点赞态，就地替换列表里的对应条目。 */
+    private fun patchLike(rpid: Long, rootRpid: Long?, like: Boolean) {
+        val cur = _state.value ?: return
+        fun patchList(items: List<ReplyItem>) = items.map { item ->
+            if (item.rpid == rpid) {
+                item.copy(
+                    like = (item.like + if (like) 1 else -1).coerceAtLeast(0),
+                    action = if (like) 1 else 0,
+                )
+            } else item
+        }
+        if (rootRpid == null) {
+            _state.value = cur.copy(comments = cur.comments.copy(items = patchList(cur.comments.items)))
+        } else {
+            val subState = cur.expandedSubReplies[rootRpid] ?: return
+            _state.value = cur.copy(
+                expandedSubReplies = cur.expandedSubReplies + (rootRpid to subState.copy(items = patchList(subState.items))),
+            )
+        }
+    }
+
+    /** 展开楼中楼：第一次点击才发请求，之后复用已加载的状态。 */
+    fun expandSubReplies(reply: ReplyItem) {
+        val cur = _state.value ?: return
+        if (cur.expandedSubReplies.containsKey(reply.rpid)) return
+        _state.value = cur.copy(
+            expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
+        )
+        scope.launch {
+            repository.subReplies(cur.oid, cur.type, reply.rpid, page = 1)
+                .onSuccess { page ->
+                    val dialog = _state.value ?: return@onSuccess
+                    _state.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to RemoteListState(
+                            items = page.items,
+                            page = 1,
+                            hasMore = page.items.size < page.count,
+                            isLoading = false,
+                        )),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _state.value ?: return@onFailure
+                    val prev = dialog.expandedSubReplies[reply.rpid] ?: RemoteListState<ReplyItem>()
+                    _state.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to prev.copy(
+                            isLoading = false,
+                            errorMessage = err.message ?: "楼中楼加载失败",
+                        )),
+                    )
+                }
+        }
+    }
+
+    fun loadMoreSubReplies(rootRpid: Long) {
+        val cur = _state.value ?: return
+        val state = cur.expandedSubReplies[rootRpid] ?: return
+        if (!state.hasMore || state.isLoading || state.isLoadingMore) return
+        val nextPage = state.page + 1
+        _state.value = cur.copy(
+            expandedSubReplies = cur.expandedSubReplies + (rootRpid to state.copy(isLoadingMore = true)),
+        )
+        scope.launch {
+            repository.subReplies(cur.oid, cur.type, rootRpid, page = nextPage)
+                .onSuccess { page ->
+                    val dialog = _state.value ?: return@onSuccess
+                    val prev = dialog.expandedSubReplies[rootRpid] ?: return@onSuccess
+                    val merged = prev.items + page.items
+                    _state.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
+                            items = merged,
+                            page = nextPage,
+                            hasMore = merged.size < page.count,
+                            isLoadingMore = false,
+                        )),
+                    )
+                }
+                .onFailure { err ->
+                    val dialog = _state.value ?: return@onFailure
+                    val prev = dialog.expandedSubReplies[rootRpid] ?: return@onFailure
+                    _state.value = dialog.copy(
+                        expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
+                            isLoadingMore = false,
+                            errorMessage = err.message ?: "楼中楼加载失败",
+                        )),
+                    )
+                }
+        }
+    }
+
+    /** 提交评论：发新评论或回复 [CommentThreadState.replyTarget]；成功后清空输入框与回复目标并刷新列表首页。 */
+    fun submit() {
+        val cur = _state.value ?: return
+        if (!session.value.isLoggedIn) {
+            emitMessage("请先登录后再评论")
+            return
+        }
+        if (cur.isPosting || cur.content.isBlank()) return
+        _state.value = cur.copy(isPosting = true)
+        val target = cur.replyTarget
+        onPostStarted(cur)
+        scope.launch {
+            repository.addDynamicReply(
+                oid = cur.oid,
+                type = cur.type,
+                message = cur.content,
+                root = target?.root ?: 0L,
+                parent = target?.parent ?: 0L,
+            )
+                .onSuccess {
+                    val dialog = _state.value
+                    if (dialog != null) {
+                        _state.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
+                    }
+                    emitMessage("评论已发送")
+                    load(reset = true)
+                }
+                .onFailure { err ->
+                    _state.value = _state.value?.copy(isPosting = false)
+                    onPostFailed(cur)
+                    emitMessage("评论失败：${err.message ?: "未知错误"}")
+                }
+        }
+    }
+}

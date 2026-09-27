@@ -24,6 +24,8 @@ BiliSeek is a search-driven, audio-first, no-recommendation third-party Bilibili
 ./gradlew archiveReleaseArtifacts      # archive APK + mapping.txt to releases/<versionName>/
 ```
 
+CI (`.github/workflows/ci.yml`) runs `./gradlew test assembleDebug` on every push; `build-debug-apk.yml` is a manual job that publishes a debug APK to Releases. Shared SDK setup lives in `.github/actions/setup-android` — keep its `platforms;android-XX.Y` in sync with `compileSdk`.
+
 Environment (see `docs/01-开发环境搭建.md` for a clean-machine setup): minSdk 26 / targetSdk 35 / compileSdk 37, AGP 9.3.1, Gradle 9.7.1, Kotlin 2.4.10, JDK 21, Media3 1.11.0. Requires `local.properties` with `sdk.dir`. Point Gradle at the IDE's JBR via `org.gradle.java.home` to avoid dueling daemons.
 
 - **AGP 9 has built-in Kotlin support** — do **not** declare the `org.jetbrains.kotlin.android` plugin; it errors. Modules use `kotlin.compose` / `kotlin.serialization` / `ksp` plugins as needed.

@@ -11,23 +11,14 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.LoginState
 import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
-import com.biliseek.core.network.SearchException
-import com.biliseek.core.network.SearchIntent
 import com.biliseek.core.network.SearchOrder
-import com.biliseek.core.network.SearchPage
-import com.biliseek.core.network.avToBv
 import com.biliseek.core.network.bvToAv
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
-import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
-import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.dto.SeriesItem
-import com.biliseek.core.network.dto.SeriesArchive
-import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.SeriesArchivesPage
-import com.biliseek.core.network.parseSearchInput
 import android.view.SurfaceView
 import android.graphics.Bitmap
 import coil3.imageLoader
@@ -50,18 +41,17 @@ import com.biliseek.app.data.SettingsStore
 import com.biliseek.app.data.TrackEntity
 import com.biliseek.app.data.VideoGate
 import com.biliseek.app.data.resolveVideoGate
-import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
+import com.biliseek.app.comment.CommentThreadController
+import com.biliseek.app.dynamic.DynamicFeedController
+import com.biliseek.app.remote.RemoteLibraryController
+import com.biliseek.app.upspace.UpSpaceController
+import com.biliseek.app.search.SearchController
 import com.biliseek.app.data.RemoteListState
-import com.biliseek.app.data.CollectedListLoadState
-import com.biliseek.app.data.DynamicExpandState
-import com.biliseek.app.data.nextDynamicExpandState
-import com.biliseek.app.data.shouldFetchDynamicDetail
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.DynamicItemType
 import com.biliseek.core.network.dto.FollowingUp
-import com.biliseek.core.network.dto.ReplyItem
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -216,28 +206,6 @@ data class UpSpaceUiState(
     val followingLoading: Boolean = false,
 )
 
-/** 评论回复目标：null=发表新评论；非 null=回复某条一级评论。 */
-data class CommentReplyTarget(
-    val root: Long,
-    val parent: Long,
-    val uname: String,
-)
-
-/** Ch4 动态评论对话框状态：列表 + 分页 + 楼中楼 + 回复目标。 */
-data class CommentDialogState(
-    val idStr: String,
-    val oid: Long,
-    val type: Int,
-    val content: String = "",
-    val isPosting: Boolean = false,
-    /** 1=热度 0=时间，对应 [BiliRepository.comments] 的 sort 参数。 */
-    val sort: Int = 1,
-    val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
-    /** key=一级评论 rpid，value=其楼中楼的分页状态。未展开的评论不在这个 map 里。 */
-    val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
-    val replyTarget: CommentReplyTarget? = null,
-)
-
 /** Ch4 图文动态图片全屏预览状态。 */
 data class ImagePreviewState(
     val pics: List<String>,
@@ -294,8 +262,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val loginState: StateFlow<LoginState> = network.loginManager.state
     val session: StateFlow<BiliSession> = network.sessionStore.session
 
-    private val _search = MutableStateFlow(SearchUiState())
-    val search: StateFlow<SearchUiState> = _search.asStateFlow()
 
     /**
      * 「已开始播放」事件。UI 据此切到播放页。
@@ -340,16 +306,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ── Ch4 状态 ──────────────────────────────────────
 
-    /** 动态评论对话框。null=关闭。 */
-    private val _commentDialog = MutableStateFlow<CommentDialogState?>(null)
-    val commentDialog: StateFlow<CommentDialogState?> = _commentDialog.asStateFlow()
+    /** 动态：关注流 + 卡片互动（评论对话框在 `dynamics.comments`）。 */
+    val dynamics: DynamicFeedController = DynamicFeedController(
+        scope = viewModelScope,
+        repository = network.repository,
+        library = library,
+        session = session,
+        emitMessage = ::emitMessage,
+        patchOtherEntry = { idStr, transform -> upSpace.patchDynamicEntry(idStr, transform) },
+        findOtherEntry = { idStr -> upSpace.state.value.dynamic.items.firstOrNull { it.idStr == idStr } },
+    )
 
     /** 图文动态图片全屏预览。null=关闭。 */
     private val _previewImage = MutableStateFlow<ImagePreviewState?>(null)
     val previewImage: StateFlow<ImagePreviewState?> = _previewImage.asStateFlow()
-
-    /** 点赞防抖：记录每个 dyn_id_str 最近一次发起请求的时间戳。 */
-    private val likeRequestGate = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private var pollJob: Job? = null
 
@@ -376,9 +346,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val playlistTrackCounts = library.observePlaylistTrackCounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    val searchHistory = library.observeSearchHistory()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     val recentPlays = library.observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -398,83 +365,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    // ── 收藏夹目录快照（M11-B）──────────────────────────
+    // ── B 站远程列表（收藏夹 / 稍后再看 / 合集）：见 RemoteLibraryController ──
 
-    /** 收藏夹目录（音乐库「收藏夹」分区）。落库快照，未登录时为空。 */
-    val favoriteFolders: StateFlow<List<FavoriteFolderEntity>> = library.observeFavoriteFolders()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** 目录同步状态：拉取中 / 错误（可重试）。 */
-    private val _favoriteSync = MutableStateFlow<SyncState>(SyncState.Idle)
-    val favoriteSync: StateFlow<SyncState> = _favoriteSync.asStateFlow()
-
-    /**
-     * 同步收藏夹目录（整体替换快照）。
-     *
-     * 未登录不发起网络请求，直接置 [SyncState.NotLoggedIn]——
-     * 音乐库分区据此显示登录引导。
-     *
-     * 封面策略：B 站 list-all 接口常返回空封面（用户从未给文件夹设置封面），
-     * 此时拉一次首页内容，取首条 media 的 cover 作不上去——避免列表里全是占位色块。
-     * 每个空封面目录串行打一次「收藏夹内容」接口，N 个文件夹多 N 次请求，
-     * 平时几个夹子的话几秒内能完成。
-     */
-    fun syncFavoriteFolders() {
-        if (_favoriteSync.value is SyncState.Syncing) return
-        if (!session.value.isLoggedIn) {
-            _favoriteSync.value = SyncState.NotLoggedIn
-            return
-        }
-        viewModelScope.launch {
-            _favoriteSync.value = SyncState.Syncing
-            network.repository.favoriteFolders()
-                .onSuccess { folders ->
-                    val now = System.currentTimeMillis()
-                    val entities = folders.map { folder ->
-                        val cover = folder.cover.ifBlank {
-                            // 串行：N 个空封面就 N 次额外请求。
-                            // 并发会马上被 B 站限流，不如让用户感觉到一点进度。
-                            network.repository.firstMediaCover(folder.id).orEmpty()
-                        }
-                        FavoriteFolderEntity(
-                            mediaId = folder.id,
-                            title = folder.title,
-                            coverUrl = com.biliseek.core.network.normalizeCoverUrl(cover),
-                            mediaCount = folder.mediaCount,
-                            syncedAt = now,
-                        )
-                    }
-                    library.replaceFavoriteFolders(entities)
-                    _favoriteSync.value = SyncState.Idle
-                }
-                .onFailure {
-                    _favoriteSync.value = SyncState.Error(it.message ?: "同步失败")
-                }
-        }
-    }
-
-    private fun FavoriteMedia.toTrack() = FavoriteTrack(
-        bvid = bvid,
-        title = com.biliseek.core.network.stripHighlight(title),
-        coverUrl = com.biliseek.core.network.normalizeCoverUrl(cover),
-        durationSec = duration,
-        author = upper?.name.orEmpty(),
+    val remoteLibrary: RemoteLibraryController = RemoteLibraryController(
+        scope = viewModelScope,
+        repository = network.repository,
+        library = library,
+        session = session,
+        playBvid = { bvid, title, coverUrl, author, durationSec ->
+            playBvid(bvid, title, coverUrl, author, durationSec)
+        },
     )
-
-    /** 打开收藏夹内容页（分页拉取，不落库）。 */
-    fun openFavorite(mediaId: Long, title: String) {
-        _openedFavorite.value = RemoteListState(
-            id = TrackListId.Favorite(mediaId),
-            title = title,
-        )
-        loadFavoritePage(1)
-    }
-
-    fun closeFavorite() { _openedFavorite.value = null }
-
-    private val _openedFavorite =
-        MutableStateFlow<RemoteListState<FavoriteTrack>?>(null)
-    val openedFavorite: StateFlow<RemoteListState<FavoriteTrack>?> = _openedFavorite.asStateFlow()
 
     // ── 日历史页（M12）────────────────────────────────────
 
@@ -499,233 +400,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 日历史页点条目：与「最近播放」同一条播放路径。 */
     fun playDayHistoryEntry(entry: PlayHistoryEntity) = playHistoryEntry(entry)
-
-    // ── 稍后再看（M12）───────────────────────────────────
-
-    /** 稍后再看列表状态。 */
-    private val _watchLater = MutableStateFlow<RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>?>(null)
-    val watchLater: StateFlow<RemoteListState<com.biliseek.core.network.dto.WatchLaterItem>?> = _watchLater.asStateFlow()
-
-    /** 打开稍后再看页：未登录置空（UI 显示登录引导）。 */
-    fun openWatchLater() {
-        if (!session.value.isLoggedIn) {
-            _watchLater.value = RemoteListState(
-                id = TrackListId.WatchLater,
-                title = "稍后再看",
-            )
-            return
-        }
-        // 不预置 isLoading：loadWatchLater 自己会设，预置反而被开头
-        // `if (state.isLoading) return` 挡掉——请求永远发不出去（M12 bug）。
-        _watchLater.value = RemoteListState(
-            id = TrackListId.WatchLater,
-            title = "稍后再看",
-        )
-        loadWatchLater()
-    }
-
-    fun closeWatchLater() { _watchLater.value = null }
-
-    fun retryWatchLater() = loadWatchLater()
-
-    private fun loadWatchLater() {
-        val state = _watchLater.value ?: return
-        if (state.isLoading) return
-        viewModelScope.launch {
-            _watchLater.value = state.copy(isLoading = true, errorMessage = null)
-            network.repository.watchLater()
-                .onSuccess { items ->
-                    _watchLater.value = _watchLater.value?.copy(
-                        items = items,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                }
-                .onFailure {
-                    _watchLater.value = _watchLater.value?.copy(
-                        isLoading = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 点稍后再看条目：走与收藏夹相同的 playBvid 路径。 */
-    fun playWatchLaterItem(item: com.biliseek.core.network.dto.WatchLaterItem) {
-        playBvid(
-            bvid = item.bvid,
-            title = item.title,
-            coverUrl = com.biliseek.core.network.normalizeCoverUrl(item.pic),
-            author = item.owner?.name.orEmpty(),
-            durationSec = item.duration,
-        )
-    }
-
-    // ── 合集（M13-N）────────────────────────────────
-
-    /** 订阅合集列表（分页）。 */
-    private val _collectedList = MutableStateFlow<List<CollectedItem>>(emptyList())
-    val collectedList: StateFlow<List<CollectedItem>> = _collectedList.asStateFlow()
-
-    /** 当前打开的合集内容页（分页拉取，不落库）。 */
-    private val _openedSeries = MutableStateFlow<RemoteListState<SeriesArchive>?>(null)
-    val openedSeries: StateFlow<RemoteListState<SeriesArchive>?> = _openedSeries.asStateFlow()
-
-    /** 订阅合集列表加载状态。 */
-    private val _collectedListState = MutableStateFlow(CollectedListLoadState())
-    val collectedListState: StateFlow<CollectedListLoadState> = _collectedListState.asStateFlow()
-
-    /** 加载订阅合集列表第 [page] 页。 */
-    fun loadCollectedList(page: Int = 1) {
-        val mid = session.value.dedeUserId.toLongOrNull() ?: return
-        val state = _collectedListState.value
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        viewModelScope.launch {
-            val loadingMore = page > 1
-            _collectedListState.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            network.repository.collectedList(mid, page)
-                .onSuccess { result ->
-                    val base = _collectedListState.value
-                    _collectedList.value = if (loadingMore) _collectedList.value + result.items else result.items
-                    _collectedListState.value = base.copy(
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        totalCount = result.totalCount,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    _collectedListState.value = _collectedListState.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 打开合集内容页。 */
-    fun openSeries(seriesId: Long, title: String) {
-        _openedSeries.value = RemoteListState(
-            id = TrackListId.Series(seriesId),
-            title = title,
-        )
-        loadSeriesPage(1)
-    }
-
-    fun closeSeries() { _openedSeries.value = null }
-
-    /** 加载合集内容第 [page] 页。 */
-    fun loadSeriesPage(page: Int) {
-        val state = _openedSeries.value ?: return
-        val seriesId = (state.id as? TrackListId.Series)?.seriesId ?: return
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        viewModelScope.launch {
-            val loadingMore = page > 1
-            _openedSeries.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            network.repository.collectionSeasonList(seriesId, page)
-                .onSuccess { result ->
-                    val base = _openedSeries.value ?: return@onSuccess
-                    val archives = result.items.map { item ->
-                        SeriesArchive(
-                            bvid = item.bvid,
-                            cid = item.id,
-                            title = item.title,
-                            cover = item.cover,
-                            duration = item.duration.toLong(),
-                            author = item.upper.name,
-                        )
-                    }
-                    _openedSeries.value = base.copy(
-                        items = if (loadingMore) base.items + archives else archives,
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    val base = _openedSeries.value ?: return@onFailure
-                    _openedSeries.value = base.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 点合集条目：走与收藏夹相同的 playBvid 路径。 */
-    fun playSeriesArchive(archive: SeriesArchive) {
-        playBvid(
-            bvid = archive.bvid,
-            title = archive.title,
-            coverUrl = com.biliseek.core.network.normalizeCoverUrl(archive.cover),
-            author = archive.author,
-            durationSec = archive.duration,
-        )
-    }
-
-    /** 加载收藏夹内容第 [page] 页。翻页时追加，刷新时从第 1 页替换。 */
-    fun loadFavoritePage(page: Int) {
-        val state = _openedFavorite.value ?: return
-        val id = state.id as? TrackListId.Favorite ?: return
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        viewModelScope.launch {
-            val loadingMore = page > 1
-            _openedFavorite.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            network.repository.favoriteResources(id.mediaId, page)
-                .onSuccess { result ->
-                    val base = _openedFavorite.value ?: return@onSuccess
-                    _openedFavorite.value = base.copy(
-                        items = if (loadingMore) base.items + result.items.map { it.toTrack() }
-                        else result.items.map { it.toTrack() },
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    val base = _openedFavorite.value ?: return@onFailure
-                    _openedFavorite.value = base.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /**
-     * 点收藏夹条目：取分 P，单 P 直接播，多 P 整张作队列从头播。
-     * （搜索结果里「先展开再选」是因为用户在看；收藏夹里点播放意图是「听」。）
-     */
-    fun playFavoriteTrack(item: FavoriteTrack) {
-        playBvid(
-            bvid = item.bvid,
-            title = item.title,
-            coverUrl = item.coverUrl,
-            author = item.author,
-            durationSec = item.durationSec,
-        )
-    }
 
     /**
      * 按 bvid 起播：单 P 直接播，多 P 整张作队列从头播。
@@ -773,40 +447,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── 动态（M11-C）──────────────────────────────────────
-
-    private val _dynamic = MutableStateFlow(DynamicUiState())
-    val dynamic: StateFlow<DynamicUiState> = _dynamic.asStateFlow()
-
-    /** 登录后首次进入动态 tab 时调用：拉关注列表 + 第一页动态。 */
-    fun initDynamic(forceRefresh: Boolean = false) {
-        if (!session.value.isLoggedIn) return
-        val cur = _dynamic.value
-        if (cur.initState is DynamicInitState.Loading) return
-        if (!forceRefresh && (cur.upChips.isNotEmpty() || cur.feed.items.isNotEmpty())) return
-        viewModelScope.launch {
-            _dynamic.value = cur.copy(initState = DynamicInitState.Loading)
-            network.repository.followings()
-                .onSuccess { ups ->
-                    _dynamic.value = _dynamic.value.copy(
-                        upChips = mergeUpChips(ups, library.upVisitAll()),
-                        initState = DynamicInitState.Idle,
-                    )
-                    loadDynamicPage(offset = "")
-                }
-                .onFailure {
-                    _dynamic.value = _dynamic.value.copy(
-                        initState = DynamicInitState.Error(it.message ?: "加载失败"),
-                    )
-                }
-        }
-    }
-
-    /** 合并关注列表与本地访问记录，产出「最常访问」栏的展示顺序。 */
-    private suspend fun mergeUpChips(
-        followings: List<FollowingUp>,
-        visits: List<com.biliseek.app.data.UpVisitEntity>,
-    ): List<FollowingUp> = com.biliseek.app.data.UpVisitPolicy.mergeUpChips(followings, visits)
+    // ── 动态（M11-C）：见 DynamicFeedController ──
 
     /** 计一次 UP 访问。失败静默：不影响主流程。 */
     private fun recordUpVisit(mid: Long) {
@@ -814,102 +455,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { library.recordUpVisit(mid) }
     }
 
-    /** 「全部 / 仅视频」切换：变化必须重置游标重拉第 1 页。 */
-    fun setDynamicTypeFilter(type: String) {
-        val cur = _dynamic.value
-        if (cur.typeFilter == type) return
-        _dynamic.value = cur.copy(typeFilter = type, feed = RemoteListState.empty(), feedOffset = "")
-        loadDynamicPage(offset = "")
-    }
-
-    /**
- * 按 UP 筛选：null = 回关注流，非 null = 只看该 UP。切换同样重置游标。
- *
- * 再点已选中的 UP = 取消筛选（与 B 站 App 行为一致）。
- */
-    fun selectDynamicUp(up: FollowingUp?) {
-        val cur = _dynamic.value
-        val targetMid = if (up != null && cur.selectedUpMid == up.mid) null else up?.mid
-        if (cur.selectedUpMid == targetMid) return
-        _dynamic.value = cur.copy(
-            selectedUpMid = targetMid,
-            feed = RemoteListState.empty(),
-            feedOffset = "",
-        )
-        loadDynamicPage(offset = "")
-        // 筛选本身就是一次「访问」：计入最常访问（取消筛选不计）。
-        if (up != null && targetMid != null) recordUpVisit(up.mid)
-    }
-
-    /** 强制刷新关注列表（无视缓存），关注/取关成功后调用。 */
-    private fun refreshUpChips() = viewModelScope.launch {
-        network.repository.followings()
-            .onSuccess { ups ->
-                _dynamic.value = _dynamic.value.copy(
-                    upChips = mergeUpChips(ups, library.upVisitAll()),
-                )
-            }
-    }
-
     /** 从关注列表页点击 UP 主 → 打开 UP 空间页。 */
     fun openUpSpaceFromFollowing(up: FollowingUp) {
         openUpSpace(
             SearchUser(mid = up.mid, uname = up.uname, upic = up.face)
         )
-    }
-
-    /** 加载下一页（继续翻）。 */
-    fun loadMoreDynamic() {
-        val cur = _dynamic.value
-        if (!cur.feed.hasMore) return
-        loadDynamicPage(offset = cur.feedOffset)
-    }
-
-    private fun loadDynamicPage(offset: String) {
-        val cur = _dynamic.value
-        if (cur.feed.isLoading || cur.feed.isLoadingMore) return
-        val loadingMore = offset.isNotBlank()
-        viewModelScope.launch {
-            _dynamic.value = cur.feed.let { feed ->
-                cur.copy(
-                    feed = feed.copy(
-                        isLoading = !loadingMore,
-                        isLoadingMore = loadingMore,
-                        errorMessage = null,
-                    ),
-                )
-            }
-            val result = if (cur.selectedUpMid != null) {
-                network.repository.dynamicSpace(cur.selectedUpMid, offset)
-            } else {
-                network.repository.dynamicFeed(cur.typeFilter, offset)
-            }
-            result
-                .onSuccess { pageData ->
-                    val base = _dynamic.value.feed
-                    _dynamic.value = _dynamic.value.copy(
-                        feed = base.copy(
-                            items = if (loadingMore) base.items + pageData.entries
-                            else pageData.entries,
-                            hasMore = pageData.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                        feedOffset = pageData.offset,
-                    )
-                }
-                .onFailure {
-                    val base = _dynamic.value.feed
-                    _dynamic.value = _dynamic.value.copy(
-                        feed = base.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = it.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
     }
 
     /** 点动态条目：视频动态直接播（走与收藏夹相同的 playBvid 路径）。 */
@@ -987,14 +537,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 全选：只覆盖点击当时已加载的可见项（定案 Ch3-5）。 */
     fun selectAllVisible() {
-        _selectedBvids.value = _search.value.items.map { it.bvid }.toSet()
+        _selectedBvids.value = search.state.value.items.map { it.bvid }.toSet()
     }
 
     fun clearSelection() { _selectedBvids.value = emptySet() }
 
     private fun selectedVideos(): List<SearchVideo> {
         val sel = _selectedBvids.value
-        return _search.value.items.filter { it.bvid in sel }
+        return search.state.value.items.filter { it.bvid in sel }
     }
 
     /**
@@ -1095,13 +645,13 @@ return pages.map { p ->
     }
 
     fun togglePageSelection(cid: Long) = pageSelection.toggle(cid.toString())
-    fun selectAllPages() = pageSelection.selectAll(_search.value.pages.map { it.cid.toString() })
+    fun selectAllPages() = pageSelection.selectAll(search.state.value.pages.map { it.cid.toString() })
     fun clearPageSelection() = pageSelection.clear()
     fun exitPageSelection() = pageSelection.exit()
 
     /** 多 P 条目 → 播放请求：标题带 P 序号，封面 / UP 主从面板头部状态带。 */
     private fun PageEntry.toPageRequest(): PlaybackRequest.Bili {
-        val s = _search.value
+        val s = search.state.value
         return PlaybackRequest.Bili(
             bvid = s.pagesOfBvid,
             cid = cid,
@@ -1115,7 +665,7 @@ return pages.map { p ->
     /** 多 P 面板批量动作：选中 P（保持自然顺序）执行；执行前退出复选。 */
     fun runPageBatch(action: PendingAction) = viewModelScope.launch {
         val sel = pageSelection.selected.value
-        val chosen = _search.value.pages.filter { it.cid.toString() in sel }
+        val chosen = search.state.value.pages.filter { it.cid.toString() in sel }
         pageSelection.exit()
         execute(action, chosen.map { it.toPageRequest() })
     }
@@ -1126,7 +676,7 @@ return pages.map { p ->
     }
 
     fun pageVideoUrl(entry: PageEntry) =
-        "https://www.bilibili.com/video/${_search.value.pagesOfBvid}?p=${entry.page}"
+        "https://www.bilibili.com/video/${search.state.value.pagesOfBvid}?p=${entry.page}"
 
     // ── UP 空间投稿的复选与动作 ──────────────────────────
 
@@ -1137,13 +687,13 @@ return pages.map { p ->
     }
 
     fun toggleUpSelection(bvid: String) = upSelection.toggle(bvid)
-    fun selectAllUp() = upSelection.selectAll(_upSpace.value.posts.items.map { it.bvid })
+    fun selectAllUp() = upSelection.selectAll(upSpace.state.value.posts.items.map { it.bvid })
     fun clearUpSelection() = upSelection.clear()
     fun exitUpSelection() = upSelection.exit()
 
     private fun selectedUpVideos(): List<SearchVideo> {
         val sel = upSelection.selected.value
-        return _upSpace.value.posts.items.filter { it.bvid in sel }.map { it.toSearchVideo() }
+        return upSpace.state.value.posts.items.filter { it.bvid in sel }.map { it.toSearchVideo() }
     }
 
     /** UP 空间批量动作：选中投稿展开全 P（自然顺序）执行；执行前退出复选。 */
@@ -1234,7 +784,7 @@ return pages.map { p ->
                         ok == 0 -> emitMessage("收藏夹已创建，但视频加入失败")
                         else -> emitMessage("已创建收藏夹，加入 $ok 项、$failed 项失败")
                     }
-                    syncFavoriteFolders()
+                    remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("创建收藏夹失败：${it.message ?: "未知错误"}") }
         }
@@ -1247,7 +797,7 @@ return pages.map { p ->
             network.repository.addFavoriteFolder(title, intro)
                 .onSuccess {
                     emitMessage("已创建收藏夹")
-                    syncFavoriteFolders()
+                    remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("创建收藏夹失败：${it.message ?: "未知错误"}") }
         }
@@ -1260,7 +810,7 @@ return pages.map { p ->
             network.repository.editFavoriteFolder(mediaId, newTitle)
                 .onSuccess {
                     emitMessage("已修改收藏夹")
-                    syncFavoriteFolders()
+                    remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("编辑失败：${it.message ?: "未知错误"}") }
         }
@@ -1290,7 +840,7 @@ return pages.map { p ->
                             failed == 0 -> emitMessage("已删除收藏夹（清理 $total 个视频）")
                             else -> emitMessage("已删除收藏夹，${total - failed}/$total 个视频已移除")
                         }
-                        syncFavoriteFolders()
+                        remoteLibrary.syncFavoriteFolders()
                     }
                     .onFailure { emitMessage("删除失败：${it.message ?: "未知错误"}") }
             } finally {
@@ -1362,12 +912,12 @@ return pages.map { p ->
     fun showPages(video: SearchVideo) {
         viewModelScope.launch {
             network.repository.pages(video.bvid).onSuccess { pages ->
-                _search.value = _search.value.copy(
+                search.update { it.copy(
                     pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
                     pagesOfBvid = video.bvid,
                     pagesCover = coverOf(video),
                     pagesAuthor = video.author,
-                )
+                ) }
             }
         }
     }
@@ -1392,29 +942,6 @@ return pages.map { p ->
     fun playTrack(item: PlaylistTrack) {
         val items = openedTracks.value
         playPlaylist(items, items.indexOfFirst { it.track.id == item.track.id }.coerceAtLeast(0))
-    }
-
-    fun deleteSearchKeyword(keyword: String) = viewModelScope.launch { library.deleteSearch(keyword) }
-    fun clearSearchHistory() = viewModelScope.launch { library.clearSearchHistory() }
-
-    fun searchKeyword(keyword: String) {
-        _search.value = _search.value.copy(keyword = keyword)
-        submitSearch()
-    }
-
-    /**
-     * 切换搜索筛选（时长 / 排序）。
-     *
-     * **重置到第 1 页**：筛选变了结果集就变了，停留在旧页码会把两页不同的
-     * 结果接在一起。BV/AV/短链直达不走筛选，只有关键词搜索才响应。
-     */
-    fun setSearchFilters(order: SearchOrder, duration: SearchDuration) {
-        val current = _search.value
-        if (current.order == order && current.duration == duration) return
-        _search.value = current.copy(order = order, duration = duration)
-        if (current.keyword.isNotBlank() && parseSearchInput(current.keyword) is SearchIntent.Keyword) {
-            doSearch(current.keyword, page = 1)
-        }
     }
 
     init {
@@ -1490,7 +1017,7 @@ return pages.map { p ->
         viewModelScope.launch {
             session.collect { s ->
                 if (s.isLoggedIn) {
-                    initDynamic(forceRefresh = true)
+                    dynamics.initDynamic(forceRefresh = true)
                 }
             }
         }
@@ -1550,619 +1077,34 @@ return pages.map { p ->
         }.getOrNull()
     }
 
-    // ── 搜索 ────────────────────────────────────────────
+    // ── 搜索 / UP 主搜索：见 SearchController ──
 
-    fun onKeywordChange(text: String) {
-        // 清空搜索框即回到首页空状态：结果一并清掉，否则会停留在上次的列表上
-        _search.value = if (text.isBlank()) {
-            SearchUiState()
-        } else {
-            _search.value.copy(keyword = text)
-        }
-    }
-
-    /** 提交搜索。输入是 BV/AV/短链时直接播放，否则走关键词搜索。 */
-    fun submitSearch() {
-        val raw = _search.value.keyword
-        when (val intent = parseSearchInput(raw)) {
-            is SearchIntent.Video -> play(PlaybackRequest.Bili(intent.bvid, title = intent.bvid))
-
-            // 本地换算，不为了拿 BV 号多打一次网络请求
-            is SearchIntent.VideoAid -> {
-                val bvid = runCatching { avToBv(intent.aid) }.getOrNull()
-                if (bvid == null) doSearch(raw, page = 1)
-                else play(PlaybackRequest.Bili(bvid, title = bvid))
-            }
-
-            is SearchIntent.ShortLink -> expandAndOpen(intent.url, fallbackKeyword = raw)
-
-            is SearchIntent.Keyword -> {
-                if (intent.text.isBlank()) return
-                viewModelScope.launch { library.recordSearch(intent.text) }
-                if (_search.value.searchMode == SearchMode.USER) {
-                    doUserSearch(intent.text, page = 1)
-                } else {
-                    doSearch(intent.text, page = 1)
-                }
-            }
-        }
-    }
-
-    /** 展开 b23 短链后二次解析。展不开或落点不可信时，退回关键词搜索。 */
-    private fun expandAndOpen(url: String, fallbackKeyword: String) {
-        viewModelScope.launch {
-            _search.value = _search.value.copy(isLoading = true, error = null)
-            network.repository.expandShortLink(url)
-                .onSuccess { finalUrl ->
-                    _search.value = _search.value.copy(isLoading = false)
-                    when (val resolved = parseSearchInput(finalUrl)) {
-                        is SearchIntent.Video ->
-                            play(PlaybackRequest.Bili(resolved.bvid, title = resolved.bvid))
-                        is SearchIntent.VideoAid -> {
-                            val bvid = runCatching { avToBv(resolved.aid) }.getOrNull()
-                            if (bvid == null) doSearch(fallbackKeyword, page = 1)
-                            else play(PlaybackRequest.Bili(bvid, title = bvid))
-                        }
-                        else -> doSearch(fallbackKeyword, page = 1)
-                    }
-                }
-                .onFailure {
-                    _search.value = _search.value.copy(isLoading = false)
-                    doSearch(fallbackKeyword, page = 1)
-                }
-        }
-    }
-
-    /**
-     * 接住外部分享。
-     *
-     * 分享过来的文本往往是「标题 + 一句吆喝 + 链接」，
-     * [parseSearchInput] 本来就能从中挑出 BV / 短链，直接整段喂进去即可。
-     */
-    fun handleSharedText(text: String) {
-        if (text.isBlank()) return
-        _search.value = _search.value.copy(keyword = text.trim(), error = null)
-        submitSearch()
-    }
-
-    private fun doSearch(keyword: String, page: Int) {
-        val filters = _search.value
-        viewModelScope.launch {
-            _search.value = _search.value.copy(
-                isLoading = page == 1,
-                isLoadingMore = page > 1,
-                error = null,
-                pages = if (page == 1) emptyList() else _search.value.pages,
-            )
-            network.repository.search(keyword, page, filters.order, filters.duration)
-                .onSuccess { result -> applyPage(result, keyword, append = page > 1) }
-                .onFailure { e ->
-                    _search.value = _search.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = (e as? SearchException)?.error
-                            ?: SearchError.Unknown(e.message ?: "搜索失败"),
-                    )
-                }
-        }
-    }
-
-    private fun applyPage(result: SearchPage, keyword: String, append: Boolean) {
-        val current = _search.value
-        // B 站分页会返回重复条目，必须去重——LazyColumn 的 key 撞重复会直接崩
-        val items = if (append) {
-            com.biliseek.core.network.mergeSearchResults(current.items, result.items)
-        } else {
-            com.biliseek.core.network.mergeSearchResults(emptyList(), result.items)
-        }
-        _search.value = current.copy(
-            items = items,
-            page = result.page,
-            totalPages = result.totalPages,
-            totalResults = result.totalResults,
-            isLoading = false,
-            isLoadingMore = false,
-            // code=0 但一条没有：接口是「成功」的，界面却会是白的。必须显式表达。
-            error = if (items.isEmpty()) SearchError.Empty(keyword) else null,
-        )
-    }
-
-    /** 错误面板上的「重试」。风控 [SearchError.Blocked] 不会走到这里——UI 不给按钮。 */
-    fun retrySearch() {
-        val s = _search.value
-        if (s.keyword.isBlank()) return
-        doSearch(s.keyword, page = if (s.page > 0) s.page else 1)
-    }
+    val search: SearchController = SearchController(
+        scope = viewModelScope,
+        repository = network.repository,
+        library = library,
+        play = ::play,
+    )
 
     /** 取流失败后的「重试」：重放队列里当前这条。 */
     fun retryPlayback() = connection.retry()
 
-    // ── UP 主搜索（M11-D）─────────────────────────────────
+    // ── UP 空间页（M11-D）：见 UpSpaceController ──
 
-    /**
-     * 切换搜索目标（视频 / UP 主）。
-     *
-     * 切换后页码归 1 重搜——与搜索筛选切换同一纪律：
-     * 两种模式结果集完全无关，停留在旧页码会把两页不同种类的结果接在一起。
-     */
-    fun setSearchMode(mode: SearchMode) {
-        val current = _search.value
-        if (current.searchMode == mode) return
-        _search.value = current.copy(
-            searchMode = mode,
-            items = emptyList(),
-            users = emptyList(),
-            page = 0,
-            userPage = 0,
-            error = null,
-            userError = null,
-        )
-        val keyword = current.keyword
-        if (keyword.isNotBlank() && parseSearchInput(keyword) is SearchIntent.Keyword) {
-            if (mode == SearchMode.USER) doUserSearch(keyword, page = 1) else doSearch(keyword, page = 1)
-        }
-    }
+    val upSpace: UpSpaceController = UpSpaceController(
+        scope = viewModelScope,
+        repository = network.repository,
+        session = session,
+        emitMessage = ::emitMessage,
+        recordUpVisit = ::recordUpVisit,
+        onExitSelection = { upSelection.exit() },
+        onFollowChanged = { dynamics.refreshUpChips() },
+    )
 
-    private fun doUserSearch(keyword: String, page: Int) {
-        viewModelScope.launch {
-            _search.value = _search.value.copy(
-                userLoading = page == 1,
-                userError = null,
-            )
-            network.repository.searchUsers(keyword, page)
-                .onSuccess { result -> applyUserPage(result, keyword, append = page > 1) }
-                .onFailure { e ->
-                    _search.value = _search.value.copy(
-                        userLoading = false,
-                        userError = (e as? SearchException)?.error
-                            ?: SearchError.Unknown(e.message ?: "搜索失败"),
-                    )
-                }
-        }
-    }
+    /** 打开 UP 空间页。消息中心、动态、关注列表、播放页「查看作者」等多处入口共用。 */
+    fun openUpSpace(user: SearchUser) = upSpace.openUpSpace(user)
 
-    private fun applyUserPage(result: com.biliseek.core.network.BiliRepository.UserSearchPage, keyword: String, append: Boolean) {
-        val current = _search.value
-        // UP 主按 mid 去重（B 站分页会返回重复条目，key 撞重复会崩）
-        val users = if (append) {
-            (current.users + result.items).distinctBy { it.mid }
-        } else {
-            result.items
-        }
-        _search.value = current.copy(
-            users = users,
-            userPage = result.page,
-            userTotalPages = result.totalPages,
-            userTotalResults = result.totalResults,
-            userLoading = false,
-            userError = if (users.isEmpty()) SearchError.Empty(keyword) else null,
-        )
-    }
-
-    fun retryUserSearch() {
-        val s = _search.value
-        if (s.keyword.isBlank()) return
-        doUserSearch(s.keyword, page = if (s.userPage > 0) s.userPage else 1)
-    }
-
-    fun loadMoreUsers() {
-        val s = _search.value
-        if (s.userPage <= 0 || s.userPage >= s.userTotalPages) return
-        if (s.userLoading) return
-        doUserSearch(s.keyword, s.userPage + 1)
-    }
-
-    // ── UP 空间页（M11-D）─────────────────────────────────
-
-    private val _upSpace = MutableStateFlow(UpSpaceUiState())
-    val upSpace: StateFlow<UpSpaceUiState> = _upSpace.asStateFlow()
-
-    /** 点 UP 搜索结果 → 打开空间页（默认投稿视图）。 */
-    fun openUpSpace(user: SearchUser) {
-        _upSpace.value = UpSpaceUiState(up = user)
-        loadUpPosts(1)
-        loadFollowingState(user.mid)
-        // 如果头像或粉丝数为空，从 API 获取完整信息
-        if (user.upic.isBlank() || user.fans == 0L) {
-            loadUserInfo(user.mid)
-        }
-        // 计一次访问（最常访问排序用）。
-        recordUpVisit(user.mid)
-    }
-
-    /** 获取用户完整信息（头像、粉丝数）。 */
-    private fun loadUserInfo(mid: Long) = viewModelScope.launch {
-        network.repository.userCard(mid)
-            .onSuccess { fullUser ->
-                _upSpace.value = _upSpace.value.copy(up = fullUser)
-            }
-            .onFailure { err ->
-                android.util.Log.e("BiliSeekUser", "loadUserInfo failed: ${err.message}")
-            }
-    }
-
-    fun closeUpSpace() {
-        upSelection.exit()
-        _upSpace.value = UpSpaceUiState()
-    }
-
-    /**
-     * 进空间页时拉一次关注状态。`relation()` 未登录会 -101，
-     * 由 interceptor 链提前抛成 SearchException；runCatching 兜成 null = 未知。
-     */
-    private fun loadFollowingState(mid: Long) = viewModelScope.launch {
-        android.util.Log.d("BiliSeekRelation", "loadFollowingState: mid=$mid")
-        network.repository.relation(mid)
-            .onSuccess { stat ->
-                android.util.Log.d("BiliSeekRelation", "relation ok: stat=$stat, relationStatus=${stat.relationStatus}, following=${stat.relationStatus == com.biliseek.core.network.dto.RelationStatus.FOLLOWING}")
-                val following = stat.relationStatus == com.biliseek.core.network.dto.RelationStatus.FOLLOWING
-                _upSpace.value = _upSpace.value.copy(following = following)
-            }
-            .onFailure { err ->
-                android.util.Log.e("BiliSeekRelation", "relation FAILED: ${err.javaClass.simpleName}: ${err.message}", err)
-            }
-    }
-
-    /** 关注 / 取关：乐观更新，失败回滚。 */
-    fun toggleRelation(mid: Long, follow: Boolean) = viewModelScope.launch {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再关注")
-            return@launch
-        }
-        val cur = _upSpace.value
-        // 防止双击：true→true 已是最终态，不重复发
-        if (cur.followingLoading) return@launch
-        // 乐观更新
-        _upSpace.value = cur.copy(followingLoading = true, following = follow)
-        network.repository.modifyRelation(mid, follow)
-            .onSuccess {
-                _upSpace.value = _upSpace.value.copy(followingLoading = false)
-                emitMessage(if (follow) "已关注" else "已取消关注")
-                // 关注/取关成功后刷新动态页的关注列表
-                refreshUpChips()
-            }
-            .onFailure { err ->
-                // 回滚 + 报错提示
-                _upSpace.value = _upSpace.value.copy(followingLoading = false, following = !follow)
-                emitMessage("关注失败：${err.message ?: "未知错误"}")
-            }
-    }
-
-    // ── Ch4 动态互动（点赞 / 转发 / 评论 / 图片预览） ──
-
-    /**
-     * 乐观更新一条动态的 stat.like：用于点赞 +1/-1 双状态。
-     * 同步更新关注流（`_dynamic.feed`）与 UP 空间页（`_upSpace.dynamic`）两个 StateFlow。
-     */
-    private fun patchEntry(idStr: String, transform: (DynamicEntry) -> DynamicEntry) {
-        val dyn = _dynamic.value
-        val idx = dyn.feed.items.indexOfFirst { it.idStr == idStr }
-        if (idx >= 0) {
-            val newItems = dyn.feed.items.toMutableList().also { it[idx] = transform(it[idx]) }
-            _dynamic.value = dyn.copy(feed = dyn.feed.copy(items = newItems))
-        }
-        val space = _upSpace.value
-        val sIdx = space.dynamic.items.indexOfFirst { it.idStr == idStr }
-        if (sIdx >= 0) {
-            val newItems = space.dynamic.items.toMutableList().also { it[sIdx] = transform(it[sIdx]) }
-            _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
-        }
-    }
-
-    /** 点赞：500ms 内只发一次请求；乐观更新；失败回滚。 */
-    fun toggleDynamicLike(idStr: String, like: Boolean) = viewModelScope.launch {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再点赞")
-            return@launch
-        }
-        // 防抖：500ms 闸门
-        val now = System.currentTimeMillis()
-        val last = likeRequestGate[idStr] ?: 0L
-        if (now - last < 500) return@launch
-        likeRequestGate[idStr] = now
-
-        val original = snapshotEntry(idStr)
-        // 乐观更新：status 反转、count ±1
-        patchEntry(idStr) { e ->
-            val stat = e.stat ?: return@patchEntry e
-            e.copy(stat = stat.copy(like = stat.like.copy(
-                count = (stat.like.count + if (like) 1 else -1).coerceAtLeast(0),
-                status = like,
-            )))
-        }
-        network.repository.likeDynamic(idStr, like)
-            .onSuccess { emitMessage(if (like) "已点赞" else "已取消点赞") }
-            .onFailure { err ->
-                // 回滚：把 entry 的 stat 还原
-                original?.let { orig -> patchEntry(idStr) { _ -> orig } }
-                emitMessage("点赞失败：${err.message ?: "未知错误"}")
-            }
-    }
-
-    /** 取一份 entry 快照（用于失败回滚）。 */
-    private fun snapshotEntry(idStr: String): DynamicEntry? {
-        _dynamic.value.feed.items.firstOrNull { it.idStr == idStr }?.let { return it }
-        return _upSpace.value.dynamic.items.firstOrNull { it.idStr == idStr }
-    }
-
-    /** 打开评论对话框：根据 dynamic entry 计算 oid/type，并立即加载第一页。未登录也可读。 */
-    fun openCommentDialog(entry: DynamicEntry) {
-        val (oid, type) = com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry(
-            idStr = entry.idStr,
-            rawType = entry.rawType,
-            drawId = entry.drawId,
-            commentOid = entry.commentOid,
-            commentType = entry.commentType,
-        )
-        _commentDialog.value = CommentDialogState(
-            idStr = entry.idStr,
-            oid = oid,
-            type = type,
-        )
-        loadComments(reset = true)
-    }
-
-    fun updateCommentContent(text: String) {
-        val cur = _commentDialog.value ?: return
-        _commentDialog.value = cur.copy(content = text)
-    }
-
-    fun dismissCommentDialog() { _commentDialog.value = null }
-
-    // ── 动态卡片正文原地展开/收起（四级降级拉全文）────────────────
-
-    private val _dynamicExpand = MutableStateFlow<Map<String, DynamicExpandState>>(emptyMap())
-    val dynamicExpand: StateFlow<Map<String, DynamicExpandState>> = _dynamicExpand.asStateFlow()
-
-    /**
-     * 点"展开/收起"：状态转换交给纯函数 [nextDynamicExpandState]，这里只负责按需
-     * 发起网络请求（web detail → opus/detail → desktop → rid，与旧版全文弹层同一路径，
-     * repository 层有 LRU 缓存）。按 idStr 独立维护，允许多张卡片同时展开。
-     */
-    fun toggleDynamicExpand(entry: DynamicEntry) {
-        val idStr = entry.idStr
-        val current = _dynamicExpand.value[idStr]
-        val alreadyFetching = current?.expanded == true && current.entry == null && current.error == null
-        val next = nextDynamicExpandState(current)
-        _dynamicExpand.value = _dynamicExpand.value + (idStr to next)
-        if (alreadyFetching || !shouldFetchDynamicDetail(next)) return
-        viewModelScope.launch {
-            network.repository.dynamicDetail(idStr, seed = entry)
-                .onSuccess { detail ->
-                    val cur = _dynamicExpand.value[idStr]
-                    if (cur?.expanded == true && cur.entry == null) {
-                        _dynamicExpand.value = _dynamicExpand.value + (idStr to cur.copy(entry = detail))
-                    }
-                }
-                .onFailure { e ->
-                    val cur = _dynamicExpand.value[idStr]
-                    if (cur?.expanded == true && cur.entry == null) {
-                        _dynamicExpand.value = _dynamicExpand.value + (idStr to cur.copy(error = e.message ?: "加载失败"))
-                    }
-                }
-        }
-    }
-
-    /** 加载评论列表。reset=true 重新拉第 1 页；false 翻页追加。 */
-    fun loadComments(reset: Boolean = true) {
-        val cur = _commentDialog.value ?: return
-        val base = if (reset) RemoteListState.empty<ReplyItem>() else cur.comments
-        if (base.isLoading || base.isLoadingMore) return
-        val nextPage = if (reset) 1 else base.page + 1
-        val loadingMore = !reset
-        _commentDialog.value = cur.copy(
-            comments = base.copy(isLoading = !loadingMore, isLoadingMore = loadingMore, errorMessage = null),
-        )
-        viewModelScope.launch {
-            network.repository.comments(cur.oid, cur.type, nextPage, cur.sort)
-                .onSuccess { page ->
-                    val dialog = _commentDialog.value ?: return@onSuccess
-                    val mergedItems = if (reset) page.items else dialog.comments.items + page.items
-                    _commentDialog.value = dialog.copy(
-                        comments = dialog.comments.copy(
-                            items = mergedItems,
-                            page = nextPage,
-                            hasMore = mergedItems.size < page.count,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                    )
-                }
-                .onFailure { err ->
-                    val dialog = _commentDialog.value ?: return@onFailure
-                    _commentDialog.value = dialog.copy(
-                        comments = dialog.comments.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = err.message ?: "评论加载失败",
-                        ),
-                    )
-                }
-        }
-    }
-
-    fun loadMoreComments() {
-        val cur = _commentDialog.value ?: return
-        if (!cur.comments.hasMore) return
-        loadComments(reset = false)
-    }
-
-    /** 切换热度/时间排序：清空列表重新拉第 1 页。 */
-    fun setCommentSort(sort: Int) {
-        val cur = _commentDialog.value ?: return
-        if (cur.sort == sort) return
-        _commentDialog.value = cur.copy(sort = sort, comments = RemoteListState.empty<ReplyItem>())
-        loadComments(reset = true)
-    }
-
-    /** 设置回复目标：`rootRpid=null` 表示回复一级评论；非 null 表示回复该一级评论下的楼中楼。 */
-    fun startReplyTo(reply: ReplyItem, rootRpid: Long? = null) {
-        val cur = _commentDialog.value ?: return
-        val (root, parent) = com.biliseek.core.network.internal.resolveReplyRootParent(reply.rpid, rootRpid)
-        _commentDialog.value = cur.copy(
-            replyTarget = CommentReplyTarget(root = root, parent = parent, uname = reply.member.uname),
-        )
-    }
-
-    fun clearReplyTarget() {
-        val cur = _commentDialog.value ?: return
-        _commentDialog.value = cur.copy(replyTarget = null)
-    }
-
-    /** 评论点赞 / 取消：500ms 防抖，乐观更新，失败回滚。`rootRpid` 非 null 表示这是楼中楼里的评论。 */
-    fun toggleCommentLike(reply: ReplyItem, rootRpid: Long? = null) {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再点赞")
-            return
-        }
-        val cur = _commentDialog.value ?: return
-        val like = reply.action != 1
-        val gateKey = "reply:${reply.rpid}"
-        val now = System.currentTimeMillis()
-        val last = likeRequestGate[gateKey] ?: 0L
-        if (now - last < 500) return
-        likeRequestGate[gateKey] = now
-        patchCommentLike(reply.rpid, rootRpid, like)
-        viewModelScope.launch {
-            network.repository.replyAction(cur.oid, cur.type, reply.rpid, like)
-                .onFailure { err ->
-                    patchCommentLike(reply.rpid, rootRpid, !like)
-                    emitMessage("点赞失败：${err.message ?: "未知错误"}")
-                }
-        }
-    }
-
-    /** 乐观更新某条评论（或楼中楼）的点赞态，就地替换列表里的对应条目。 */
-    private fun patchCommentLike(rpid: Long, rootRpid: Long?, like: Boolean) {
-        val cur = _commentDialog.value ?: return
-        fun patchList(items: List<ReplyItem>) = items.map { item ->
-            if (item.rpid == rpid) {
-                item.copy(
-                    like = (item.like + if (like) 1 else -1).coerceAtLeast(0),
-                    action = if (like) 1 else 0,
-                )
-            } else item
-        }
-        if (rootRpid == null) {
-            _commentDialog.value = cur.copy(comments = cur.comments.copy(items = patchList(cur.comments.items)))
-        } else {
-            val subState = cur.expandedSubReplies[rootRpid] ?: return
-            _commentDialog.value = cur.copy(
-                expandedSubReplies = cur.expandedSubReplies + (rootRpid to subState.copy(items = patchList(subState.items))),
-            )
-        }
-    }
-
-    /** 展开楼中楼：第一次点击才发请求，之后复用已加载的状态。 */
-    fun expandSubReplies(reply: ReplyItem) {
-        val cur = _commentDialog.value ?: return
-        if (cur.expandedSubReplies.containsKey(reply.rpid)) return
-        _commentDialog.value = cur.copy(
-            expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
-        )
-        viewModelScope.launch {
-            network.repository.subReplies(cur.oid, cur.type, reply.rpid, page = 1)
-                .onSuccess { page ->
-                    val dialog = _commentDialog.value ?: return@onSuccess
-                    _commentDialog.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to RemoteListState(
-                            items = page.items,
-                            page = 1,
-                            hasMore = page.items.size < page.count,
-                            isLoading = false,
-                        )),
-                    )
-                }
-                .onFailure { err ->
-                    val dialog = _commentDialog.value ?: return@onFailure
-                    val prev = dialog.expandedSubReplies[reply.rpid] ?: RemoteListState<ReplyItem>()
-                    _commentDialog.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to prev.copy(
-                            isLoading = false,
-                            errorMessage = err.message ?: "楼中楼加载失败",
-                        )),
-                    )
-                }
-        }
-    }
-
-    fun loadMoreSubReplies(rootRpid: Long) {
-        val cur = _commentDialog.value ?: return
-        val state = cur.expandedSubReplies[rootRpid] ?: return
-        if (!state.hasMore || state.isLoading || state.isLoadingMore) return
-        val nextPage = state.page + 1
-        _commentDialog.value = cur.copy(
-            expandedSubReplies = cur.expandedSubReplies + (rootRpid to state.copy(isLoadingMore = true)),
-        )
-        viewModelScope.launch {
-            network.repository.subReplies(cur.oid, cur.type, rootRpid, page = nextPage)
-                .onSuccess { page ->
-                    val dialog = _commentDialog.value ?: return@onSuccess
-                    val prev = dialog.expandedSubReplies[rootRpid] ?: return@onSuccess
-                    val merged = prev.items + page.items
-                    _commentDialog.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
-                            items = merged,
-                            page = nextPage,
-                            hasMore = merged.size < page.count,
-                            isLoadingMore = false,
-                        )),
-                    )
-                }
-                .onFailure { err ->
-                    val dialog = _commentDialog.value ?: return@onFailure
-                    val prev = dialog.expandedSubReplies[rootRpid] ?: return@onFailure
-                    _commentDialog.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
-                            isLoadingMore = false,
-                            errorMessage = err.message ?: "楼中楼加载失败",
-                        )),
-                    )
-                }
-        }
-    }
-
-    /** 提交评论：发新评论或回复 [CommentDialogState.replyTarget]；成功后清空输入框与回复目标并刷新列表首页。 */
-    fun submitComment() = viewModelScope.launch {
-        val cur = _commentDialog.value ?: return@launch
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再评论")
-            return@launch
-        }
-        if (cur.isPosting || cur.content.isBlank()) return@launch
-        _commentDialog.value = cur.copy(isPosting = true)
-        val target = cur.replyTarget
-        patchEntry(cur.idStr) { e ->
-            val stat = e.stat ?: return@patchEntry e
-            e.copy(stat = stat.copy(comment = stat.comment.copy(count = stat.comment.count + 1)))
-        }
-        network.repository.addDynamicReply(
-            oid = cur.oid,
-            type = cur.type,
-            message = cur.content,
-            root = target?.root ?: 0L,
-            parent = target?.parent ?: 0L,
-        )
-            .onSuccess {
-                val dialog = _commentDialog.value
-                if (dialog != null) {
-                    _commentDialog.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
-                }
-                emitMessage("评论已发送")
-                loadComments(reset = true)
-            }
-            .onFailure { err ->
-                _commentDialog.value = _commentDialog.value?.copy(isPosting = false)
-                patchEntry(cur.idStr) { e ->
-                    val stat = e.stat ?: return@patchEntry e
-                    e.copy(stat = stat.copy(comment = stat.comment.copy(
-                        count = (stat.comment.count - 1).coerceAtLeast(0),
-                    )))
-                }
-                emitMessage("评论失败：${err.message ?: "未知错误"}")
-            }
-    }
+    // ── 图片预览（动态卡片 / UP 空间页共用） ──
 
     /** 打开图片预览（全屏）。 */
     fun openImagePreview(pics: List<String>, initialIndex: Int = 0) {
@@ -2185,110 +1127,6 @@ return pages.map { p ->
         }
     }
 
-    /** 投稿 / 动态 视图切换：各视图独立分页状态，互不干扰。 */
-    fun setUpSpaceView(view: UpSpaceView) {
-        // 切视图退出投稿复选：另一视图的列表与勾选集无关
-        upSelection.exit()
-        val cur = _upSpace.value
-        if (cur.view == view) return
-        _upSpace.value = cur.copy(view = view)
-        if (view == UpSpaceView.DYNAMIC && cur.dynamic.items.isEmpty() && !cur.dynamic.isLoading) {
-            loadUpDynamicPage(offset = "")
-        }
-    }
-
-    fun loadUpPosts(page: Int) {
-        val cur = _upSpace.value
-        val up = cur.up ?: return
-        if (cur.posts.isLoading || cur.posts.isLoadingMore) return
-        val loadingMore = page > 1
-        if (loadingMore && !cur.posts.hasMore) return
-        viewModelScope.launch {
-            _upSpace.value = cur.copy(
-                posts = cur.posts.copy(
-                    isLoading = !loadingMore,
-                    isLoadingMore = loadingMore,
-                    errorMessage = null,
-                ),
-            )
-            network.repository.spaceArchives(up.mid, page)
-                .onSuccess { result ->
-                    val base = _upSpace.value.posts
-                    _upSpace.value = _upSpace.value.copy(
-                        posts = base.copy(
-                            items = if (loadingMore) base.items + result.items else result.items,
-                            hasMore = result.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                    )
-                }
-                .onFailure {
-                    val base = _upSpace.value.posts
-                    _upSpace.value = _upSpace.value.copy(
-                        posts = base.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = it.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
-    }
-
-    fun loadMoreUpPosts() {
-        val cur = _upSpace.value
-        if (!cur.posts.hasMore) return
-        loadUpPosts(cur.posts.page + 1)
-    }
-
-    private fun loadUpDynamicPage(offset: String) {
-        val cur = _upSpace.value
-        val up = cur.up ?: return
-        if (cur.dynamic.isLoading || cur.dynamic.isLoadingMore) return
-        val loadingMore = offset.isNotBlank()
-        viewModelScope.launch {
-            _upSpace.value = cur.copy(
-                dynamic = cur.dynamic.copy(
-                    isLoading = !loadingMore,
-                    isLoadingMore = loadingMore,
-                    errorMessage = null,
-                ),
-            )
-            network.repository.dynamicSpace(up.mid, offset)
-                .onSuccess { pageData ->
-                    val base = _upSpace.value.dynamic
-                    _upSpace.value = _upSpace.value.copy(
-                        dynamic = base.copy(
-                            items = if (loadingMore) base.items + pageData.entries else pageData.entries,
-                            hasMore = pageData.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                        dynamicOffset = pageData.offset,
-                    )
-                }
-                .onFailure {
-                    val base = _upSpace.value.dynamic
-                    _upSpace.value = _upSpace.value.copy(
-                        dynamic = base.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = it.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
-    }
-
-    fun loadMoreUpDynamic() {
-        val cur = _upSpace.value
-        if (!cur.dynamic.hasMore) return
-        loadUpDynamicPage(cur.dynamicOffset)
-    }
-
     /** 点 UP 投稿条目：走 playBvid（单 P 直播 / 多 P 整张作队列）。 */
     fun playUpPost(video: SpaceVideo) {
         playBvid(
@@ -2298,12 +1136,6 @@ return pages.map { p ->
             author = video.author,
             durationSec = com.biliseek.core.network.parseDurationText(video.length),
         )
-    }
-
-    fun loadMore() {
-        val s = _search.value
-        if (!s.hasMore || s.isLoadingMore || s.isLoading) return
-        doSearch(s.keyword, s.page + 1)
     }
 
     // ── 播放 ────────────────────────────────────────────
@@ -2317,22 +1149,22 @@ return pages.map { p ->
             network.repository.pages(video.bvid)
                 .onSuccess { pages ->
                     if (pages.size <= 1) {
-                        _search.value = _search.value.copy(
+                        search.update { it.copy(
                             pages = emptyList(),
                             pagesOfBvid = "",
                             pagesCover = "",
                             pagesAuthor = "",
-                        )
+                        ) }
                         play(video.toRequest(cid = pages.firstOrNull()?.cid))
                     } else {
-                        _search.value = _search.value.copy(
+                        search.update { it.copy(
                             pages = pages.map {
                                 PageEntry(it.cid, it.page, it.part, it.duration)
                             },
                             pagesOfBvid = video.bvid,
                             pagesCover = coverOf(video),
                             pagesAuthor = video.author,
-                        )
+                        ) }
                     }
                 }
                 .onFailure { play(video.toRequest()) }
@@ -2357,9 +1189,9 @@ return pages.map { p ->
 
     /** 点某个分 P：整张多 P 视频作为队列，从该 P 开始播。 */
     fun playPage(bvid: String, entry: PageEntry) {
-        val all = _search.value.pages
-        val cover = _search.value.pagesCover
-        val author = _search.value.pagesAuthor
+        val all = search.state.value.pages
+        val cover = search.state.value.pagesCover
+        val author = search.state.value.pagesAuthor
         val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
         viewModelScope.launch {
             connection.playQueue(
@@ -2533,7 +1365,7 @@ return pages.map { p ->
 
     fun dismissPages() {
         pageSelection.exit()
-        _search.value = _search.value.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "", pagesAuthor = "")
+        search.update { it.copy(pages = emptyList(), pagesOfBvid = "", pagesCover = "", pagesAuthor = "") }
     }
 
     /**
@@ -2581,662 +1413,38 @@ return pages.map { p ->
         super.onCleared()
     }
 
-    // ── 消息中心（私信 + 互动消息）──────────────────────────
+    // ── 消息中心（私信 + 互动消息）：见 MessageCenterController ──
 
-    /** 消息中心主体：私信会话列表。 */
-    private val _privateSessions = MutableStateFlow(
-        RemoteListState<com.biliseek.core.network.dto.Session>(id = TrackListId.PrivateSession, title = "私信"),
-    )
-    val privateSessions: StateFlow<RemoteListState<com.biliseek.core.network.dto.Session>> = _privateSessions.asStateFlow()
-
-    /** 回复与@ 子页面。 */
-    private val _replyFeed = MutableStateFlow(
-        RemoteListState<com.biliseek.core.network.dto.ReplyAtItem>(id = TrackListId.MessageReply, title = "回复与@"),
-    )
-    val replyFeed: StateFlow<RemoteListState<com.biliseek.core.network.dto.ReplyAtItem>> = _replyFeed.asStateFlow()
-
-    /** 收到喜欢 子页面。 */
-    private val _likeFeed = MutableStateFlow(
-        RemoteListState<com.biliseek.core.network.dto.LikeItem>(id = TrackListId.MessageLike, title = "收到喜欢"),
-    )
-    val likeFeed: StateFlow<RemoteListState<com.biliseek.core.network.dto.LikeItem>> = _likeFeed.asStateFlow()
-
-    /** 新增粉丝 子页面。 */
-    private val _followerFeed = MutableStateFlow(
-        RemoteListState<com.biliseek.core.network.dto.FollowerEntry>(id = TrackListId.MessageFollower, title = "新增粉丝"),
-    )
-    val followerFeed: StateFlow<RemoteListState<com.biliseek.core.network.dto.FollowerEntry>> = _followerFeed.asStateFlow()
-
-    /** 入口未读角标：动态页铃铛 + 消息中心两个图标角标共用同一份数据，避免多发请求。 */
-    private val _unreadSummary = MutableStateFlow(com.biliseek.core.network.BiliRepository.MessageUnreadSummary())
-    val unreadSummary: StateFlow<com.biliseek.core.network.BiliRepository.MessageUnreadSummary> = _unreadSummary.asStateFlow()
-
-    /** 打开消息中心的信号。 */
-    private val _openMessagesRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val openMessagesRequests: SharedFlow<Unit> = _openMessagesRequests.asSharedFlow()
-
-    /** 打开"回复与@"子页面的信号。 */
-    private val _openReplyFeedRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val openReplyFeedRequests: SharedFlow<Unit> = _openReplyFeedRequests.asSharedFlow()
-
-    /** 打开"收到喜欢"子页面的信号。 */
-    private val _openLikeFeedRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val openLikeFeedRequests: SharedFlow<Unit> = _openLikeFeedRequests.asSharedFlow()
-
-    /** 打开"新增粉丝"子页面的信号。 */
-    private val _openFollowerFeedRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val openFollowerFeedRequests: SharedFlow<Unit> = _openFollowerFeedRequests.asSharedFlow()
-
-    /** 进入私信聊天页的信号。 */
-    private val _openPrivateChatRequests = MutableSharedFlow<PrivateChatNav>(extraBufferCapacity = 1)
-    val openPrivateChatRequests: SharedFlow<PrivateChatNav> = _openPrivateChatRequests.asSharedFlow()
-
-    /** 当前聊天页状态（key = talkerId）。 */
-    private val _chatByTalker = MutableStateFlow<Map<Long, PrivateChatState>>(emptyMap())
-    val chatByTalker: StateFlow<Map<Long, PrivateChatState>> = _chatByTalker.asStateFlow()
-
-    /**
-     * 点铃铛 / 消息中心入口：只发导航信号，不预拉数据——`MessageCenterScreen` 自己的
-     * `onInit` 负责加载私信列表（懒加载策略）。**不要**在这里调用 `loadPrivateSessions()`，
-     * 会重蹈 v1 的导航死循环（`onInit` 接到同时发信号又加载的函数 → 每次进页面重发信号 →
-     * 重新 push → 重新触发 onInit → 无限循环）。
-     */
-    fun openMessages() { _openMessagesRequests.tryEmit(Unit) }
-
-    /** 点"回复与@"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
-    fun openReplyFeed() { _openReplyFeedRequests.tryEmit(Unit) }
-
-    /** 点"收到喜欢"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
-    fun openLikeFeed() { _openLikeFeedRequests.tryEmit(Unit) }
-
-    /** 点"新增粉丝"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
-    fun openFollowerFeed() { _openFollowerFeedRequests.tryEmit(Unit) }
-
-    /** 消息中心页 onInit / 下拉刷新共用。 */
-    fun retryPrivateSessions() = loadPrivateSessions()
-
-    private fun loadPrivateSessions() {
-        if (!session.value.isLoggedIn) {
-            _privateSessions.value = _privateSessions.value.copy(items = emptyList(), errorMessage = null, isLoading = false)
-            return
-        }
-        _privateSessions.value = _privateSessions.value.copy(isLoading = true, errorMessage = null)
-        viewModelScope.launch {
-            network.repository.privateSessions()
-                .onSuccess { data ->
-                    _privateSessions.value = _privateSessions.value.copy(
-                        items = data.sessionList,
-                        hasMore = data.hasMore == 1,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                }
-                .onFailure { e ->
-                    _privateSessions.value = _privateSessions.value.copy(
-                        isLoading = false,
-                        errorMessage = e.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** "回复与@"子页面 onInit / 下拉刷新共用。 */
-    fun retryReplyFeed() = loadReplyFeed()
-
-    private fun loadReplyFeed() {
-        _replyFeed.value = _replyFeed.value.copy(isLoading = true, errorMessage = null)
-        viewModelScope.launch {
-            network.repository.replyFeed()
-                .onSuccess { data ->
-                    _replyFeed.value = _replyFeed.value.copy(
-                        items = data.items,
-                        hasMore = data.hasMore,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                    refreshUnreadCount()
-                }
-                .onFailure { e ->
-                    _replyFeed.value = _replyFeed.value.copy(
-                        isLoading = false,
-                        errorMessage = e.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** "收到喜欢"子页面 onInit / 下拉刷新共用。 */
-    fun retryLikeFeed() = loadLikeFeed()
-
-    private fun loadLikeFeed() {
-        _likeFeed.value = _likeFeed.value.copy(isLoading = true, errorMessage = null)
-        viewModelScope.launch {
-            network.repository.likeFeed()
-                .onSuccess { data ->
-                    _likeFeed.value = _likeFeed.value.copy(
-                        items = data.items,
-                        hasMore = data.hasMore,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                    refreshUnreadCount()
-                }
-                .onFailure { e ->
-                    _likeFeed.value = _likeFeed.value.copy(
-                        isLoading = false,
-                        errorMessage = e.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** "新增粉丝"子页面 onInit / 下拉刷新共用。 */
-    fun retryFollowerFeed() = loadFollowerFeed()
-
-    private fun loadFollowerFeed() {
-        _followerFeed.value = _followerFeed.value.copy(isLoading = true, errorMessage = null)
-        viewModelScope.launch {
-            network.repository.followerFeed()
-                .onSuccess { data ->
-                    _followerFeed.value = _followerFeed.value.copy(
-                        items = data.list,
-                        hasMore = false,
-                        isLoading = false,
-                        errorMessage = null,
-                    )
-                }
-                .onFailure { e ->
-                    _followerFeed.value = _followerFeed.value.copy(
-                        isLoading = false,
-                        errorMessage = e.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 入口未读角标：动态页铃铛 / 消息中心两个图标共用，best-effort，失败不抛。 */
-    fun refreshUnreadCount() {
-        if (!session.value.isLoggedIn) {
-            _unreadSummary.value = com.biliseek.core.network.BiliRepository.MessageUnreadSummary()
-            return
-        }
-        viewModelScope.launch {
-            _unreadSummary.value = network.repository.messageUnread()
-        }
-    }
-
-    /** 点会话条目：跳到聊天页。 */
-    fun openPrivateChat(session: com.biliseek.core.network.dto.Session) {
-        val peerName = session.accountInfo?.name.orEmpty().ifBlank { "用户${session.talkerId}" }
-        val peerFace = session.accountInfo?.face.orEmpty()
-        _openPrivateChatRequests.tryEmit(
-            PrivateChatNav(talkerId = session.talkerId, peerName = peerName, peerFace = peerFace),
-        )
-    }
-
-    /** 进入聊天页 → 拉首屏 + 标记已读。 */
-    fun openChat(talkerId: Long) {
-        ensureChatState(talkerId)
-        loadChatPage(talkerId, beginSeqno = 0L, isLoadMore = false)
-    }
-
-    /** 上滑加载更早消息。 */
-    fun loadMoreChat(talkerId: Long) {
-        val s = _chatByTalker.value[talkerId] ?: return
-        if (s.isLoadingMore || !s.hasMore) return
-        val nextBegin = (s.minSeqno - 1).coerceAtLeast(0L)
-        loadChatPage(talkerId, beginSeqno = nextBegin, isLoadMore = true)
-    }
-
-    private fun loadChatPage(talkerId: Long, beginSeqno: Long, isLoadMore: Boolean) {
-        val cur = ensureChatState(talkerId)
-        if (!isLoadMore) {
-            updateChat(talkerId) { it.copy(isLoading = true, errorMessage = null) }
-        } else {
-            updateChat(talkerId) { it.copy(isLoadingMore = true, errorMessage = null) }
-        }
-        viewModelScope.launch {
-            network.repository.loadMoreSessionMessages(talkerId, beginSeqno)
-                .onSuccess { data ->
-                    val newMessages = data.messages.sortedBy { it.msgSeqno }
-                    // isLoadMore 时 newMessages 是用 beginSeqno=minSeqno-1 拉到的更早历史，
-                    // 时间上在 cur.messages 之前，要拼在前面才是按时间升序（旧→新）。
-                    val merged = if (isLoadMore) newMessages + cur.messages else newMessages
-                    updateChat(talkerId) {
-                        it.copy(
-                            messages = merged,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            minSeqno = data.minSeqno.takeIf { v -> v > 0 } ?: it.minSeqno,
-                            maxSeqno = data.maxSeqno.takeIf { v -> v > it.maxSeqno } ?: it.maxSeqno,
-                            hasMore = data.hasMore == 1,
-                            errorMessage = null,
-                        )
-                    }
-                    // 首屏加载完成后立即标记已读
-                    if (!isLoadMore && data.maxSeqno > 0L) {
-                        network.repository.markSessionRead(talkerId, data.maxSeqno)
-                        refreshUnreadCount()
-                    }
-                }
-                .onFailure { e ->
-                    updateChat(talkerId) {
-                        it.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = e.message ?: "加载失败",
-                        )
-                    }
-                }
-        }
-    }
-
-    fun updateChatDraft(talkerId: Long, draft: String) {
-        updateChat(talkerId) { it.copy(draft = draft) }
-    }
-
-    fun sendChatMessage(talkerId: Long) {
-        val cur = _chatByTalker.value[talkerId] ?: return
-        val text = cur.draft.trim()
-        if (text.isEmpty() || cur.isSending) return
-        updateChat(talkerId) { it.copy(isSending = true, errorMessage = null) }
-        viewModelScope.launch {
-            val session = this@AppViewModel.session.value
-            val devId = session.biliJct.ifBlank { java.util.UUID.randomUUID().toString() }
-            network.repository.sendPrivateMessage(
-                receiverId = talkerId,
-                content = text,
-                devId = devId,
-            )
-                .onSuccess { seqno ->
-                    val now = System.currentTimeMillis() / 1000L
-                    val optimistic = com.biliseek.core.network.dto.PrivateMessage(
-                        senderUid = session.dedeUserId.toLongOrNull() ?: 0L,
-                        receiverId = talkerId,
-                        msgType = 1,
-                        content = """{"content":"${escapeForLocal(text)}"}""",
-                        timestamp = now,
-                        msgSeqno = seqno,
-                    )
-                    updateChat(talkerId) {
-                        it.copy(
-                            messages = it.messages + optimistic,
-                            draft = "",
-                            isSending = false,
-                            maxSeqno = maxOf(it.maxSeqno, seqno),
-                            errorMessage = null,
-                        )
-                    }
-                    emitMessage("已发送")
-                }
-                .onFailure { e ->
-                    updateChat(talkerId) { it.copy(isSending = false, errorMessage = e.message ?: "发送失败") }
-                    emitMessage("发送失败：${e.message ?: ""}")
-                }
-        }
-    }
-
-    fun closeChat(talkerId: Long) {
-        _chatByTalker.value = _chatByTalker.value - talkerId
-    }
-
-    /** 点回复与@ 条目：跳转到对应视频（business_id=1 视频，5 动态本期不支持）。 */
-    fun playReplyAtItem(item: com.biliseek.core.network.dto.ReplyAtItem) {
-        if (item.businessId == 1 && item.sourceId > 0L) {
-            val bvid = avToBv(item.sourceId)
-            play(
-                PlaybackRequest.Bili(
-                    bvid = bvid,
-                    cid = null,
-                    title = item.sourceContent.ifBlank { "评论的视频" },
-                    coverUrl = "",
-                    author = item.user?.name.orEmpty(),
-                    durationSec = 0L,
-                ),
-            )
-        }
-    }
-
-    fun playLikeItem(item: com.biliseek.core.network.dto.LikeItem) {
-        if (item.sourceId > 0L) {
-            val bvid = avToBv(item.sourceId)
-            play(
-                PlaybackRequest.Bili(
-                    bvid = bvid,
-                    cid = null,
-                    title = item.title.ifBlank { "收到喜欢的视频" },
-                    coverUrl = "",
-                    author = item.firstUser?.name.orEmpty(),
-                    durationSec = 0L,
-                ),
-            )
-        }
-    }
-
-    fun openFollowerSpace(item: com.biliseek.core.network.dto.FollowerEntry) {
-        openUpSpace(
-            SearchUser(
-                mid = item.mid,
-                uname = item.uname,
-                upic = item.face,
-            ),
-        )
-        // UP 空间跳转由调用方持有 openUpSpaceRequests 信号触发（与现有约定一致）。
-    }
-
-    /** 在站内向一条评论发回复。 */
-    fun submitCommentReply(
-        aid: Long,
-        root: Long,
-        parent: Long,
-        content: String,
-        onResult: (Boolean, String?) -> Unit = { _, _ -> },
-    ) {
-        viewModelScope.launch {
-            network.repository.postCommentReply(aid, root, parent, content)
-                .onSuccess {
-                    emitMessage("已回复")
-                    onResult(true, null)
-                }
-                .onFailure { e ->
-                    emitMessage("回复失败：${e.message ?: ""}")
-                    onResult(false, e.message)
-                }
-        }
-    }
-
-    private fun ensureChatState(talkerId: Long): PrivateChatState =
-        _chatByTalker.value[talkerId] ?: PrivateChatState().also {
-            _chatByTalker.value = _chatByTalker.value + (talkerId to it)
-        }
-
-    private fun updateChat(talkerId: Long, reduce: (PrivateChatState) -> PrivateChatState) {
-        _chatByTalker.value = _chatByTalker.value.toMutableMap().apply {
-            val cur = this[talkerId] ?: return
-            this[talkerId] = reduce(cur)
-        }
-    }
-
-    private fun escapeForLocal(s: String): String =
-        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
-
-    // ── 状态数据类 ─────────────────────────────────
-
-    /** 聊天页状态。 */
-    data class PrivateChatState(
-        val messages: List<com.biliseek.core.network.dto.PrivateMessage> = emptyList(),
-        val draft: String = "",
-        val isLoading: Boolean = false,
-        val isLoadingMore: Boolean = false,
-        val isSending: Boolean = false,
-        val hasMore: Boolean = false,
-        val minSeqno: Long = 0L,
-        val maxSeqno: Long = 0L,
-        val errorMessage: String? = null,
-    )
-
-    /** 私信聊天路由参数。 */
-    data class PrivateChatNav(
-        val talkerId: Long,
-        val peerName: String,
-        val peerFace: String,
+    val messages: com.biliseek.app.message.MessageCenterController = com.biliseek.app.message.MessageCenterController(
+        scope = viewModelScope,
+        repository = network.repository,
+        session = session,
+        emitMessage = ::emitMessage,
+        play = ::play,
+        openUpSpace = ::openUpSpace,
     )
 
     // ── 播放页：评论区、弹幕开关、分享 ──
 
-    /**
-     * 播放页评论区专用状态。视频评论 oid=aid, type=1；
-     * 复用 [BiliRepository.comments] 与现有评论列表 UI。
-     */
-    data class PlayerCommentState(
-        val bvid: String = "",
-        val aid: Long = 0L,
-        val oid: Long = 0L,
-        val type: Int = 1,
-        val sort: Int = 1,
-        val content: String = "",
-        val isPosting: Boolean = false,
-        val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
-        val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
-        val replyTarget: CommentReplyTarget? = null,
+    /** 播放页评论区（视频评论 oid=aid, type=1）。 */
+    val playerComments = CommentThreadController(
+        scope = viewModelScope,
+        repository = network.repository,
+        session = session,
+        emitMessage = ::emitMessage,
     )
-
-    private val _playerComment = MutableStateFlow<PlayerCommentState?>(null)
 
     /** 打开播放页评论区对话框。 */
     fun openPlayerComment() {
-        val s = connection.state.value
-        val bvid = s.bvid
+        val bvid = connection.state.value.bvid
         if (bvid.isBlank()) return
         val aid = com.biliseek.core.network.bvToAv(bvid)
         if (aid <= 0L) {
             emitMessage("无法解析视频 ID")
             return
         }
-        _playerComment.value = PlayerCommentState(
-            bvid = bvid,
-            aid = aid,
-            oid = aid,
-            type = 1,
-        )
-        loadPlayerComments(reset = true)
+        playerComments.open(oid = aid, type = 1, key = bvid)
     }
-
-    fun dismissPlayerComment() {
-        _playerComment.value = null
-    }
-
-    fun updatePlayerCommentContent(text: String) {
-        val cur = _playerComment.value ?: return
-        _playerComment.value = cur.copy(content = text)
-    }
-
-    fun setPlayerCommentSort(sort: Int) {
-        val cur = _playerComment.value ?: return
-        if (cur.sort == sort) return
-        _playerComment.value = cur.copy(sort = sort, comments = RemoteListState.empty())
-        loadPlayerComments(reset = true)
-    }
-
-    fun loadMorePlayerComments() {
-        val cur = _playerComment.value ?: return
-        if (!cur.comments.hasMore) return
-        loadPlayerComments(reset = false)
-    }
-
-    private fun loadPlayerComments(reset: Boolean = true) {
-        val cur = _playerComment.value ?: return
-        val base = if (reset) RemoteListState.empty<ReplyItem>() else cur.comments
-        if (base.isLoading || base.isLoadingMore) return
-        val nextPage = if (reset) 1 else base.page + 1
-        val loadingMore = !reset
-        _playerComment.value = cur.copy(
-            comments = base.copy(isLoading = !loadingMore, isLoadingMore = loadingMore, errorMessage = null),
-        )
-        viewModelScope.launch {
-            network.repository.comments(cur.oid, cur.type, nextPage, cur.sort)
-                .onSuccess { page ->
-                    val dialog = _playerComment.value ?: return@onSuccess
-                    val mergedItems = if (reset) page.items else dialog.comments.items + page.items
-                    _playerComment.value = dialog.copy(
-                        comments = dialog.comments.copy(
-                            items = mergedItems,
-                            page = nextPage,
-                            hasMore = mergedItems.size < page.count,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
-                    )
-                }
-                .onFailure { e ->
-                    val dialog = _playerComment.value ?: return@onFailure
-                    _playerComment.value = dialog.copy(
-                        comments = dialog.comments.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = e.message ?: "加载失败",
-                        ),
-                    )
-                }
-        }
-    }
-
-    fun startPlayerReplyTo(reply: ReplyItem, root: Long? = null) {
-        val cur = _playerComment.value ?: return
-        val (r, p) = com.biliseek.core.network.internal.resolveReplyRootParent(reply.rpid, root)
-        _playerComment.value = cur.copy(
-            replyTarget = CommentReplyTarget(root = r, parent = p, uname = reply.member.uname),
-        )
-    }
-
-    fun clearPlayerReplyTarget() {
-        val cur = _playerComment.value ?: return
-        _playerComment.value = cur.copy(replyTarget = null)
-    }
-
-    fun togglePlayerCommentLike(reply: ReplyItem, root: Long? = null) {
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再点赞")
-            return
-        }
-        val cur = _playerComment.value ?: return
-        val like = reply.action != 1
-        val gateKey = "player_reply:${reply.rpid}"
-        val now = System.currentTimeMillis()
-        val last = likeRequestGate[gateKey] ?: 0L
-        if (now - last < 500) return
-        likeRequestGate[gateKey] = now
-        patchPlayerCommentLike(reply.rpid, root, like)
-        viewModelScope.launch {
-            network.repository.replyAction(cur.oid, cur.type, reply.rpid, like)
-                .onFailure { err ->
-                    patchPlayerCommentLike(reply.rpid, root, !like)
-                    emitMessage("点赞失败：${err.message ?: "未知错误"}")
-                }
-        }
-    }
-
-    private fun patchPlayerCommentLike(rpid: Long, root: Long?, like: Boolean) {
-        val cur = _playerComment.value ?: return
-        fun patchList(items: List<ReplyItem>) = items.map { item ->
-            if (item.rpid == rpid) {
-                item.copy(
-                    like = (item.like + if (like) 1 else -1).coerceAtLeast(0),
-                    action = if (like) 1 else 0,
-                )
-            } else item
-        }
-        if (root == null) {
-            _playerComment.value = cur.copy(comments = cur.comments.copy(items = patchList(cur.comments.items)))
-        } else {
-            val subState = cur.expandedSubReplies[root] ?: return
-            _playerComment.value = cur.copy(
-                expandedSubReplies = cur.expandedSubReplies + (root to subState.copy(items = patchList(subState.items))),
-            )
-        }
-    }
-
-    fun expandPlayerSubReplies(reply: ReplyItem) {
-        val cur = _playerComment.value ?: return
-        if (cur.expandedSubReplies.containsKey(reply.rpid)) return
-        _playerComment.value = cur.copy(
-            expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
-        )
-        viewModelScope.launch {
-            network.repository.subReplies(cur.oid, cur.type, reply.rpid, page = 1)
-                .onSuccess { page ->
-                    val dialog = _playerComment.value ?: return@onSuccess
-                    _playerComment.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to RemoteListState(
-                            items = page.items,
-                            page = 1,
-                            hasMore = page.items.size < page.count,
-                            isLoading = false,
-                        )),
-                    )
-                }
-                .onFailure { err ->
-                    val dialog = _playerComment.value ?: return@onFailure
-                    val prev = dialog.expandedSubReplies[reply.rpid] ?: RemoteListState<ReplyItem>()
-                    _playerComment.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to prev.copy(
-                            isLoading = false,
-                            errorMessage = err.message ?: "楼中楼加载失败",
-                        )),
-                    )
-                }
-        }
-    }
-
-    fun loadMorePlayerSubReplies(root: Long) {
-        val cur = _playerComment.value ?: return
-        val state = cur.expandedSubReplies[root] ?: return
-        if (!state.hasMore || state.isLoading || state.isLoadingMore) return
-        val nextPage = state.page + 1
-        _playerComment.value = cur.copy(
-            expandedSubReplies = cur.expandedSubReplies + (root to state.copy(isLoadingMore = true)),
-        )
-        viewModelScope.launch {
-            network.repository.subReplies(cur.oid, cur.type, root, page = nextPage)
-                .onSuccess { page ->
-                    val dialog = _playerComment.value ?: return@onSuccess
-                    val prev = dialog.expandedSubReplies[root] ?: return@onSuccess
-                    val merged = prev.items + page.items
-                    _playerComment.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (root to prev.copy(
-                            items = merged,
-                            page = nextPage,
-                            hasMore = merged.size < page.count,
-                            isLoadingMore = false,
-                        )),
-                    )
-                }
-                .onFailure { err ->
-                    val dialog = _playerComment.value ?: return@onFailure
-                    val prev = dialog.expandedSubReplies[root] ?: return@onFailure
-                    _playerComment.value = dialog.copy(
-                        expandedSubReplies = dialog.expandedSubReplies + (root to prev.copy(
-                            isLoadingMore = false,
-                            errorMessage = err.message ?: "楼中楼加载失败",
-                        )),
-                    )
-                }
-        }
-    }
-
-    fun submitPlayerComment() = viewModelScope.launch {
-        val cur = _playerComment.value ?: return@launch
-        if (!session.value.isLoggedIn) {
-            emitMessage("请先登录后再评论")
-            return@launch
-        }
-        if (cur.isPosting || cur.content.isBlank()) return@launch
-        _playerComment.value = cur.copy(isPosting = true)
-        val target = cur.replyTarget
-        network.repository.addDynamicReply(
-            oid = cur.oid,
-            type = cur.type,
-            message = cur.content,
-            root = target?.root ?: 0L,
-            parent = target?.parent ?: 0L,
-        )
-            .onSuccess {
-                val dialog = _playerComment.value
-                if (dialog != null) {
-                    _playerComment.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
-                }
-                emitMessage("评论已发送")
-                loadPlayerComments(reset = true)
-            }
-            .onFailure { err ->
-                _playerComment.value = _playerComment.value?.copy(isPosting = false)
-                emitMessage("评论失败：${err.message ?: "未知错误"}")
-            }
-    }
-
-    /** 播放页评论区状态（暴露给 UI）。 */
-    val playerComment: StateFlow<PlayerCommentState?> = _playerComment.asStateFlow()
 
     // ── 全屏弹幕开关（UI 占位） ──
 

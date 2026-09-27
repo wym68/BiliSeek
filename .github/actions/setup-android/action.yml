@@ -1,0 +1,29 @@
+name: Set up Android build
+description: JDK 21 + 预装 Android SDK 上补齐 compileSdk 平台与 build-tools + Gradle 缓存。
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK 21
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: "21"
+
+    # 不用 android-actions/setup-android：它会装已下架的 legacy "tools" 包而失败。
+    # 直接用 ubuntu-latest 自带 SDK 里的 sdkmanager。
+    # 注意 API 37 起平台包名带小版本号：是 "platforms;android-37.0"，不是 "platforms;android-37"。
+    # 与 gradle/libs.versions.toml 的 compileSdk 保持一致；不加 `|| true`，装不上就应该红。
+    - name: Install Android SDK packages
+      shell: bash
+      run: |
+        SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        # composite 的 bash 带 -o pipefail：sdkmanager 读完就关管道，yes 会因 SIGPIPE 非零退出，要吞掉。
+        (yes || true) | "$SDKMANAGER" --licenses > /dev/null
+        "$SDKMANAGER" --install "platforms;android-37.0" "build-tools;37.0.0" > /dev/null
+        # sdkmanager 找不到包时只打 Warning、退出码仍可能是 0，落地后再核对一次目录。
+        test -d "$ANDROID_HOME/platforms/android-37.0" || { echo "::error::platforms;android-37.0 未安装"; exit 1; }
+        test -d "$ANDROID_HOME/build-tools/37.0.0" || { echo "::error::build-tools;37.0.0 未安装"; exit 1; }
+
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v5

@@ -1,0 +1,36 @@
+name: CI
+
+# 每次 push 自动跑：全部 JVM 单测 + 编译 debug 包。全离线，不访问 B 站服务器（见 AGENTS.md）。
+# 仪器测试（connectedDebugAndroidTest）需要模拟器，暂不在 CI 里跑。
+on:
+  push:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Android build
+        uses: ./.github/actions/setup-android
+
+      - name: Unit tests + assemble debug
+        run: ./gradlew test assembleDebug --stacktrace
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: "**/build/reports/tests/"
+          retention-days: 7

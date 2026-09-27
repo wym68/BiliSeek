@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.core.network.dto.PrivateMessage
 import com.biliseek.core.network.normalizeCoverUrl
+import com.biliseek.core.network.privateMessageText
 
 /**
  * 私信聊天页（push），与 WatchLaterScreen 风格一致：
@@ -50,7 +51,7 @@ fun PrivateChatScreen(
     peerName: String,
     peerFace: String,
     currentUid: Long,
-    state: com.biliseek.app.AppViewModel.PrivateChatState,
+    state: com.biliseek.app.message.PrivateChatState,
     onBack: () -> Unit,
     onOpen: () -> Unit,
     onLoadMore: () -> Unit,
@@ -158,7 +159,7 @@ fun PrivateChatScreen(
 @Composable
 private fun ChatBubble(message: PrivateMessage, currentUid: Long) {
     val isMine = message.senderUid == currentUid && currentUid > 0L
-    val text = extractText(message.content)
+    val text = privateMessageText(message.msgType, message.content, full = true)
     Row(
         Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
@@ -176,14 +177,4 @@ private fun ChatBubble(message: PrivateMessage, currentUid: Long) {
             Text(text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
         }
     }
-}
-
-/** `msg_type=1` 时 content 是 `{"content":"…"}`。 */
-private fun extractText(raw: String): String {
-    val regex = Regex("\"content\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
-    return regex.find(raw)?.groupValues?.get(1)
-        ?.replace("\\\\", "\\")
-        ?.replace("\\\"", "\"")
-        ?.replace("\\n", "\n")
-        ?: raw
 }

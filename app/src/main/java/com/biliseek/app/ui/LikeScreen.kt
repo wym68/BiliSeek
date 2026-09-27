@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.dto.LikeItem
+import com.biliseek.core.network.likeActionText
 import com.biliseek.core.network.normalizeCoverUrl
 
 /** "收到喜欢" 子页面：从消息中心图标进入。 */
@@ -118,8 +119,10 @@ private fun LikeRow(item: LikeItem, onClick: () -> Unit) {
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.firstUser?.name.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("赞了你的视频：${item.title}", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val name = item.firstUser?.name.orEmpty()
+            val who = if (item.counts > 1) "$name 等 ${item.counts} 人" else name
+            Text(who, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${item.likeActionText()}：${item.title}", style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(8.dp))
         Text(
