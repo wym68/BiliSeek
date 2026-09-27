@@ -28,6 +28,31 @@ internal fun shouldRequestLossless(requested: AudioQuality, speed: Float): Boole
     requested == AudioQuality.LOSSLESS && speed <= LOSSLESS_MAX_SPEED
 
 /**
+ * 这次取流实际向接口要哪一档。
+ *
+ * 选了无损但倍速过高 → 要普通 AAC（自动档）；其余照用户所选。
+ */
+internal fun resolveAskedAudioQuality(requested: AudioQuality, speed: Float): AudioQuality = when {
+    shouldRequestLossless(requested, speed) -> AudioQuality.LOSSLESS
+    requested == AudioQuality.LOSSLESS -> AudioQuality.AUTO
+    else -> requested
+}
+
+/**
+ * 播放页换音质后要不要重新取流。
+ *
+ * 只有「实际要的那一档」变了才重取：比如 2× 下从「无损」换成「自动」，
+ * 两者实际要的都是 AAC，重取只会白白缓冲一次。本地文件没有档位可换。
+ */
+internal fun shouldReloadForAudioQuality(
+    before: AudioQuality,
+    after: AudioQuality,
+    speed: Float,
+    isOffline: Boolean,
+): Boolean = !isOffline &&
+    resolveAskedAudioQuality(before, speed) != resolveAskedAudioQuality(after, speed)
+
+/**
  * 取流**之后**判断：用户所选的档位到底生没生效，没生效是因为什么。
  *
  * [losslessSelected] 由取流层给出——只有真的挑中了 flac / dolby 轨才为真。

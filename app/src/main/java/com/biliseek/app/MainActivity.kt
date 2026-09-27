@@ -311,6 +311,9 @@ class MainActivity : ComponentActivity() {
                     onDanmakuToggle = viewModel::toggleDanmaku,
                     isInPip = isInPip,
                     onSetVideoQuality = viewModel::setVideoQuality,
+                    defaultAudioQuality = settings.audioQuality,
+                    onSetAudioQuality = viewModel::setAudioQualityForSession,
+                    onSetDefaultAudioQuality = { viewModel.setAudioQuality(it) },
                     onDownloadCurrent = {
                         val current = playback.queue.getOrNull(playback.queueIndex)
                             as? com.biliseek.core.player.PlaybackRequest.Bili

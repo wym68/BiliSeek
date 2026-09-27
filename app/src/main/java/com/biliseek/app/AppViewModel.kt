@@ -1309,8 +1309,16 @@ return pages.map { p ->
     fun setAllowVideoOnMetered(value: Boolean) =
         viewModelScope.launch { settingsStore.setAllowVideoOnMetered(value) }
 
+    /** 设置页改默认音质：以设置为准，清掉播放页的临时选择（下一首起生效）。 */
     fun setAudioQuality(value: com.biliseek.core.player.AudioQuality) =
-        viewModelScope.launch { settingsStore.setAudioQuality(value) }
+        viewModelScope.launch {
+            settingsStore.setAudioQuality(value)
+            connection.clearAudioQualityOverride()
+        }
+
+    /** 播放页换音质：只对本次会话生效，当前视频带进度重新取流。 */
+    fun setAudioQualityForSession(value: com.biliseek.core.player.AudioQuality) =
+        connection.setAudioQuality(value)
 
     fun setVideoQualityWifi(value: Int) =
         viewModelScope.launch { settingsStore.setVideoQualityWifi(value) }

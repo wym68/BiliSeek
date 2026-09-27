@@ -176,6 +176,8 @@ data class PlaybackState(
     /** 「播完当前曲目再停」已生效。此模式剩余时间不可预估，故与上一字段并存。 */
     val sleepTimerEndOfTrack: Boolean = false,
     val speed: Float = 1.0f,
+    /** 用户要的音质（播放页临时选的优先，其次设置页默认）。 */
+    val requestedAudioQuality: AudioQuality = AudioQuality.AUTO,
     /** **实际生效**的音质，不是用户请求的那个。两者不一致时 [qualityFallback] 说明原因。 */
     val audioQuality: AudioQuality = AudioQuality.AUTO,
     val qualityFallback: QualityFallback = QualityFallback.NONE,

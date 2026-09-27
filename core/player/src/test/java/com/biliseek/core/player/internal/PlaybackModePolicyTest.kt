@@ -142,4 +142,14 @@ class PlaybackModePolicyTest {
             shouldEnableVideoTrack(PresentationMode.FULLSCREEN),
         )
     }
+
+    @Test
+    fun `同一内容重新取流时保留呈现态`() {
+        PresentationMode.entries.forEach { presentation ->
+            assertEquals(
+                presentation,
+                resolvePresentationOnTrackChange(presentation, sameContent = true),
+            )
+        }
+    }
 }

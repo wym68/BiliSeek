@@ -48,8 +48,12 @@ internal fun resolvePresentationOnEnterBackground(
  */
 internal fun resolvePresentationOnTrackChange(
     current: PresentationMode,
-): PresentationMode = when (current) {
-    PresentationMode.PIP -> PresentationMode.PIP
+    sameContent: Boolean = false,
+): PresentationMode = when {
+    // 同一条内容重新取流（换音质、倍速跨过无损阈值）不是「换内容」：
+    // 用户正在看就接着看，退回听会把全屏也一并踢掉
+    sameContent -> current
+    current == PresentationMode.PIP -> PresentationMode.PIP
     else -> PresentationMode.NONE
 }
 

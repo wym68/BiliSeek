@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -126,8 +127,12 @@ internal fun PlayerMoreMenuSheet(
     onViewAuthor: () -> Unit,
     onShare: () -> Unit,
     onSetVideoQuality: (Int) -> Unit = {},
+    defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
+    onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
 ) {
     var showSpeedSheet by remember { mutableStateOf(false) }
+    var showAudioSheet by remember { mutableStateOf(false) }
     var showQualitySheet by remember { mutableStateOf(false) }
     var showTimerSheet by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
@@ -175,6 +180,7 @@ internal fun PlayerMoreMenuSheet(
             if (state.videoQualities.isNotEmpty()) {
                 MenuItemRow(Icons.Filled.HighQuality, "画质") { showQualitySheet = true }
             }
+            MenuItemRow(Icons.Filled.GraphicEq, "音质") { showAudioSheet = true }
             MenuItemRow(Icons.Filled.PlaylistAdd, "添加到列表") { closeThen(onAddToList) }
             MenuItemRow(Icons.Filled.Person, "查看作者") { closeThen(onViewAuthor) }
             MenuItemRow(Icons.Filled.Share, "分享") { closeThen(onShare) }
@@ -198,6 +204,17 @@ internal fun PlayerMoreMenuSheet(
                 preference = state.videoQualityPreference,
                 currentQn = state.currentVideoQn,
                 onSelect = { onSetVideoQuality(it); showQualitySheet = false },
+            )
+        }
+    }
+
+    if (showAudioSheet) {
+        OptionsSheet(title = "音质", onDismiss = { showAudioSheet = false }) {
+            AudioQualityOptions(
+                state = state,
+                defaultQuality = defaultAudioQuality,
+                onSelect = { onSetAudioQuality(it); showAudioSheet = false },
+                onSetDefault = onSetDefaultAudioQuality,
             )
         }
     }
@@ -430,6 +447,51 @@ internal fun VideoQualityOptions(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/**
+ * 音质选择（不含容器）。竖屏底部面板与全屏侧边面板共用。
+ *
+ * 这里选的只对本次会话生效；「设为默认」才写进设置。换档会带进度重新取流，
+ * 有一次短暂缓冲——提前说清楚，免得用户以为卡了。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun AudioQualityOptions(
+    state: PlaybackState,
+    defaultQuality: com.biliseek.core.player.AudioQuality,
+    onSelect: (com.biliseek.core.player.AudioQuality) -> Unit,
+    onSetDefault: (com.biliseek.core.player.AudioQuality) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.biliseek.core.player.AudioQuality.entries.forEach { quality ->
+                FilterChip(
+                    selected = state.requestedAudioQuality == quality,
+                    onClick = { onSelect(quality) },
+                    enabled = !state.isOffline,
+                    label = { Text(audioQualityLabel(quality)) },
+                )
+            }
+        }
+        audioQualityStatusText(state.qualityFallback, state.isOffline)?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            "切换后当前视频会重新加载音频，可能短暂缓冲",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (state.requestedAudioQuality != defaultQuality) {
+            TextButton(onClick = { onSetDefault(state.requestedAudioQuality) }) {
+                Text("将「${audioQualityLabel(state.requestedAudioQuality)}」设为默认")
+            }
         }
     }
 }

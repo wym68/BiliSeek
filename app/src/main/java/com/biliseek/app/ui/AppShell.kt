@@ -112,6 +112,12 @@ fun AppShell(
     onDownloadCurrent: () -> Unit = {},
     /** 切画质（只锁定已有视频轨，不重新取流）。 */
     onSetVideoQuality: (Int) -> Unit = {},
+    /** 设置页的默认音质。播放页里临时选的与它不同时，提供「设为默认」。 */
+    defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
+    /** 播放页换音质：本次会话生效，当前视频带进度重新取流。 */
+    onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    /** 把音质写进设置页默认值。 */
+    onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
     /** 全屏弹幕开关状态。 */
     danmakuEnabled: Boolean = false,
     /** 全屏弹幕开关切换。 */
@@ -366,6 +372,9 @@ fun AppShell(
                         onOpenUpSpace = onOpenUpSpace,
                         onDownload = onDownloadCurrent,
                         onSetVideoQuality = onSetVideoQuality,
+                        defaultAudioQuality = defaultAudioQuality,
+                        onSetAudioQuality = onSetAudioQuality,
+                        onSetDefaultAudioQuality = onSetDefaultAudioQuality,
                         accent = accent,
                         // 全屏层或 PiP 层接管 SurfaceView 时，内联封面区让路
                         isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN || isInPip,
@@ -432,6 +441,9 @@ fun AppShell(
                 onShare = onShare,
                 onViewAuthor = onOpenUpSpace,
                 onSetVideoQuality = onSetVideoQuality,
+                defaultAudioQuality = defaultAudioQuality,
+                onSetAudioQuality = onSetAudioQuality,
+                onSetDefaultAudioQuality = onSetDefaultAudioQuality,
             )
         } else if (isInPip && playback.presentation != PresentationMode.NONE) {
             PipVideoOverlay(surfaceView = surfaceView, state = playback)

@@ -152,4 +152,36 @@ class QualityPolicyTest {
         assertFalse(lossless.lossless)
         assertEquals(listOf(30232), lossless.tracks.map { it.id })
     }
+
+    // ── 播放页换音质 ──
+
+    @Test
+    fun `实际要的档位 无损在低倍速下要无损 高倍速下要 AAC`() {
+        assertEquals(AudioQuality.LOSSLESS, resolveAskedAudioQuality(AudioQuality.LOSSLESS, 1.0f))
+        assertEquals(AudioQuality.AUTO, resolveAskedAudioQuality(AudioQuality.LOSSLESS, 2.0f))
+        assertEquals(AudioQuality.SAVER, resolveAskedAudioQuality(AudioQuality.SAVER, 2.0f))
+        assertEquals(AudioQuality.AUTO, resolveAskedAudioQuality(AudioQuality.AUTO, 1.0f))
+    }
+
+    @Test
+    fun `换档导致实际要的档位变化时重新取流`() {
+        assertTrue(shouldReloadForAudioQuality(AudioQuality.AUTO, AudioQuality.LOSSLESS, 1.0f, isOffline = false))
+        assertTrue(shouldReloadForAudioQuality(AudioQuality.AUTO, AudioQuality.SAVER, 1.0f, isOffline = false))
+    }
+
+    @Test
+    fun `高倍速下无损与自动互换不重新取流`() {
+        assertFalse(shouldReloadForAudioQuality(AudioQuality.AUTO, AudioQuality.LOSSLESS, 2.0f, isOffline = false))
+        assertFalse(shouldReloadForAudioQuality(AudioQuality.LOSSLESS, AudioQuality.AUTO, 2.0f, isOffline = false))
+    }
+
+    @Test
+    fun `本地文件换档不重新取流`() {
+        assertFalse(shouldReloadForAudioQuality(AudioQuality.AUTO, AudioQuality.LOSSLESS, 1.0f, isOffline = true))
+    }
+
+    @Test
+    fun `档位没变不重新取流`() {
+        assertFalse(shouldReloadForAudioQuality(AudioQuality.SAVER, AudioQuality.SAVER, 1.0f, isOffline = false))
+    }
 }

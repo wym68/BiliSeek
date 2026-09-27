@@ -4,6 +4,7 @@ import com.biliseek.core.player.VIDEO_QUALITY_AUTO
 import com.biliseek.core.player.VideoQualityOption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QualityLabelPolicyTest {
@@ -42,5 +43,33 @@ class QualityLabelPolicyTest {
     @Test
     fun `所选档位没生效时给出实际档位`() {
         assertEquals("1080P", videoQualityFallbackLabel(options, 112, 80))
+    }
+
+    // ── 音质 ──
+
+    @Test
+    fun `音质按钮自动时写入口文案`() {
+        assertEquals("音质", audioQualityButtonLabel(com.biliseek.core.player.AudioQuality.AUTO))
+        assertEquals("无损", audioQualityButtonLabel(com.biliseek.core.player.AudioQuality.LOSSLESS))
+        assertEquals("省流", audioQualityButtonLabel(com.biliseek.core.player.AudioQuality.SAVER))
+    }
+
+    @Test
+    fun `如实生效时不需要说明`() {
+        assertNull(audioQualityStatusText(com.biliseek.core.player.QualityFallback.NONE, isOffline = false))
+    }
+
+    @Test
+    fun `本地文件优先说明`() {
+        val text = audioQualityStatusText(com.biliseek.core.player.QualityFallback.UNAVAILABLE, isOffline = true)
+        assertEquals("正在播放本地文件，音质档位不适用", text)
+    }
+
+    @Test
+    fun `回退原因各有说明`() {
+        val unavailable = audioQualityStatusText(com.biliseek.core.player.QualityFallback.UNAVAILABLE, false)
+        val speed = audioQualityStatusText(com.biliseek.core.player.QualityFallback.SPEED_INCOMPATIBLE, false)
+        assertTrue(unavailable!!.contains("没有无损"))
+        assertTrue(speed!!.contains("倍速"))
     }
 }

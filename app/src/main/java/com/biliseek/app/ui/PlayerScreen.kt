@@ -155,6 +155,9 @@ fun PlayerScreen(
     accent: AccentDecision,
     onDownload: () -> Unit = {},
     onSetVideoQuality: (Int) -> Unit = {},
+    defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
+    onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
     modifier: Modifier = Modifier,
     // 全屏 overlay 是否处于激活状态：激活时 CoverArea 让出 SurfaceView 的挂载权，
     // 避免和 FullscreenPlayerOverlay 同时持有同一个 view（见 PlayerSurface.kt 的说明）。
@@ -263,6 +266,9 @@ fun PlayerScreen(
                 onViewAuthor = onOpenUpSpace,
                 onShare = onShare,
                 onSetVideoQuality = onSetVideoQuality,
+                defaultAudioQuality = defaultAudioQuality,
+                onSetAudioQuality = onSetAudioQuality,
+                onSetDefaultAudioQuality = onSetDefaultAudioQuality,
             )
         }
     }

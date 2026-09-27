@@ -142,6 +142,9 @@ fun FullscreenPlayerOverlay(
     onShare: () -> Unit = {},
     onViewAuthor: () -> Unit = {},
     onSetVideoQuality: (Int) -> Unit = {},
+    defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
+    onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
 ) {
     androidx.activity.compose.BackHandler(enabled = !isInPip) { onExit() }
 
@@ -365,31 +368,46 @@ fun FullscreenPlayerOverlay(
                                 touch()
                             },
                         )
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                                        touch()
-                                        onDanmakuToggle()
+                        val danmakuButton: @Composable () -> Unit = {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                                    touch()
+                                    onDanmakuToggle()
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = if (danmakuEnabled) {
+                                        Icons.Filled.Sms
+                                    } else {
+                                        Icons.Outlined.Sms
                                     },
+                                    contentDescription = "弹幕开关",
+                                    tint = if (danmakuEnabled) Color.White
+                                           else Color.White.copy(alpha = 0.5f),
+                                )
+                            }
+                        }
+                        val settingButtons: @Composable () -> Unit = {
+                            FullscreenTextButton(speedButtonLabel(state.speed)) {
+                                openPanel(FullscreenPanelType.SPEED)
+                            }
+                            if (state.videoQualities.isNotEmpty()) {
+                                FullscreenTextButton(
+                                    videoQualityButtonLabel(
+                                        state.videoQualities,
+                                        state.videoQualityPreference,
+                                        state.currentVideoQn,
+                                    ),
                                 ) {
-                                    Icon(
-                                        imageVector = if (danmakuEnabled) {
-                                            Icons.Filled.Sms
-                                        } else {
-                                            Icons.Outlined.Sms
-                                        },
-                                        contentDescription = "弹幕开关",
-                                        tint = if (danmakuEnabled) Color.White
-                                               else Color.White.copy(alpha = 0.5f),
-                                    )
+                                    openPanel(FullscreenPanelType.QUALITY)
                                 }
                             }
-
+                            FullscreenTextButton(audioQualityButtonLabel(state.requestedAudioQuality)) {
+                                openPanel(FullscreenPanelType.AUDIO)
+                            }
+                        }
+                        val transportControls: @Composable () -> Unit = {
                             PlayerControlBar(
                                 isPlaying = state.isPlaying,
                                 isAudioMode = false,
@@ -419,26 +437,41 @@ fun FullscreenPlayerOverlay(
                                 fillWidth = false,
                                 hapticType = HapticFeedbackType.VirtualKey,
                             )
+                        }
 
+                        if (landscape) {
+                            // 横屏一行放得下：弹幕 | 播放控制 | 倍速 画质 音质
                             Row(
-                                Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.End,
+                                Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                FullscreenTextButton(speedButtonLabel(state.speed)) {
-                                    openPanel(FullscreenPanelType.SPEED)
+                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                    danmakuButton()
                                 }
-                                if (state.videoQualities.isNotEmpty()) {
-                                    FullscreenTextButton(
-                                        videoQualityButtonLabel(
-                                            state.videoQualities,
-                                            state.videoQualityPreference,
-                                            state.currentVideoQn,
-                                        ),
-                                    ) {
-                                        openPanel(FullscreenPanelType.QUALITY)
-                                    }
+                                transportControls()
+                                Row(
+                                    Modifier.weight(1f),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    settingButtons()
                                 }
+                            }
+                        } else {
+                            // 竖屏（竖屏视频全屏）宽度不够，设置按钮单独一行
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                danmakuButton()
+                                Spacer(Modifier.weight(1f))
+                                settingButtons()
+                            }
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                transportControls()
                             }
                         }
                     }
@@ -469,6 +502,15 @@ fun FullscreenPlayerOverlay(
                             touch()
                             onSetVideoQuality(it)
                         },
+                    )
+                    FullscreenPanelType.AUDIO -> AudioQualityOptions(
+                        state = state,
+                        defaultQuality = defaultAudioQuality,
+                        onSelect = {
+                            touch()
+                            onSetAudioQuality(it)
+                        },
+                        onSetDefault = onSetDefaultAudioQuality,
                     )
                     FullscreenPanelType.TIMER -> TimerOptions(
                         isActive = state.sleepTimerActive,
@@ -521,6 +563,7 @@ fun PipVideoOverlay(
 private enum class FullscreenPanelType(val title: String) {
     SPEED("倍速播放"),
     QUALITY("画质"),
+    AUDIO("音质"),
     TIMER("定时关闭"),
     MORE("更多"),
 }
