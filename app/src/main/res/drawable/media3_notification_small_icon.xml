@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  按资源名覆盖 Media3 DefaultMediaNotificationProvider 的播放通知小图标（无需改代码）。
+  docs/assets/logo.svg 的简化版：去掉五官，线条加粗，保证 24dp 状态栏里仍能看清。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <group
+        android:scaleX="0.02261"
+        android:scaleY="0.02261"
+        android:translateX="0.096"
+        android:translateY="1.317">
+        <group>
+            <clip-path android:pathData="M-200,-200 H1224 V1224 H-200 Z M754.7,742.9 L900.7,900.9 A78,78 0 0 0 1015.3,795.1 L869.3,637.1 A78,78 0 0 0 754.7,742.9 Z" />
+            <path
+                android:pathData="M201,235 H780 A115,115 0 0 1 895,350 V712 A115,115 0 0 1 780,827 H201 A115,115 0 0 1 86,712 V350 A115,115 0 0 1 201,235 Z"
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="80"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+        </group>
+        <path
+            android:pathData="M285,80 L415,212 M685,80 L555,212"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="80"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M516,488 A155,155 0 1 1 826,488 A155,155 0 1 1 516,488 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="70"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M775,605 L818,652"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="56"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M812,690 L958,848"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="100"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

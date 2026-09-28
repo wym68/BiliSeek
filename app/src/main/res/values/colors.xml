@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#1F6FEB</color>
+    <!-- Logo 源文件见 docs/assets/logo.svg：白底蓝线 -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="biliseek_brand_blue">#0496FF</color>
 </resources>

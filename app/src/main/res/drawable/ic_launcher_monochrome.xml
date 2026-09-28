@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 13+ 主题图标。几何与 ic_launcher_foreground 相同，只取 alpha，颜色由系统重新着色。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.05937"
+        android:scaleY="0.05937"
+        android:translateX="20.695"
+        android:translateY="21.940">
+        <group>
+            <clip-path android:pathData="M-200,-200 H1224 V1224 H-200 Z M754.7,742.9 L900.7,900.9 A78,78 0 0 0 1015.3,795.1 L869.3,637.1 A78,78 0 0 0 754.7,742.9 Z" />
+            <path
+                android:pathData="M201,235 H780 A115,115 0 0 1 895,350 V712 A115,115 0 0 1 780,827 H201 A115,115 0 0 1 86,712 V350 A115,115 0 0 1 201,235 Z"
+                android:strokeColor="#FF000000"
+                android:strokeWidth="62"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round" />
+        </group>
+        <path
+            android:pathData="M285,80 L415,212 M685,80 L555,212"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="62"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M242,845 L242,860 M743,845 L743,860"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="75"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M242,515 L390,462 M360,650 Q465,780 565,668"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="56"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M516,488 A155,155 0 1 1 826,488 A155,155 0 1 1 516,488 Z M590,512 Q672,410 755,512"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="46"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M775,605 L818,652"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="40"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M812,690 L958,848"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="88"
+            android:strokeLineCap="round" />
+    </group>
+</vector>
