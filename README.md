@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/logo.svg" width="128" alt="BiliSeek logo"></p>
+
 # BiliSeek
 
 > **Seek and you shall find.** 寻则得之。
