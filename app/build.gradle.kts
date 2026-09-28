@@ -34,10 +34,10 @@ android {
         applicationId = "com.biliseek"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        // M10 版本策略：versionName 与里程碑对齐（M9 完成 → 0.2.0，M11 完成 → 0.3.0）；
-        // versionCode 每次发版 +1（MVP=1 → M10=2 → M11=3），只在发版提交上动。
-        versionCode = 3
-        versionName = "0.3.0"
+        // M10 版本策略：versionName 与里程碑对齐（M9 完成 → 0.2.0，M11 完成 → 0.3.0，0.3.x 逐条优化收口 → 0.4.0）；
+        // versionCode 每次发版 +1（MVP=1 → M10=2 → M11=3 → 0.4.0=4），只在发版提交上动。
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
