@@ -1,12 +1,16 @@
 package com.biliseek.app.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.SearchHistoryEntity
@@ -110,14 +113,14 @@ fun HomeEmptyState(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 QuickEntryCard(
-                    symbol = "⏱",
+                    icon = Icons.Outlined.Schedule,
                     label = "稍后再看",
                     onClick = onOpenWatchLater,
                     visible = isLoggedIn,
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntryCard(
-                    symbol = "📁",
+                    icon = Icons.Outlined.LibraryMusic,
                     label = "近期歌单",
                     onClick = onOpenRecentPlaylists,
                     visible = true,
@@ -131,7 +134,7 @@ fun HomeEmptyState(
 /** 快捷入口卡片：symbol + 标签，仿 BBPlayer quickAccessCard。 */
 @Composable
 private fun QuickEntryCard(
-    symbol: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
     visible: Boolean,
@@ -152,7 +155,7 @@ private fun QuickEntryCard(
                 .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center,
         ) {
-            Text(symbol, style = MaterialTheme.typography.headlineSmall)
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
         Text(
             label,
@@ -190,10 +193,10 @@ fun SearchHistorySection(
                     onClick = { onKeywordClick(entry.keyword) },
                     label = { Text(entry.keyword) },
                     trailingIcon = {
-                        Text(
-                            "✕",
-                            modifier = Modifier.clickable { onDeleteKeyword(entry.keyword) },
-                            style = MaterialTheme.typography.labelSmall,
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "删除",
+                            modifier = Modifier.size(16.dp).clickable { onDeleteKeyword(entry.keyword) },
                         )
                     },
                 )

@@ -1,8 +1,23 @@
 package com.biliseek.app.ui
 
+import androidx.compose.material.icons.outlined.DynamicFeed
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsEmptyState
+import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import com.biliseek.designsystem.component.BsTopBar
+import com.biliseek.designsystem.theme.BsSize
+import com.biliseek.designsystem.theme.BsSpacing
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Icon
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +39,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -135,12 +149,9 @@ fun UpSpaceScreen(
                 onExit = onExitSelection,
             )
         } else {
-            Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (up != null) {
+            BsTopBar(title = "UP 主空间", onNavigate = onClose)
+            if (up != null) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = BsSpacing.lg).padding(bottom = BsSpacing.md)) {
                     UpHeader(
                         up = up,
                         following = state.following,
@@ -148,7 +159,6 @@ fun UpSpaceScreen(
                         onToggleFollow = onToggleFollow,
                     )
                 }
-                TextButton(onClick = onClose) { Text("返回") }
             }
         }
         HorizontalDivider()
@@ -235,12 +245,26 @@ private fun UpHeader(
             }
         }
         // 关注按钮：未拉取时一律显示"关注"，避免 UI 闪烁
+        // 按钮规范：未关注 = 主操作（Button）；已关注 = 次要（FilledTonalButton），取关同一个按钮
         val isFollowing = following == true
-        Button(
-            onClick = { onToggleFollow(up.mid, !isFollowing) },
-            enabled = !followingLoading,
-        ) {
-            Text(if (isFollowing) "✓ 已关注" else "关注")
+        if (isFollowing) {
+            FilledTonalButton(
+                onClick = { onToggleFollow(up.mid, false) },
+                enabled = !followingLoading,
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(BsSize.iconSm))
+                Spacer(Modifier.width(BsSpacing.xs))
+                Text("已关注")
+            }
+        } else {
+            Button(
+                onClick = { onToggleFollow(up.mid, true) },
+                enabled = !followingLoading,
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(BsSize.iconSm))
+                Spacer(Modifier.width(BsSpacing.xs))
+                Text("关注")
+            }
         }
     }
 }
@@ -259,18 +283,9 @@ private fun PostsList(
     onOpenActions: (SpaceVideo) -> Unit,
 ) {
     when {
-        posts.isLoading && posts.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        posts.errorMessage != null && posts.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(posts.errorMessage, Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
-                Button(onClick = onRetry) { Text("重试") }
-            }
-        }
-        posts.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            Text("这个 UP 还没有投稿", style = MaterialTheme.typography.bodySmall)
-        }
+        posts.isLoading && posts.items.isEmpty() -> BsLoadingState()
+        posts.errorMessage != null && posts.items.isEmpty() -> BsErrorState(posts.errorMessage, onRetry = onRetry)
+        posts.items.isEmpty() -> BsEmptyState("这个 UP 还没有投稿", icon = Icons.Outlined.VideoLibrary)
         else -> {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(posts.items, key = { it.bvid }) { video ->
@@ -358,7 +373,7 @@ private fun PostRow(
             androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onToggle() })
         } else {
             IconButton(onClick = onOpenActions) {
-                Text("⋮", style = MaterialTheme.typography.titleLarge)
+                Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
             }
         }
     }
@@ -378,18 +393,10 @@ private fun UpDynamicList(
     onToggleExpand: (DynamicEntry) -> Unit = {},
 ) {
     when {
-        dynamic.isLoading && dynamic.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        dynamic.errorMessage != null && dynamic.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(dynamic.errorMessage, Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
-                Text("需登录才能查看 TA 的动态", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        dynamic.items.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            Text("没有动态", style = MaterialTheme.typography.bodySmall)
-        }
+        dynamic.isLoading && dynamic.items.isEmpty() -> BsLoadingState()
+        dynamic.errorMessage != null && dynamic.items.isEmpty() ->
+            BsErrorState("${dynamic.errorMessage}\n需登录才能查看 TA 的动态", onRetry = null)
+        dynamic.items.isEmpty() -> BsEmptyState("没有动态", icon = Icons.Outlined.DynamicFeed)
         else -> {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(dynamic.items, key = { it.idStr }) { entry ->

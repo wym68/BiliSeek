@@ -1,5 +1,10 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsEmptyState
+import androidx.compose.material.icons.outlined.Email
+import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +26,12 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -76,17 +79,7 @@ fun MessageCenterScreen(
     LaunchedEffect(Unit) { onInit() }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "消息",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f).padding(start = 8.dp),
-            )
-            TextButton(onClick = onClose) { Text("关闭") }
-        }
+        BsTopBar(title = "消息", onNavigate = onClose)
 
         if (!session.isLoggedIn) {
             LoginPanel(
@@ -134,22 +127,11 @@ fun MessageCenterScreen(
             ) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                     when {
-                        sessions.isLoading && sessions.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        }
+                        sessions.isLoading && sessions.items.isEmpty() -> item { BsLoadingState() }
                         sessions.errorMessage != null && sessions.items.isEmpty() -> item {
-                            Column(Modifier.fillMaxWidth().padding(24.dp), Arrangement.spacedBy(8.dp)) {
-                                Text("加载失败：${sessions.errorMessage}", color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = onRetry) { Text("重试") }
-                            }
+                            BsErrorState("加载失败：${sessions.errorMessage}", onRetry = onRetry)
                         }
-                        sessions.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                Text("暂无私信")
-                            }
-                        }
+                        sessions.items.isEmpty() -> item { BsEmptyState("暂无私信", icon = Icons.Outlined.Email) }
                         else -> items(sessions.items, key = { it.talkerId }) { s ->
                             SessionRow(session = s, onClick = { onOpenChat(s) })
                             HorizontalDivider()

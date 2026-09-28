@@ -2,7 +2,6 @@ package com.biliseek.app.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,23 +17,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,6 +39,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.data.RemoteListState
+import com.biliseek.app.ui.richtext.CommentComposer
+import com.biliseek.app.ui.richtext.LocalEmotePanelHost
+import com.biliseek.app.ui.richtext.RichText
+import com.biliseek.app.ui.richtext.RichTextSource
+import com.biliseek.designsystem.component.BsEmptyState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsTopBar
+import com.biliseek.designsystem.theme.BsSpacing
 import com.biliseek.core.network.dto.ReplyAtItem
 import com.biliseek.core.network.canReplyInApp
 import com.biliseek.core.network.listKey
@@ -63,25 +66,18 @@ fun ReplyAtScreen(
     onSubmitReply: (aid: Long, root: Long, parent: Long, content: String, onResult: (Boolean, String?) -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LaunchedEffect(Unit) { onInit() }
+    val emoteHost = LocalEmotePanelHost.current
+    LaunchedEffect(Unit) {
+        onInit()
+        // 回复与@ 接口不下发表情表：拉一次表情面板当字典（进程内只请求一次）
+        emoteHost.ensureLoaded()
+    }
     var pendingReply by remember { mutableStateOf<ReplyAtItem?>(null) }
     var replyDraft by remember { mutableStateOf("") }
     var replySubmitting by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-            }
-            Text(
-                "回复与@",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f).padding(start = 8.dp),
-            )
-        }
+        BsTopBar(title = "回复与@", onNavigate = onBack)
 
         val refreshState = rememberPullToRefreshState()
         Box(Modifier.fillMaxSize()) {
@@ -93,21 +89,12 @@ fun ReplyAtScreen(
             ) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                     when {
-                        state.isLoading && state.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        }
+                        state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
                         state.errorMessage != null && state.items.isEmpty() -> item {
-                            Column(Modifier.fillMaxWidth().padding(24.dp), Arrangement.spacedBy(8.dp)) {
-                                Text("加载失败：${state.errorMessage}", color = MaterialTheme.colorScheme.error)
-                                TextButton(onClick = onRetry) { Text("重试") }
-                            }
+                            BsErrorState("加载失败：${state.errorMessage}", onRetry = onRetry)
                         }
                         state.items.isEmpty() -> item {
-                            Box(Modifier.fillMaxWidth().padding(48.dp), Alignment.Center) {
-                                Text("暂无内容")
-                            }
+                            BsEmptyState("暂无回复与@", icon = Icons.Outlined.AlternateEmail)
                         }
                         else -> items(state.items, key = { it.listKey() }) { entry ->
                             ReplyAtRow(
@@ -130,43 +117,42 @@ fun ReplyAtScreen(
         }
     }
 
-    if (pendingReply != null) {
+    val target = pendingReply
+    if (target != null) {
         ModalBottomSheet(onDismissRequest = { pendingReply = null }) {
-            Column(Modifier.padding(16.dp)) {
-                Text("回复 ${pendingReply?.user?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text("「${pendingReply?.content.orEmpty()}」", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = replyDraft,
-                    onValueChange = { replyDraft = it },
-                    placeholder = { Text("写下你的回复…") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                    TextButton(onClick = { pendingReply = null }) { Text("取消") }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(
-                        onClick = {
-                            val target = pendingReply ?: return@TextButton
-                            replySubmitting = true
-                            onSubmitReply(
-                                target.replyOid(),
-                                target.replyRootId,
-                                target.replyParentId,
-                                replyDraft,
-                            ) { ok, _ ->
-                                replySubmitting = false
-                                if (ok) {
-                                    pendingReply = null
-                                    replyDraft = ""
-                                }
-                            }
-                        },
-                        enabled = !replySubmitting && replyDraft.isNotBlank(),
-                    ) { Text(if (replySubmitting) "发送中…" else "发送") }
+            Column(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = BsSpacing.lg)) {
+                    Text("回复 ${target.user?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(BsSpacing.sm))
+                    RichText(
+                        RichTextSource(text = target.content),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
+                CommentComposer(
+                    content = replyDraft,
+                    onContentChange = { replyDraft = it },
+                    placeholder = "写下你的回复…",
+                    isPosting = replySubmitting,
+                    onSubmit = {
+                        replySubmitting = true
+                        onSubmitReply(
+                            target.replyOid(),
+                            target.replyRootId,
+                            target.replyParentId,
+                            replyDraft,
+                        ) { ok, _ ->
+                            replySubmitting = false
+                            if (ok) {
+                                pendingReply = null
+                                replyDraft = ""
+                            }
+                        }
+                    },
+                )
             }
         }
     }
@@ -199,11 +185,12 @@ private fun ReplyAtRow(
                 item.quotedContent.isNotBlank() -> "回复了你的评论"
                 else -> "评论了你"
             }
-            Text(
-                "$action：${item.content}",
+            RichText(
+                RichTextSource(text = item.content),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                prefix = { append("$action：") },
             )
             val context = if (item.isAt) item.title else item.quotedContent.ifBlank { item.title }
             if (context.isNotBlank()) {

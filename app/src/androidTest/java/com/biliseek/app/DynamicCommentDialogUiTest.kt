@@ -2,7 +2,8 @@ package com.biliseek.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.biliseek.app.data.RemoteListState
@@ -69,11 +70,11 @@ class DynamicCommentDialogUiTest {
         compose.onNodeWithText("第一条评论").assertIsDisplayed()
         compose.onNodeWithText("用户B").assertIsDisplayed()
 
-        compose.onNodeWithText("5 赞").performClick()
+        compose.onAllNodesWithContentDescription("点赞")[0].performClick()
         check(likedReply?.rpid == 1L) { "点赞未回调正确的评论" }
         check(likedRoot == null) { "一级评论点赞的 root 应为 null" }
 
-        compose.onAllNodesWithText("回复")[0].performClick()
+        compose.onAllNodesWithContentDescription("回复")[0].performClick()
         check(replyTarget?.rpid == 1L) { "回复未回调正确的评论" }
 
         compose.onNodeWithText("时间").performClick()
@@ -110,7 +111,7 @@ class DynamicCommentDialogUiTest {
         }
 
         compose.onNodeWithText("回复 @用户A").assertIsDisplayed()
-        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithContentDescription("取消回复").performClick()
         check(cleared) { "取消回复目标未回调" }
     }
 }

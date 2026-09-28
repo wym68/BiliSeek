@@ -1,5 +1,11 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsEmptyState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.VideoLibrary
+import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -42,45 +47,15 @@ fun SeriesScreen(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "${state.title} · ${state.items.size} 首",
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            TextButton(onClick = onClose) { Text("返回") }
-        }
+        BsTopBar(title = state.title, subtitle = "${state.items.size} 首", onNavigate = onClose)
 
         when {
-            state.isLoading && state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
+            state.isLoading && state.items.isEmpty() -> BsLoadingState()
 
-            state.errorMessage != null && state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            state.errorMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                        Button(onClick = { onLoadMore(1) }) { Text("重试") }
-                    }
-                }
-            }
+            state.errorMessage != null && state.items.isEmpty() ->
+                BsErrorState(state.errorMessage, onRetry = { onLoadMore(1) })
 
-            state.items.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("这个合集是空的", style = MaterialTheme.typography.bodySmall)
-                }
-            }
+            state.items.isEmpty() -> BsEmptyState("这个合集是空的", icon = Icons.Outlined.VideoLibrary)
 
             else -> {
                 LazyColumn(Modifier.fillMaxSize()) {

@@ -76,5 +76,6 @@ internal fun mergeDetailItem(item: DynamicItem, seed: DynamicEntry?): DynamicEnt
         video = parsed.video ?: seed.video,
         authorName = parsed.authorName.ifBlank { seed.authorName },
         authorFace = parsed.authorFace.ifBlank { seed.authorFace },
+        emotes = seed.emotes + parsed.emotes,
     )
 }

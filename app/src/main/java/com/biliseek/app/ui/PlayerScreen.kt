@@ -1,107 +1,37 @@
 package com.biliseek.app.ui
 
 import android.view.SurfaceView
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.ModeComment
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.QueueMusic
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.outlined.Sms
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderColors
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import coil3.compose.AsyncImage
-import com.biliseek.core.player.PlayMode
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
-import com.biliseek.core.player.formatDuration
 import com.biliseek.designsystem.theme.AccentDecision
 import com.biliseek.designsystem.theme.AdaptiveAccentColorPolicy
 import com.biliseek.designsystem.theme.CoverPalette
@@ -162,9 +92,14 @@ fun PlayerScreen(
     // 全屏 overlay 是否处于激活状态：激活时 CoverArea 让出 SurfaceView 的挂载权，
     // 避免和 FullscreenPlayerOverlay 同时持有同一个 view（见 PlayerSurface.kt 的说明）。
     isFullscreenActive: Boolean = false,
+    /** 视频互动栏状态（点赞 / 投币 / 收藏计数与已互动态）。null = 未绑定或本地文件。 */
+    interaction: com.biliseek.app.interaction.VideoInteractionState? = null,
+    interactionHandlers: VideoActionHandlers = VideoActionHandlers(),
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
+    // 只有播放页展开时才绑定（= 才可能发互动读请求）；纯听后台不会走到这里
+    LaunchedEffect(state.bvid) { interactionHandlers.onBind(state.bvid) }
 
     Box(
         modifier
@@ -217,6 +152,15 @@ fun PlayerScreen(
                 overflow = TextOverflow.Ellipsis,
             )
 
+            VideoActionBar(
+                state = interaction?.takeIf { it.bvid == state.bvid },
+                handlers = interactionHandlers,
+                onOpenFavorite = onOpenAddToList,
+                onOpenComments = onOpenComments,
+                onShare = onShare,
+                activeColor = accent.accent ?: MaterialTheme.colorScheme.primary,
+            )
+
             ProgressBar(state, onSeek)
 
             PlayerControlBar(
@@ -240,7 +184,6 @@ fun PlayerScreen(
                 playMode = state.playMode,
                 onCyclePlayMode = onCyclePlayMode,
                 onOpenQueue = onOpenQueue,
-                onOpenComments = onOpenComments,
             )
 
             state.error?.let {
@@ -249,8 +192,8 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = Color.Red)
-                    Button(onClick = onRetryPlayback) { Text("重试") }
+                    Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    FilledTonalButton(onClick = onRetryPlayback) { Text("重试") }
                 }
             }
         }

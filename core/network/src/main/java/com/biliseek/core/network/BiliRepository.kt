@@ -1086,6 +1086,38 @@ class BiliRepository internal constructor(
         response.data ?: RelationData()
     }
 
+    // ── 视频互动状态 / 表情面板（UI 重构）───────────────────
+
+    /**
+     * 当前账号对视频的互动状态（已赞 / 已投币数 / 已收藏）。必须登录；未登录直接失败，
+     * 由调用方回落为「全部未激活」。错误分流同其他读接口（-352 进冷却不重试）。
+     */
+    suspend fun archiveRelation(bvid: String): Result<com.biliseek.core.network.dto.ArchiveRelation> = runCatching {
+        requireLoggedInMid()
+        ensureNotCoolingRead()
+        authGate.awaitReady()
+        checkMessageRead(api.archiveRelation(bvid), "互动状态")
+            ?: com.biliseek.core.network.dto.ArchiveRelation()
+    }
+
+    /** 表情面板进程内缓存：表情包几乎不变，一次进程只拉一次。 */
+    @Volatile
+    private var emotePanelCache: List<com.biliseek.core.network.dto.EmotePackage>? = null
+
+    /**
+     * 评论表情面板。未登录时服务端只给默认表情包，同样可用。
+     * 成功结果缓存到进程结束；失败不缓存（下次打开面板再试）。
+     */
+    suspend fun emotePanel(): Result<List<com.biliseek.core.network.dto.EmotePackage>> = runCatching {
+        emotePanelCache?.let { return@runCatching it }
+        ensureNotCoolingRead()
+        authGate.awaitReady()
+        val packages = checkMessageRead(api.emotePanel(), "表情面板")?.packages.orEmpty()
+            .filter { !it.emote.isNullOrEmpty() }
+        emotePanelCache = packages
+        packages
+    }
+
     // ── 消息中心（私信 + 互动消息）──────────────────────────
 
     /** 私信会话列表。消息中心页面主体，懒加载——独立于三个子页面。 */

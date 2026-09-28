@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +19,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -38,8 +43,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,6 +60,9 @@ import com.biliseek.app.DynamicInitState
 import com.biliseek.app.DynamicUiState
 import com.biliseek.app.data.DynamicExpandState
 import com.biliseek.app.LoginPanel
+import com.biliseek.app.ui.richtext.RichText
+import com.biliseek.app.ui.richtext.RichTextSource
+import com.biliseek.designsystem.component.BsIconAction
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
@@ -326,7 +333,12 @@ private fun MostVisitedUpRow(
             modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onOpenFollowList) {
-            Text("更多 >")
+            Text("更多")
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 
@@ -422,6 +434,7 @@ internal fun DynamicCard(
         if (entry.descText.isNotBlank()) {
             DynamicDescText(
                 text = entry.descText,
+                emotes = entry.emotes,
                 expandState = expandState,
                 onToggleExpand = onToggleExpand,
                 modifier = Modifier.padding(top = 8.dp),
@@ -532,20 +545,24 @@ internal fun DynamicCard(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                com.biliseek.app.ui.components.ActionButton(
-                    count = stat.forward.count,
+                BsIconAction(
+                    icon = Icons.AutoMirrored.Outlined.Reply,
                     label = "转发",
+                    count = stat.forward.count.toLong(),
                     enabled = !stat.forward.forbidden,
                     onClick = onRepostClick,
                 )
-                com.biliseek.app.ui.components.ActionButton(
-                    count = stat.comment.count,
+                BsIconAction(
+                    icon = Icons.Outlined.ChatBubbleOutline,
                     label = "评论",
+                    count = stat.comment.count.toLong(),
                     onClick = onCommentClick,
                 )
-                com.biliseek.app.ui.components.ActionButton(
-                    count = stat.like.count,
+                BsIconAction(
+                    icon = Icons.Outlined.ThumbUp,
+                    activeIcon = Icons.Filled.ThumbUp,
                     label = "点赞",
+                    count = stat.like.count.toLong(),
                     active = stat.like.status,
                     onClick = onLikeClick,
                 )
@@ -561,16 +578,18 @@ internal fun DynamicCard(
 @Composable
 private fun DynamicDescText(
     text: String,
+    emotes: Map<String, com.biliseek.core.network.dto.Emote>,
     expandState: DynamicExpandState?,
     onToggleExpand: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val style = MaterialTheme.typography.bodyMedium
+    val source = RichTextSource(text = text, emotes = emotes, topics = true)
 
     if (expandState?.expanded == true) {
         when {
             expandState.error != null -> Column(modifier) {
-                Text(text, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                RichText(source, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Text(
                     "加载失败，点击重试",
                     style = MaterialTheme.typography.labelSmall,
@@ -579,22 +598,27 @@ private fun DynamicDescText(
                 )
             }
             expandState.entry == null -> Column(modifier) {
-                Text(text, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                RichText(source, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 CircularProgressIndicator(
                     Modifier.padding(top = 4.dp).size(14.dp),
                     strokeWidth = 2.dp,
                 )
             }
             else -> {
-                val fullText = expandState.entry.descText.ifBlank { text }
-                Text(
-                    buildAnnotatedString {
-                        append(fullText)
-                        append("  ")
-                        withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append("收起") }
-                    },
+                val full = expandState.entry
+                val primary = MaterialTheme.colorScheme.primary
+                RichText(
+                    RichTextSource(
+                        text = full.descText.ifBlank { text },
+                        emotes = emotes + full.emotes,
+                        topics = true,
+                    ),
                     style = style,
                     modifier = modifier.clickable(onClick = onToggleExpand),
+                    suffix = {
+                        append("  ")
+                        withStyle(SpanStyle(color = primary)) { append("收起") }
+                    },
                 )
             }
         }
@@ -603,8 +627,8 @@ private fun DynamicDescText(
 
     var overflowing by remember(text) { mutableStateOf(false) }
     Box(modifier) {
-        Text(
-            text,
+        RichText(
+            source,
             style = style,
             maxLines = 3,
             overflow = TextOverflow.Clip,

@@ -29,6 +29,8 @@ dependencies {
     api(libs.androidx.compose.ui.graphics)
     api(libs.androidx.compose.material3)
     api(libs.androidx.compose.ui.tooling.preview)
+    // 共用组件（BsTopBar 的返回箭头、BsListRow 的右箭头）只用 core 图标集
+    implementation(libs.androidx.compose.material.icons.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

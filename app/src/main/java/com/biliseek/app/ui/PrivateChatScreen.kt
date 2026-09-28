@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,14 +18,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,7 +38,17 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.core.network.dto.PrivateMessage
 import com.biliseek.core.network.normalizeCoverUrl
+import com.biliseek.core.network.privateMessageImageUrl
 import com.biliseek.core.network.privateMessageText
+import com.biliseek.app.ui.richtext.CommentComposer
+import com.biliseek.app.ui.richtext.RichText
+import com.biliseek.app.ui.richtext.RichTextSource
+import com.biliseek.designsystem.component.BsEmptyState
+import com.biliseek.designsystem.component.BsErrorState
+import com.biliseek.designsystem.component.BsLoadingState
+import com.biliseek.designsystem.theme.BsShapes
+import com.biliseek.designsystem.theme.BsSize
+import com.biliseek.designsystem.theme.BsSpacing
 
 /**
  * 私信聊天页（push），与 WatchLaterScreen 风格一致：
@@ -83,11 +94,11 @@ fun PrivateChatScreen(
 
     Column(modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = BsSpacing.xs, vertical = BsSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
             AsyncImage(
                 model = normalizeCoverUrl(peerFace),
@@ -101,17 +112,10 @@ fun PrivateChatScreen(
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                state.isLoading && state.messages.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                }
-                state.errorMessage != null && state.messages.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), Alignment.Center) {
-                        Text("加载失败：${state.errorMessage}", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                state.messages.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), Alignment.Center) { Text("开始聊天吧") }
-                }
+                state.isLoading && state.messages.isEmpty() -> BsLoadingState()
+                state.errorMessage != null && state.messages.isEmpty() ->
+                    BsErrorState("加载失败：${state.errorMessage}", onRetry = onOpen)
+                state.messages.isEmpty() -> BsEmptyState("开始聊天吧")
                 else -> {
                     LazyColumn(
                         state = listState,
@@ -122,7 +126,7 @@ fun PrivateChatScreen(
                             items = state.messages.reversed(),
                             key = { it.msgSeqno },
                         ) { msg ->
-                            ChatBubble(message = msg, currentUid = currentUid)
+                            ChatBubble(message = msg, currentUid = currentUid, emotes = state.emotes)
                         }
                     }
                 }
@@ -134,36 +138,43 @@ fun PrivateChatScreen(
             }
         }
 
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = state.draft,
-                onValueChange = onDraftChange,
-                placeholder = { Text("输入消息…") },
-                modifier = Modifier.weight(1f),
-                enabled = !state.isSending,
-            )
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = onSend,
-                enabled = !state.isSending && state.draft.isNotBlank(),
-            ) {
-                Icon(Icons.Filled.Send, contentDescription = "发送")
-            }
-        }
+        HorizontalDivider()
+        CommentComposer(
+            content = state.draft,
+            onContentChange = onDraftChange,
+            onSubmit = onSend,
+            placeholder = "输入消息…",
+            isPosting = state.isSending,
+        )
     }
 }
 
 @Composable
-private fun ChatBubble(message: PrivateMessage, currentUid: Long) {
+private fun ChatBubble(
+    message: PrivateMessage,
+    currentUid: Long,
+    emotes: Map<String, com.biliseek.core.network.dto.Emote>,
+) {
     val isMine = message.senderUid == currentUid && currentUid > 0L
-    val text = privateMessageText(message.msgType, message.content, full = true)
+    val imageUrl = privateMessageImageUrl(message.msgType, message.content)
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        Modifier.fillMaxWidth().padding(vertical = BsSpacing.xs),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
     ) {
+        if (imageUrl != null) {
+            // 图片 / 大表情：不套气泡，直接显示图（大表情按官方尺寸，图片限宽）
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = if (message.msgType == 6) "表情" else "图片",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .then(
+                        if (message.msgType == 6) Modifier.size(BsSize.emoteLarge * 2)
+                        else Modifier.widthIn(max = 200.dp).heightIn(max = 260.dp),
+                    )
+                    .clip(BsShapes.md),
+            )
+        } else {
         Surface(
             shape = RoundedCornerShape(
                 topStart = 12.dp,
@@ -173,8 +184,13 @@ private fun ChatBubble(message: PrivateMessage, currentUid: Long) {
             ),
             color = if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
             contentColor = if (isMine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(max = 280.dp),
         ) {
-            Text(text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+            RichText(
+                RichTextSource(text = privateMessageText(message.msgType, message.content, full = true), emotes = emotes),
+                modifier = Modifier.padding(horizontal = BsSpacing.md, vertical = BsSpacing.sm),
+            )
+        }
         }
     }
 }

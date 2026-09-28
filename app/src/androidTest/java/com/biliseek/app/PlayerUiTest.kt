@@ -90,7 +90,7 @@ class PlayerUiTest {
 
         compose.onNodeWithText("测试标题").assertIsDisplayed()
         compose.onNodeWithText("00:30 / 01:30 · 听").assertIsDisplayed()
-        compose.onNodeWithText("⏸").assertIsDisplayed()
+        compose.onNodeWithContentDescription("暂停").assertIsDisplayed()
     }
 
     @Test

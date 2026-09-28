@@ -77,6 +77,33 @@ data class VideoViewInfo(
     val bvid: String = "",
     val aid: Long = 0,
     val owner: VideoOwner? = null,
+    /** 互动计数（点赞 / 投币 / 收藏 / 评论 / 分享）。 */
+    val stat: VideoStat? = null,
+    /** 1=自制 2=转载。转载视频每人最多投 1 枚币。 */
+    val copyright: Int = 1,
+)
+
+/** `x/web-interface/view` 的 `data.stat`。 */
+@Serializable
+data class VideoStat(
+    val view: Long = 0,
+    val danmaku: Long = 0,
+    val reply: Long = 0,
+    val favorite: Long = 0,
+    val coin: Long = 0,
+    val share: Long = 0,
+    val like: Long = 0,
+)
+
+/** `x/web-interface/archive/relation`：当前账号对视频的互动状态。 */
+@Serializable
+data class ArchiveRelation(
+    @Serializable(with = FlexibleBooleanSerializer::class) val attention: Boolean = false,
+    @Serializable(with = FlexibleBooleanSerializer::class) val favorite: Boolean = false,
+    @Serializable(with = FlexibleBooleanSerializer::class) val like: Boolean = false,
+    @Serializable(with = FlexibleBooleanSerializer::class) val dislike: Boolean = false,
+    /** 已投币数（0 / 1 / 2）。 */
+    val coin: Int = 0,
 )
 
 @Serializable

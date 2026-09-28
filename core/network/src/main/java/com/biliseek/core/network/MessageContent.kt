@@ -59,6 +59,15 @@ fun privateMessageText(msgType: Int, content: String, full: Boolean = false): St
     }
 }
 
+/**
+ * 图片 / 大表情私信（msg_type 2 / 6）的图片地址，其余类型返回 null。
+ * 聊天气泡据此直接显示图片，而不是「[图片]」「[表情]」占位。
+ */
+fun privateMessageImageUrl(msgType: Int, content: String): String? {
+    if (msgType != 2 && msgType != 6) return null
+    return parseObject(content)?.str("url")?.takeIf { it.isNotBlank() }?.let(::normalizeCoverUrl)
+}
+
 private val BVID_IN_URI = Regex("BV[0-9A-Za-z]{10}")
 private val AV_IN_URI = Regex("""(?:bilibili://video/|/video/av)(\d+)""")
 

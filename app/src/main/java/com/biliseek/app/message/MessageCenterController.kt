@@ -275,6 +275,9 @@ class MessageCenterController(
                             maxSeqno = data.maxSeqno.takeIf { v -> v > it.maxSeqno } ?: it.maxSeqno,
                             hasMore = data.hasMore == 1,
                             errorMessage = null,
+                            emotes = it.emotes + data.emoteInfos
+                                .filter { e -> e.text.isNotBlank() && e.url.isNotBlank() }
+                                .associate { e -> e.text to e.toEmote() },
                         )
                     }
                     // 首屏加载完成后立即标记已读
@@ -441,6 +444,8 @@ data class PrivateChatState(
     val minSeqno: Long = 0L,
     val maxSeqno: Long = 0L,
     val errorMessage: String? = null,
+    /** 已加载消息里出现过的表情（`e_infos` 累积）。 */
+    val emotes: Map<String, com.biliseek.core.network.dto.Emote> = emptyMap(),
 )
 
 /** 私信聊天路由参数。 */

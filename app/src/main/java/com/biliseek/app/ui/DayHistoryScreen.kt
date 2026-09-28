@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,17 +41,7 @@ fun DayHistoryScreen(
 ) {
     val totalDurationSec = entries.sumOf { it.durationSec }
     Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                date.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            TextButton(onClick = onClose) { Text("返回") }
-        }
+        BsTopBar(title = date.format(DateTimeFormatter.ISO_LOCAL_DATE), onNavigate = onClose)
 
         if (entries.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
