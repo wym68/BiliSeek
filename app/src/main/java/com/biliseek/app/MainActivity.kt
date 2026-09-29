@@ -186,6 +186,9 @@ class MainActivity : ComponentActivity() {
                 }
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
+                var aiSettingsOpen by remember { mutableStateOf(false) }
+                val aiSettingsState by viewModel.aiSettings.state.collectAsState()
+                val aiConnectionTests by viewModel.aiSettings.tests.collectAsState()
                 // 列表 tab 选中的页
                 var selectedTab by remember { mutableStateOf(LibraryTab.PLAYLISTS) }
 
@@ -590,7 +593,20 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     settingsContent = {
-                        SettingsScreen(
+                        if (aiSettingsOpen) {
+                            BackHandler(onBack = { aiSettingsOpen = false })
+                            com.biliseek.app.ui.AiSettingsScreen(
+                                settings = aiSettingsState,
+                                tests = aiConnectionTests,
+                                onSave = viewModel.aiSettings::save,
+                                onClear = viewModel.aiSettings::clear,
+                                onTest = viewModel.aiSettings::test,
+                                onStyleChange = viewModel.aiSettings::setLastStyle,
+                                onCustomPromptSave = viewModel.aiSettings::setCustomPrompt,
+                                onAcceptPrivacy = viewModel.aiSettings::acceptPrivacy,
+                                onClose = { aiSettingsOpen = false },
+                            )
+                        } else SettingsScreen(
                             settings = settings,
                             onDefaultPresentationChange = viewModel::setDefaultPresentation,
                             onMiniBarStyleChange = viewModel::setMiniBarStyle,
@@ -599,6 +615,12 @@ class MainActivity : ComponentActivity() {
                             onVideoQualityWifiChange = viewModel::setVideoQualityWifi,
                             onVideoQualityMeteredChange = viewModel::setVideoQualityMetered,
                             onLoudnessChange = viewModel::setLoudnessNormalization,
+                            onOpenAiSettings = { aiSettingsOpen = true },
+                            aiSettingsSummary = if (aiSettingsState.primaryReady) {
+                                aiSettingsState.primary?.model.orEmpty()
+                            } else {
+                                "未配置"
+                            },
                             accountContent = {
                                 LoginPanel(
                                     loginState = loginState,

@@ -49,6 +49,9 @@ fun SettingsScreen(
     onMiniBarStyleChange: (MiniBarStyle) -> Unit = {},
     onVideoQualityWifiChange: (Int) -> Unit = {},
     onVideoQualityMeteredChange: (Int) -> Unit = {},
+    // AI 总结（工单 AI-3）
+    onOpenAiSettings: () -> Unit = {},
+    aiSettingsSummary: String = "",
 ) {
     Column(
         Modifier
@@ -121,6 +124,10 @@ fun SettingsScreen(
             current = settings.miniBarStyle,
             onChange = onMiniBarStyleChange,
         )
+
+        HorizontalDivider()
+        SectionTitle("AI 总结")
+        AboutRow(label = "模型与风格", value = "$aiSettingsSummary · 点击设置", onClick = onOpenAiSettings)
 
         HorizontalDivider()
         SectionTitle("账号")
