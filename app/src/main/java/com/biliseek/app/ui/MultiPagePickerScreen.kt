@@ -124,4 +124,5 @@ private fun actionLabel(action: PendingAction): String = when (action) {
     PendingAction.AppendToQueue -> "加入播放列表"
     PendingAction.EnqueueNext -> "下一首播放"
     PendingAction.Download -> "下载"
+    PendingAction.Summarize -> "AI 总结"
 }
