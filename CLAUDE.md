@@ -38,6 +38,8 @@ Environment (see `docs/01-开发环境搭建.md` for a clean-machine setup): min
 :app            UI, navigation, feature ViewModels, Room database, repositories
 :core:network   risk-control credentials, WBI signing, Cookie, Bilibili API + DTOs
 :core:player    playurl resolution, DASH/MPD assembly, ExoPlayer, PlaybackService, playback state machine
+:core:ai        AI summary: provider presets (OpenAI-compatible), chunked map-reduce Summarizer → Markdown; knows nothing about Bilibili
+:core:asr       offline speech recognition (sherpa-onnx + SenseVoice + Silero VAD), model download/import/verify
 :design-system  theme, design tokens, cover-color extraction (Monet)
 ```
 
@@ -48,10 +50,11 @@ Two cross-cutting invariants that shape everything:
 
 ### Conventions to follow
 
-- **Decision logic goes in pure functions named `*Policy.kt`** (`shouldXxx()` / `resolveXxx()`), extracted from stateful components, side-effect-free and unit-tested. This is the primary defense against God-object growth. Examples: `QueuePolicy`, `ResumePolicy`, `QualityPolicy`, `TrackSelectionPolicy` in `core/player/internal/`; `DownloadPolicy`, `VideoGatePolicy`, `ReorderPolicy` in `app/data/`.
-- **Public API surface is deliberate.** Ported code keeps Kotlin `internal` (module-scoped). Only types `:app` actually touches are `public`. Adding a public type counts as an API change — don't do it casually. Public in `:core:player`: `PlaybackService`, `PlayerConnection`, `PlaybackRequest`, `PlaybackState`, `PlaybackMode`, `PresentationMode`, `AudioQuality`, `VideoQualityOption` (+ `VIDEO_QUALITY_AUTO`). Public in `:core:network`: `AuthGate`, `BiliApi`, DTOs, `WbiSigner`.
+- **Decision logic goes in pure functions named `*Policy.kt`** (`shouldXxx()` / `resolveXxx()`), extracted from stateful components, side-effect-free and unit-tested. This is the primary defense against God-object growth. Examples: `QueuePolicy`, `ResumePolicy`, `QualityPolicy`, `TrackSelectionPolicy` in `core/player/internal/`; `DownloadPolicy`, `VideoGatePolicy`, `ReorderPolicy` in `app/data/`; `ChunkPolicy`, `ReasoningStripPolicy` in `core/ai/internal/`; `LocalAsrPolicy`, `FailureActionPolicy` in `app/summary/`.
+- **Public API surface is deliberate.** Ported code keeps Kotlin `internal` (module-scoped). Only types `:app` actually touches are `public`. Adding a public type counts as an API change — don't do it casually. Public in `:core:player`: `PlaybackService`, `PlayerConnection`, `PlaybackRequest`, `PlaybackState`, `PlaybackMode`, `PresentationMode`, `AudioQuality`, `VideoQualityOption` (+ `VIDEO_QUALITY_AUTO`). Public in `:core:network`: `AuthGate`, `BiliApi`, DTOs, `WbiSigner`. Public in `:core:ai` / `:core:asr`: see `docs/10-AI总结-实现工单.md` §3.5 and AI-7.
 - **Don't persist remote data** (favorites, collections, search results) beyond in-memory cache. Only write to Room when the user explicitly saves something into a local list.
 - **The auth gate never blocks the UI.** Business requests wait on a `StateFlow<AuthState>` (`AuthGate`) until credentials are ready; the search box stays interactive. Gate failures retry silently with backoff and don't surface errors unless a user-initiated request ultimately fails.
+- **AI HTTP never carries Bilibili cookies or interceptors.** `:core:ai` and `:core:asr` model downloads use their own `OkHttpClient`; tests use MockWebServer only — never real AI services or model hosts.
 - **WBI signing happens at the call site, not in an interceptor** — `WbiSigner.sign(params)` returns a `Map` passed via `@QueryMap`, so the signature covers the final parameter set.
 
 ## The `ref/` directory is not part of this project

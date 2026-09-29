@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.summary.AsrPrompt
+import com.biliseek.app.summary.LocalAsrPolicy
 import com.biliseek.app.summary.NetworkDecision
 import com.biliseek.app.summary.OfficialSummary
 import com.biliseek.app.summary.SheetChoice
@@ -148,6 +150,15 @@ fun SummaryStyleSheet(
             if (!useOfficial && state.isBatch) {
                 Text(
                     "每个分 P 先找字幕；没有字幕时，若离线识别模型已就绪则本地识别",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val willRunAsr = forceLocalAsr || source is SummarySource.UseLocalAsr
+            val asrPrompt = LocalAsrPolicy.decide(durationMs, state.asrRtf)
+            if (!useOfficial && !state.isBatch && willRunAsr && asrPrompt is AsrPrompt.ConfirmLong) {
+                Text(
+                    "视频较长，本地识别预计约 ${asrPrompt.estimatedMinutes} 分钟（会占用较多电量）；可以离开，识别在后台进行",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

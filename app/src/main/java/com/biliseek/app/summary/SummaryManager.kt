@@ -124,6 +124,10 @@ class SummaryManager private constructor(private val app: Application) {
     @Volatile
     var asrModelReady: () -> Boolean = { false }
 
+    /** 「已下载」里是否有该 (bvid, cid) 的音频（AI-8 注入）；有则本地识别完全离线。 */
+    @Volatile
+    var hasLocalAudio: suspend (bvid: String, cid: Long) -> Boolean = { _, _ -> false }
+
     private val _live = MutableStateFlow<Map<Long, SummaryLive>>(emptyMap())
 
     /** 当前执行中的行（通知用）。 */
@@ -370,7 +374,7 @@ class SummaryManager private constructor(private val app: Application) {
             if (probe.failed && !network.online.value) return Outcome.WaitNetwork
             synchronized(chaptersById) { chaptersById[row.id] = probe.chapters }
             val asrReady = localAsrRunner != null && asrModelReady()
-            row = when (val source = SummarySourcePolicy.resolve(probe.pick, asrReady, hasLocalAudio = false)) {
+            row = when (val source = SummarySourcePolicy.resolve(probe.pick, asrReady, hasLocalAudio(row.bvid, row.cid))) {
                 is SummarySource.UseSubtitle -> update(row) {
                     it.copy(
                         sourceKind = AiSummarySource.SUBTITLE,
@@ -422,7 +426,12 @@ class SummaryManager private constructor(private val app: Application) {
                         publish(
                             current,
                             SummaryLive(
-                                stage = "本地识别 ${formatClock(processed)} / ${formatClock(total)}",
+                                // total 为 0：还在下载音频（时长未知）
+                                stage = if (total > 0) {
+                                    "本地识别 ${formatClock(processed)} / ${formatClock(total)}"
+                                } else {
+                                    "下载音频"
+                                },
                                 fraction = if (total > 0) processed.toFloat() / total else null,
                             ),
                             service,

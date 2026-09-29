@@ -313,6 +313,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         emitMessage = ::emitMessage,
     )
 
+    /** 设置 → AI 总结 → 离线识别模型（工单 AI-8）。 */
+    val asrModels = com.biliseek.app.summary.AsrModelController(
+        models = com.biliseek.app.summary.LocalAsrSource.models(app),
+        network = summaryManager.network,
+        emitMessage = ::emitMessage,
+    )
+
 
     /**
      * 「已开始播放」事件。UI 据此切到播放页。
@@ -1053,6 +1060,21 @@ return pages.map { p ->
             connection.resolveDownloadSource(bvid, cid, quality)
         }
         downloadManager.qualityProvider = { settingsStore.current.audioQuality }
+        // 本地识别（工单 AI-8）：音频走与下载同一个取流解析器，最低音质档
+        summaryManager.localAsrRunner = com.biliseek.app.summary.LocalAsrSource(
+            app = app,
+            transcriber = com.biliseek.app.summary.LocalAsrSource.transcriber(app),
+            settings = summaryManager.settings,
+            resolveAudioUrl = { bvid, cid ->
+                connection.resolveDownloadSource(bvid, cid.takeIf { it > 0 }, com.biliseek.core.player.AudioQuality.SAVER).audioUrl
+            },
+        )
+        summaryManager.asrModelReady = { asrModels.state.value == com.biliseek.core.asr.ModelState.Ready }
+        summaryManager.hasLocalAudio = { bvid, cid ->
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                library.lookupOffline(bvid, cid) { uri -> fileExists(uri) } != null
+            }
+        }
         // 取流时现读，用户改完设置下一首即生效
         connection.preferenceProvider = {
             val s = settingsStore.current

@@ -29,6 +29,8 @@ data class StyleSheetState(
     val llmReady: Boolean = false,
     val loggedIn: Boolean = false,
     val isMetered: Boolean = false,
+    /** 本地识别的实测 RTF（滑动平均）；null = 还没测过，按默认值估。 */
+    val asrRtf: Float? = null,
 ) {
     val isBatch: Boolean get() = videos.size > 1
 }
@@ -86,6 +88,7 @@ class SummaryController(
                 llmReady = settings.primaryReady,
                 loggedIn = session.value.isLoggedIn,
                 isMetered = manager.network.isMetered(),
+                asrRtf = settings.asrRtf,
             )
             if (videos.size > 1) {
                 _sheet.value = base.copy(official = OfficialSummary.Unavailable(OfficialSummary.Reason.NO_SUMMARY))
@@ -113,6 +116,7 @@ class SummaryController(
                     llmReady = settings.primaryReady,
                     loggedIn = session.value.isLoggedIn,
                     isMetered = manager.network.isMetered(),
+                    asrRtf = settings.asrRtf,
                 ),
                 video,
             )
@@ -123,7 +127,7 @@ class SummaryController(
         val key = "${video.bvid}_${video.cid}"
         val cached = synchronized(probeCache) { probeCache[key] }
         val asrReady = manager.localAsrRunner != null && manager.asrModelReady()
-        val hasLocalAudio = false // AI-8 接入「已下载」判断
+        val hasLocalAudio = manager.hasLocalAudio(video.bvid, video.cid)
         if (cached != null) {
             _sheet.value = base.withProbe(cached, asrReady, hasLocalAudio)
             return

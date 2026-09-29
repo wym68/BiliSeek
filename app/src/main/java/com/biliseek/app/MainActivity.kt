@@ -634,6 +634,18 @@ class MainActivity : ComponentActivity() {
                                 onCustomPromptSave = viewModel.aiSettings::setCustomPrompt,
                                 onAcceptPrivacy = viewModel.aiSettings::acceptPrivacy,
                                 onClose = { aiSettingsOpen = false },
+                                asrContent = {
+                                    val asrState by viewModel.asrModels.state.collectAsState()
+                                    com.biliseek.app.ui.AsrModelCard(
+                                        spec = viewModel.asrModels.spec,
+                                        state = asrState,
+                                        isMetered = viewModel.asrModels::isMetered,
+                                        onDownload = viewModel.asrModels::download,
+                                        onImport = viewModel.asrModels::import,
+                                        onCancel = viewModel.asrModels::cancel,
+                                        onDelete = viewModel.asrModels::delete,
+                                    )
+                                },
                             )
                         } else SettingsScreen(
                             settings = settings,
