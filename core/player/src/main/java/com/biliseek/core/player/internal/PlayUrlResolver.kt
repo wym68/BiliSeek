@@ -6,6 +6,7 @@ import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.network.WbiSigner
 import com.biliseek.core.network.dto.PlayUrlData
 import com.biliseek.core.player.AudioQuality
+import java.util.concurrent.ConcurrentHashMap
 
 /** 一次取流的结果。 */
 internal data class ResolvedMedia(
@@ -53,12 +54,21 @@ internal data class ResolvedMedia(
  * 第三级 `platform=html5` 兜底留到需要时再加。
  *
  * URL 缓存：playurl 响应有效期约 2 小时，整份缓存，切模式/重播不重新请求。
+ * 能不能复用看「播到结尾前直链会不会过期」（见 [shouldReusePlayUrl]）；
+ * 播放中断后的重试与自动恢复先 [invalidate]——失败多半就是缓存里这份直链不能用了。
  */
 internal class PlayUrlResolver(private val network: BiliNetwork) {
 
     private data class CacheEntry(val media: ResolvedMedia, val fetchedAt: Long)
 
-    private val cache = mutableMapOf<String, CacheEntry>()
+    // 播放（主线程）与下载（下载协程）共用这份缓存
+    private val cache = ConcurrentHashMap<String, CacheEntry>()
+
+    /** 作废这条内容各音质档位的缓存。[cid] 为空（起播第一 P）时连同该稿件的所有分 P 一起作废。 */
+    fun invalidate(bvid: String, cid: Long?) {
+        val prefix = if (cid != null) "$bvid:$cid:" else "$bvid:"
+        cache.keys.removeAll { it.startsWith(prefix) }
+    }
 
     /**
      * 离线命中检查。由外部（app 层）注入：查本地下载库，命中返回本地文件。
@@ -120,7 +130,15 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
         val key = "$bvid:$resolvedCid:$quality"
 
         cache[key]?.let { entry ->
-            if (System.currentTimeMillis() - entry.fetchedAt < CACHE_TTL_MS) {
+            val reusable = shouldReusePlayUrl(
+                fetchedAtMs = entry.fetchedAt,
+                deadlineMs = playUrlDeadlineMs(entry.media.audioUrl),
+                durationMs = entry.media.durationMs,
+                nowMs = System.currentTimeMillis(),
+                maxAgeMs = CACHE_TTL_MS,
+                marginMs = CACHE_MARGIN_MS,
+            )
+            if (reusable) {
                 Log.d(TAG, "playurl 命中缓存 $key")
                 return DownloadResult(resolvedCid, entry.media)
             }
@@ -162,16 +180,23 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
             require(tracks.audios.isNotEmpty()) { "无可播放音频流" }
 
             val durationMs = if (dash.duration > 0) dash.duration * 1000 else data.timelength
+            // 播放服务刚记下的坏节点排到最后：自动恢复重新取流时不再先撞它
+            val avoidHosts = CdnHostHealth.recentlyFailed()
             val manifest = buildLocalDashManifest(
                 durationMs = durationMs,
                 minBufferMs = (dash.minBufferTime * 1000).toLong().coerceAtLeast(1500),
                 videoTracks = tracks.videos,
                 audioTracks = tracks.audios,
+                avoidHosts = avoidHosts,
             )
+            val firstAudio = tracks.audios.first()
+            val lines = orderCdnUrls(firstAudio.url(), firstAudio.backupUrls(), avoidHosts).map(::cdnHostOf)
             Log.d(
                 TAG,
                 "MPD 组装完成：视频轨 ${tracks.videos.size} 条，音频轨 ${tracks.audios.size} 条" +
-                    "（音质 $quality${if (tracks.lossless) "，无损生效" else ""}）",
+                    "（音质 $quality${if (tracks.lossless) "，无损生效" else ""}）" +
+                    "，线路 ${lines.joinToString(" > ")}" +
+                    if (avoidHosts.isNotEmpty()) "（避开 ${avoidHosts.joinToString()}）" else "",
             )
 
             return ResolvedMedia(
@@ -228,5 +253,8 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
 
         /** playurl 实际有效期约 2 小时，留出余量。 */
         const val CACHE_TTL_MS = 100 * 60 * 1000L
+
+        /** 复用缓存时，播完之后直链还得再撑这么久（暂停、缓冲）。 */
+        const val CACHE_MARGIN_MS = 5 * 60 * 1000L
     }
 }

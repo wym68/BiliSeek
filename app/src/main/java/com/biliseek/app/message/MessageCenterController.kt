@@ -115,6 +115,8 @@ class MessageCenterController(
             _privateSessions.value = _privateSessions.value.copy(items = emptyList(), errorMessage = null, isLoading = false)
             return
         }
+        // 进页面的 onInit 与下拉刷新会撞在一起：上一次还没回来就不再发
+        if (_privateSessions.value.isLoading) return
         _privateSessions.value = _privateSessions.value.copy(isLoading = true, errorMessage = null)
         scope.launch {
             repository.privateSessions()
@@ -143,6 +145,7 @@ class MessageCenterController(
      * 第一路撞 -352 时全局冷却生效，第二路会在本地快速失败，不会真的发出请求。
      */
     private fun loadReplyFeed() {
+        if (_replyFeed.value.isLoading) return
         _replyFeed.value = _replyFeed.value.copy(isLoading = true, errorMessage = null)
         scope.launch {
             val replies = repository.replyFeed()
@@ -173,6 +176,7 @@ class MessageCenterController(
     fun retryLikeFeed() = loadLikeFeed()
 
     private fun loadLikeFeed() {
+        if (_likeFeed.value.isLoading) return
         _likeFeed.value = _likeFeed.value.copy(isLoading = true, errorMessage = null)
         scope.launch {
             repository.likeFeed()
@@ -198,6 +202,7 @@ class MessageCenterController(
     fun retryFollowerFeed() = loadFollowerFeed()
 
     private fun loadFollowerFeed() {
+        if (_followerFeed.value.isLoading) return
         _followerFeed.value = _followerFeed.value.copy(isLoading = true, errorMessage = null)
         scope.launch {
             repository.followerFeed()

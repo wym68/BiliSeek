@@ -140,6 +140,23 @@ fun SpaceVideo.toSearchVideo(): SearchVideo = SearchVideo(
 )
 
 /**
+ * 视频动态 → 搜索结果模型，图文动态（没有视频）返回 null。
+ *
+ * 与上面同理：长按菜单的加入列表 / 队列 / 下一首 / 下载全部复用搜索结果那套机制。
+ */
+fun DynamicEntry.toSearchVideo(): SearchVideo? {
+    val video = video ?: return null
+    return SearchVideo(
+        bvid = video.bvid,
+        title = video.title,
+        author = authorName,
+        mid = authorMid,
+        duration = video.durationText,
+        pic = video.coverUrl,
+    )
+}
+
+/**
  * 单条多 P 视频的分 P 选择态（Ch3）。**仅正常态三点按钮触发**；批量场景取全 P、不经此路径。
  */
 data class MultiPagePickerState(
@@ -726,6 +743,11 @@ return pages.map { p ->
         startSingleAction(video.toSearchVideo(), action)
 
     fun upVideoUrl(video: SpaceVideo) = videoUrl(video.toSearchVideo())
+
+    /** 视频动态长按菜单的单条动作：同样映射为搜索结果复用 startSingleAction。图文动态没有视频，忽略。 */
+    fun startDynamicSingleAction(entry: DynamicEntry, action: PendingAction) {
+        entry.toSearchVideo()?.let { startSingleAction(it, action) }
+    }
 
     fun dismissBatchAdd() { _pendingBatchAdd.value = null }
 

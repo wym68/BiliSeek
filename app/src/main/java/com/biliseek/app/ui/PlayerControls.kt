@@ -71,7 +71,8 @@ internal fun CoverArea(
     coverUrl: String,
     presentation: PresentationMode,
     surfaceView: SurfaceView?,
-    isResolving: Boolean,
+    /** 取流中或缓冲中：封面上转圈。只看取流的话，切网缓冲时画面纹丝不动，像卡死了。 */
+    isLoading: Boolean,
     onEnterFullscreen: () -> Unit,
     modifier: Modifier = Modifier,
     // 全屏 overlay 激活时，SurfaceView 的挂载权完全交给 FullscreenPlayerOverlay；
@@ -100,7 +101,7 @@ internal fun CoverArea(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            if (isResolving) {
+            if (isLoading) {
                 CircularProgressIndicator(color = Color.White)
             } else if (coverUrl.isBlank()) {
                 Icon(

@@ -93,6 +93,8 @@ fun UpSpaceScreen(
     onAuthorClick: (DynamicEntry) -> Unit = {},
     dynamicExpand: Map<String, DynamicExpandState> = emptyMap(),
     onToggleExpand: (DynamicEntry) -> Unit = {},
+    // 视频动态长按菜单（与动态 tab 共用同一份动作）
+    videoActions: DynamicVideoActions = DynamicVideoActions(),
     // 投稿复选与动作
     isSelection: Boolean = false,
     selectedBvids: Set<String> = emptySet(),
@@ -199,6 +201,7 @@ fun UpSpaceScreen(
                 onAuthorClick = onAuthorClick,
                 dynamicExpand = dynamicExpand,
                 onToggleExpand = onToggleExpand,
+                videoActions = videoActions,
             )
         }
     }
@@ -391,6 +394,8 @@ private fun UpDynamicList(
     onAuthorClick: (DynamicEntry) -> Unit = {},
     dynamicExpand: Map<String, DynamicExpandState> = emptyMap(),
     onToggleExpand: (DynamicEntry) -> Unit = {},
+    // 视频动态长按菜单（与动态 tab 共用同一份动作）
+    videoActions: DynamicVideoActions = DynamicVideoActions(),
 ) {
     when {
         dynamic.isLoading && dynamic.items.isEmpty() -> BsLoadingState()
@@ -410,6 +415,7 @@ private fun UpDynamicList(
                         onRepostClick = { onOpenRepost(entry.idStr) },
                         onCommentClick = { onOpenComment(entry) },
                         onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
+                        videoActions = videoActions,
                     )
                     HorizontalDivider()
                 }

@@ -79,6 +79,17 @@ class DynamicFeedController(
         }
     }
 
+    /**
+     * 下拉刷新：重拉当前筛选（全部 / 仅视频、选中的 UP）下的第 1 页。
+     *
+     * 早期直接接在 [initDynamic] 上，而它不带 forceRefresh 时见到已有内容就 return——
+     * 列表加载过一次之后，下拉就什么都不做。关注列表不跟着重拉：它另有 [refreshUpChips]，
+     * 下拉只为看新动态，多打一个接口只是多一份风控特征。
+     */
+    fun refreshDynamic() {
+        if (_dynamic.value.upChips.isEmpty()) initDynamic(forceRefresh = true) else loadDynamicPage(offset = "")
+    }
+
     /** 合并关注列表与本地访问记录，产出「最常访问」栏的展示顺序。 */
     private suspend fun mergeUpChips(
         followings: List<FollowingUp>,

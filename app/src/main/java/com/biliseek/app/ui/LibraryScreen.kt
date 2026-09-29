@@ -37,8 +37,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -141,43 +139,6 @@ fun LibraryScreen(
     var showCreate by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<PlaylistEntity?>(null) }
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
-    var favoritesRefreshMessage by remember { mutableStateOf<String?>(null) }
-    var favoritesRefreshIsError by remember { mutableStateOf(false) }
-    var seriesRefreshMessage by remember { mutableStateOf<String?>(null) }
-    var seriesRefreshIsError by remember { mutableStateOf(false) }
-
-    // 监听收藏夹同步状态变化，显示刷新提示
-    LaunchedEffect(favoriteSync) {
-        when (favoriteSync) {
-            is SyncState.Idle -> {
-                if (favoriteFolders.isNotEmpty()) {
-                    favoritesRefreshMessage = "收藏夹已刷新"
-                    favoritesRefreshIsError = false
-                }
-            }
-            is SyncState.Error -> {
-                favoritesRefreshMessage = "刷新失败：${favoriteSync.message}"
-                favoritesRefreshIsError = true
-            }
-            else -> {}
-        }
-    }
-
-    // 监听合集列表加载状态变化，显示刷新提示
-    LaunchedEffect(collectedListState.isLoading, collectedListState.errorMessage) {
-        if (!collectedListState.isLoading && collectedList.isNotEmpty()) {
-            if (collectedListState.errorMessage != null) {
-                seriesRefreshMessage = "刷新失败：${collectedListState.errorMessage}"
-                seriesRefreshIsError = true
-            } else if (seriesRefreshMessage == null) {
-                // 首次加载完成不显示提示
-            } else {
-                seriesRefreshMessage = "合集已刷新"
-                seriesRefreshIsError = false
-            }
-        }
-    }
-
     if (favoriteContent != null) {
         BackHandler(onBack = onCloseFavorite)
         FavoriteDetail(
@@ -379,7 +340,6 @@ fun LibraryScreen(
             }
 
             LibraryTab.FAVORITES -> {
-                val favoritesRefreshState = rememberPullToRefreshState()
                 // 收藏夹管理：新建 / 长按菜单 / 编辑 / 删除确认
                 var creatingFavorite by remember { mutableStateOf(false) }
                 var favoriteTitle by remember { mutableStateOf("") }
@@ -387,10 +347,12 @@ fun LibraryScreen(
                 var folderActionsFor by remember { mutableStateOf<FavoriteFolderEntity?>(null) }
                 var editingFavorite by remember { mutableStateOf<Pair<Long, String>?>(null) }
                 var deletingFavorite by remember { mutableStateOf<Pair<Long, String>?>(null) }
-                PullToRefreshBox(
+                // 收藏夹目录没有单独的加载占位（空列表同步中什么都不画），转圈要一直跟着同步走
+                PullRefreshContainer(
                     isRefreshing = favoriteSync is SyncState.Syncing,
+                    errorMessage = (favoriteSync as? SyncState.Error)?.message,
+                    successText = "收藏夹已刷新",
                     onRefresh = onSyncFavorites,
-                    state = favoritesRefreshState,
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     LazyColumn(
@@ -480,11 +442,6 @@ fun LibraryScreen(
                         }
                     }
                 }
-                RefreshStateSnackbar(
-                    message = favoritesRefreshMessage,
-                    isError = favoritesRefreshIsError,
-                    onDismiss = { favoritesRefreshMessage = null },
-                )
 
                 // 新建收藏夹
                 if (creatingFavorite) {
@@ -593,11 +550,11 @@ fun LibraryScreen(
             }
 
             LibraryTab.SERIES -> {
-                val seriesRefreshState = rememberPullToRefreshState()
-                PullToRefreshBox(
-                    isRefreshing = collectedListState.isLoading && collectedList.isEmpty(),
+                PullRefreshContainer(
+                    isRefreshing = collectedListState.isLoading && collectedList.isNotEmpty(),
+                    errorMessage = collectedListState.errorMessage,
+                    successText = "合集已刷新",
                     onRefresh = { onCollectedLoadMore(1) },
-                    state = seriesRefreshState,
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     LazyColumn(
@@ -715,11 +672,6 @@ fun LibraryScreen(
                         }
                     }
                 }
-                RefreshStateSnackbar(
-                    message = seriesRefreshMessage,
-                    isError = seriesRefreshIsError,
-                    onDismiss = { seriesRefreshMessage = null },
-                )
             }
         }
     }

@@ -49,6 +49,57 @@ class VideoManifestTest {
     }
 
     @Test
+    fun `备用线路写成多条 BaseURL，按优先级排队且 mcdn 殿后`() {
+        val audio = DashTrack(
+            id = 30280,
+            baseUrl = "https://xy1x2x3x4xy.mcdn.bilivideo.cn:4483/a.m4s?x=1&y=2",
+            backupUrl = listOf("https://upos-sz-mirrorcos.bilivideo.com/a.m4s?x=1&y=2"),
+            bandwidth = 192_000,
+            mimeType = "audio/mp4",
+            codecs = "mp4a.40.2",
+            segmentBase = SegmentBase(initialization = "0-100", indexRange = "101-200"),
+        )
+        val mpd = buildLocalDashManifest(100_000, 1500, emptyList(), listOf(audio))
+        val baseUrls = Regex("""<BaseURL[^>]*>[^<]+</BaseURL>""").findAll(mpd).map { it.value }.toList()
+        assertEquals(
+            listOf(
+                """<BaseURL dvb:priority="1">https://upos-sz-mirrorcos.bilivideo.com/a.m4s?x=1&amp;y=2</BaseURL>""",
+                """<BaseURL dvb:priority="2">https://xy1x2x3x4xy.mcdn.bilivideo.cn:4483/a.m4s?x=1&amp;y=2</BaseURL>""",
+            ),
+            baseUrls,
+        )
+        assertTrue("dvb 前缀要声明命名空间", mpd.contains("""xmlns:dvb="urn:dvb:dash:extensions:2014-1""""))
+    }
+
+    @Test
+    fun `组装时避开刚连不上的主机`() {
+        val audio = DashTrack(
+            id = 30280,
+            baseUrl = "https://upos-hz-mirrorakam.akamaized.net/a.m4s",
+            backupUrl = listOf("https://upos-sz-mirrorcosov.bilivideo.com/a.m4s"),
+            bandwidth = 192_000,
+            mimeType = "audio/mp4",
+            codecs = "mp4a.40.2",
+            segmentBase = SegmentBase(initialization = "0-100", indexRange = "101-200"),
+        )
+        val mpd = buildLocalDashManifest(
+            100_000, 1500, emptyList(), listOf(audio),
+            avoidHosts = setOf("upos-hz-mirrorakam.akamaized.net"),
+        )
+        assertTrue(
+            "腾讯海外线路应排第一",
+            mpd.contains("""<BaseURL dvb:priority="1">https://upos-sz-mirrorcosov.bilivideo.com/a.m4s</BaseURL>"""),
+        )
+    }
+
+    @Test
+    fun `只有一条线路时 BaseURL 不带优先级`() {
+        val tracks = collectTracks(dash)
+        val mpd = buildLocalDashManifest(100_000, 1500, tracks.videos, tracks.audios)
+        assertTrue(mpd.contains("<BaseURL>https://cdn.example/30280-mp4a.40.2.m4s</BaseURL>"))
+    }
+
+    @Test
     fun `视频轨 id 能解析回 qn`() {
         val tracks = collectTracks(dash)
         val mpd = buildLocalDashManifest(100_000, 1500, tracks.videos, tracks.audios)

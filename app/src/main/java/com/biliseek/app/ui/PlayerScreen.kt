@@ -139,7 +139,7 @@ fun PlayerScreen(
                 coverUrl = state.coverUrl,
                 presentation = state.presentation,
                 surfaceView = if (!isAudio) surfaceView else null,
-                isResolving = state.isResolving,
+                isLoading = state.isResolving || state.isBuffering,
                 onEnterFullscreen = onEnterFullscreen,
                 isFullscreenActive = isFullscreenActive,
                 videoAspectRatio = state.videoAspectRatio,
@@ -164,7 +164,7 @@ fun PlayerScreen(
             ProgressBar(state, onSeek)
 
             PlayerControlBar(
-                isPlaying = state.isPlaying,
+                isPlaying = state.showPauseButton,
                 isAudioMode = isAudio,
                 onTogglePlayPause = onTogglePlayPause,
                 onSkipPrevious = onSkipPrevious,

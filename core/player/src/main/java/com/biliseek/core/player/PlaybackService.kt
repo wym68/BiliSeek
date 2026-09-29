@@ -1,17 +1,26 @@
 package com.biliseek.core.player
 
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.biliseek.core.network.BiliNetwork
+import com.biliseek.core.player.internal.CdnHostHealth
+import com.biliseek.core.player.internal.StreamLoadErrorPolicy
+import java.io.IOException
 
 /**
  * 播放服务：**唯一 ExoPlayer 实例的持有者**。
@@ -39,12 +48,24 @@ class PlaybackService : MediaSessionService() {
             .setAllowCrossProtocolRedirects(true)
         val dataSourceFactory = DefaultDataSource.Factory(this, httpFactory)
 
+        // 加载失败怎么重试：没网就一直等网回来，有网却连不上就换线路、再不行上浮去重新取流（见该类的说明）
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val deviceOnline = {
+            connectivity?.getNetworkCapabilities(connectivity.activeNetwork)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        }
+        val loadErrorPolicy = StreamLoadErrorPolicy(deviceOnline)
+
         val exoPlayer = ExoPlayer.Builder(this)
             // Hi-Res FLAC 在部分机型上会因输入缓冲太小而崩，见该类的说明
             .setRenderersFactory(
                 com.biliseek.core.player.internal.HiResCompatibleRenderersFactory(this),
             )
-            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(this)
+                    .setDataSourceFactory(dataSourceFactory)
+                    .setLoadErrorHandlingPolicy(loadErrorPolicy),
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -61,6 +82,21 @@ class PlaybackService : MediaSessionService() {
         if (BuildConfig.DEBUG) {
             exoPlayer.addAnalyticsListener(EventLogger(TAG_EVENTS))
         }
+
+        // 有网却连不上的主机记下来：重新取流组装 manifest 时排到最后，自动恢复才不会再撞同一个坏节点。
+        // 没网时不记——那时所有主机都会失败，记了只会把好节点也打入冷宫
+        exoPlayer.addAnalyticsListener(object : AnalyticsListener {
+            override fun onLoadError(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+                error: IOException,
+                wasCanceled: Boolean,
+            ) {
+                if (error !is HttpDataSource.HttpDataSourceException || !deviceOnline()) return
+                loadEventInfo.uri.host?.let(CdnHostHealth::recordFailure)
+            }
+        })
 
         player = exoPlayer
         mediaSession = MediaSession.Builder(this, exoPlayer).build()

@@ -5,12 +5,15 @@ import android.content.Context
 import android.view.SurfaceView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.internal.EffectiveQuality
 import com.biliseek.core.player.internal.PlayUrlResolver
+import com.biliseek.core.player.internal.PlaybackRecovery
+import com.biliseek.core.player.internal.RecoveryBudget
 import com.biliseek.core.player.internal.SleepTimerSpec
 import com.biliseek.core.player.internal.deadlineAfter
 import com.biliseek.core.player.internal.hasSleepTimerExpired
@@ -26,6 +29,7 @@ import com.biliseek.core.player.internal.resolveManualNextIndex
 import com.biliseek.core.player.internal.resolveStartPosition
 import com.biliseek.core.player.internal.resolveNextIndex
 import com.biliseek.core.player.internal.resolvePlaybackMode
+import com.biliseek.core.player.internal.resolvePlaybackRecovery
 import com.biliseek.core.player.internal.resolvePresentationOnTrackChange
 import com.biliseek.core.player.internal.resolvePreviousIndex
 import com.biliseek.core.player.internal.resolveTrackSelectionParameters
@@ -216,6 +220,15 @@ class PlayerConnection(private val context: Context) {
     /** 当前条目取流补全后的 cid（见 [PlaybackState.resolvedCid]）。 */
     private var resolvedCid = 0L
 
+    /**
+     * 播放器里此刻装着的是哪条请求。取流失败时队列已经指向新的一条、播放器里却还是上一条——
+     * 重试与自动恢复要靠它分清「原位续上」还是「从头起播」。
+     */
+    private var loadedRequest: PlaybackRequest? = null
+
+    /** 播放中断后的自动恢复次数（见 PlaybackRecoveryPolicy）。换一条内容、用户手动重试都清零。 */
+    private var recoveryBudget = RecoveryBudget()
+
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (recording && playbackState == Player.STATE_BUFFERING) bufferingEvents++
@@ -225,6 +238,10 @@ class PlayerConnection(private val context: Context) {
                 saveSession()
             }
             pushState()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            onPlaybackFailed(error)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -378,12 +395,16 @@ class PlayerConnection(private val context: Context) {
      *
      * 与切歌不同，呈现态、播放/暂停、画面比例都要原样保留——
      * 用户在全屏看着视频换个音质，不该被踢回听模式。
+     *
+     * [freshUrl]：绕过 playurl 缓存重新取流。播放中断的自动恢复用——缓存里那份直链多半就是坏的。
      */
-    private fun reloadCurrent() {
+    private fun reloadCurrent(freshUrl: Boolean = false) {
         val c = controller ?: return
         val item = queue.getOrNull(queueIndex) as? PlaybackRequest.Bili ?: return
         val position = c.currentPosition.coerceAtLeast(0L)
-        scope?.launch { load(item, fromQueue = true, startPositionOverride = position, reload = true) }
+        scope?.launch {
+            load(item, fromQueue = true, startPositionOverride = position, reload = true, freshUrl = freshUrl)
+        }
     }
 
     private suspend fun load(
@@ -391,6 +412,7 @@ class PlayerConnection(private val context: Context) {
         fromQueue: Boolean,
         startPositionOverride: Long?,
         reload: Boolean,
+        freshUrl: Boolean = false,
     ) {
         // 起播可能早于绑定完成——外部分享会新建一个 Activity，
         // onCreate 里就把链接喂了进来，而 connect() 还在路上。
@@ -406,8 +428,13 @@ class PlayerConnection(private val context: Context) {
         }
         // 新内容开始加载，跟之前解出的 videoSize 划清界限（见 trackGeneration 说明）。
         trackGeneration++
+        // 它同时是这次加载的令牌：下面每次挂起回来都要核对，对不上说明用户已经点了别的，
+        // 这次加载作废。早期没有这道检查——切网时慢的那次取流晚回来，会把后点的那首覆盖掉
+        val generation = trackGeneration
         // 重新取流是同一个视频：比例沿用，不然竖屏视频的全屏会先转横屏再转回来
         if (reload) lastVideoSizeGeneration = trackGeneration
+        // 换了一条内容，自动恢复重新计数（同一条重新取流不清零，否则坏线路能无限触发）
+        if (!reload) recoveryBudget = RecoveryBudget()
         val resumePlaying = if (reload) c.playWhenReady else true
         // 用户开始播放，清除恢复队列标志
         hasRestoredQueue = false
@@ -428,6 +455,7 @@ class PlayerConnection(private val context: Context) {
                     mimeType = null
                 }
                 is PlaybackRequest.Bili -> {
+                    if (freshUrl) resolver.invalidate(request.bvid, request.cid)
                     // 倍速能在取流前就否掉无损，省掉一次注定要回退的请求
                     val ask = resolveAskedAudioQuality(requestedAudioQuality(), currentSpeed())
                     val resolved = resolver.resolve(request.bvid, request.cid, ask)
@@ -438,6 +466,7 @@ class PlayerConnection(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
+            if (generation != trackGeneration) return
             _state.value = _state.value.copy(
                 isResolving = false,
                 error = e.message ?: "取流失败",
@@ -457,6 +486,7 @@ class PlayerConnection(private val context: Context) {
                 }
             }.getOrNull()
         } else null
+        if (generation != trackGeneration) return
 
         val biliAuthor = (request as? PlaybackRequest.Bili)?.author.orEmpty()
         val item = MediaItem.Builder()
@@ -503,6 +533,7 @@ class PlayerConnection(private val context: Context) {
             val saved = resumePositionProvider?.invoke(r.bvid, r.cid ?: 0L) ?: 0L
             resolveStartPosition(saved, media?.durationMs ?: 0L)
         } ?: 0L
+        if (generation != trackGeneration) return
 
         // 上一条的画质锁定指向上一条的轨道组，对新条目无效，先清掉；新轨道出现后在
         // onTracksChanged 里按偏好重新锁定
@@ -516,6 +547,7 @@ class PlayerConnection(private val context: Context) {
             .build()
 
         c.setMediaItem(item, startPosition)
+        loadedRequest = request
         pendingQualityApply = true
 
         // 换内容即回到听。**禁轨、清 surface、复位呈现态三件事必须一起做**——
@@ -605,13 +637,23 @@ class PlayerConnection(private val context: Context) {
     }
 
     /**
-     * 重放当前条目。取流失败后的「重试」入口。
+     * 重放当前条目。取流失败、播放中断后的「重试」入口。
      *
      * 取流失败时队列与下标都还在，重放即可——不必让 UI 记住上一次的请求参数。
+     *
+     * 一律绕过 playurl 缓存重新取流：失败多半就是缓存里那份直链不能用了（过期、切网后旧节点不通），
+     * 原样重放只会再失败一次。播放器里装着的正是这一条时原位续上、保留呈现态；
+     * 取流阶段就失败了（播放器里还是上一条）则按续播位置从头起播。
      */
     fun retry() {
         val request = queue.getOrNull(queueIndex) ?: return
-        scope?.launch { play(request, fromQueue = true) }
+        recoveryBudget = RecoveryBudget()
+        val position = controller
+            ?.takeIf { request == loadedRequest && it.mediaItemCount > 0 }
+            ?.currentPosition?.coerceAtLeast(0L)
+        scope?.launch {
+            load(request, fromQueue = true, startPositionOverride = position, reload = position != null, freshUrl = true)
+        }
     }
 
     fun setPlayMode(mode: PlayMode) {
@@ -718,7 +760,17 @@ class PlayerConnection(private val context: Context) {
             resumeFromRestoredPosition()
             return
         }
-        if (c.isPlaying) c.pause() else c.play()
+        // 播放中断停在 IDLE：按播放就是「重试」——重新取流原位续上，
+        // 而不是把同一份（多半已失效的）manifest 原样再 prepare 一遍
+        if (c.playbackState == Player.STATE_IDLE && c.playerError != null) {
+            retry()
+            return
+        }
+        // 以 playWhenReady 为准而不是 isPlaying：缓冲中 isPlaying 为假，按钮显示着「暂停」，
+        // 按下去要真的暂停，不能对一个本来就要播的播放器再喊一次 play()
+        val playing = c.playWhenReady &&
+            c.playbackState != Player.STATE_IDLE && c.playbackState != Player.STATE_ENDED
+        if (playing) c.pause() else c.play()
     }
 
     /**
@@ -873,6 +925,37 @@ class PlayerConnection(private val context: Context) {
 
     // ── 内部 ──────────────────────────────────────────────
 
+    /**
+     * 播放中断：备用线路都试过、网络类失败也重试过之后，播放器仍报错停在 IDLE。
+     *
+     * 早期没接这个回调：界面上既没有错误也没有「重试」，按播放只会把同一份（多半已失效的）
+     * manifest 原样再 prepare 一遍——这就是「播着播着卡住、按了也没反应」。
+     * 能救的（直链失效、线路不通、卡死超时）自动重新取流原位续上；救不了或次数用完才报错。
+     */
+    private fun onPlaybackFailed(error: PlaybackException) {
+        android.util.Log.w(TAG_RECOVERY, "播放中断：${error.errorCodeName}", error)
+        // 新的一条正在取流：它装进播放器时自然会替换掉出错的这条
+        if (_state.value.isResolving) return
+        val current = queue.getOrNull(queueIndex)
+        val now = System.currentTimeMillis()
+        val recovery = resolvePlaybackRecovery(
+            errorCode = error.errorCode,
+            canRefreshStream = current is PlaybackRequest.Bili && current == loadedRequest && !currentIsOffline,
+            recentAttempts = recoveryBudget.attemptsAt(now),
+        )
+        when (recovery) {
+            PlaybackRecovery.REFRESH_STREAM -> {
+                recoveryBudget = recoveryBudget.recordAt(now)
+                android.util.Log.i(TAG_RECOVERY, "重新取流续播（窗口内第 ${recoveryBudget.attemptsAt(now)} 次）")
+                reloadCurrent(freshUrl = true)
+            }
+            PlaybackRecovery.NONE -> {
+                _state.value = _state.value.copy(error = "播放中断（${error.errorCodeName}）")
+                pushState()
+            }
+        }
+    }
+
     private fun applyVideoTrack(enabled: Boolean) {
         val c = controller ?: return
         c.trackSelectionParameters =
@@ -964,6 +1047,7 @@ class PlayerConnection(private val context: Context) {
             presentation = presentation,
             isPlaying = c.isPlaying,
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
+            playWhenReady = c.playWhenReady,
             positionMs = c.currentPosition.coerceAtLeast(0L),
             durationMs = c.duration.takeIf { it > 0 } ?: 0L,
             videoTrackSelected = videoSelected,
@@ -1028,6 +1112,7 @@ class PlayerConnection(private val context: Context) {
         const val POSITION_POLL_MS = 250L
         const val POSITION_RECORD_INTERVAL_MS = 5_000L
         const val TAG_LOUDNESS = "BiliSeekLoudness"
+        const val TAG_RECOVERY = "BiliSeekRecovery"
 
         /**
          * 锁屏封面拉取超时。正常 ~200ms，3s 已是极宽松裕度。

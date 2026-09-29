@@ -133,8 +133,8 @@ fun MiniPlayer(
                             }
                             IconButton(onClick = onTogglePlayPause) {
                                 Icon(
-                                    if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (state.isPlaying) "暂停" else "播放",
+                                    if (state.showPauseButton) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (state.showPauseButton) "暂停" else "播放",
                                 )
                             }
                             IconButton(onClick = onOpenQueue) {

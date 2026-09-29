@@ -154,6 +154,8 @@ data class PlaybackState(
     val presentation: PresentationMode = PresentationMode.NONE,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    /** 用户要它播（`playWhenReady`）。缓冲中 [isPlaying] 为假，靠它区分「暂停着」与「想播在等」。 */
+    val playWhenReady: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val videoTrackSelected: Boolean = false,
@@ -207,6 +209,15 @@ data class PlaybackState(
     /** 定时器是否已设置——两种终止条件任一生效即为真。 */
     val sleepTimerActive: Boolean
         get() = sleepTimerRemainingMs != null || sleepTimerEndOfTrack
+
+    /**
+     * 主按钮显示「暂停」：在播，或者**想播但在缓冲**（同 Media3 `Util.shouldShowPlayButton`）。
+     *
+     * 只看 [isPlaying] 的话，切网缓冲时按钮变成「播放」，按下去对一个本来就要播的播放器
+     * 再喊一次 play()，毫无反应——看起来就是卡死了。
+     */
+    val showPauseButton: Boolean
+        get() = isPlaying || (isBuffering && playWhenReady)
 
     val hasPrevious: Boolean
         get() = queue.size > 1 && (playMode != PlayMode.SEQUENTIAL || queueIndex > 0)

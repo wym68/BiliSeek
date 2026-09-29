@@ -498,7 +498,7 @@ fun FullscreenPlayerOverlay(
                         }
                         val transportControls: @Composable () -> Unit = {
                             PlayerControlBar(
-                                isPlaying = state.isPlaying,
+                                isPlaying = state.showPauseButton,
                                 isAudioMode = false,
                                 onTogglePlayPause = {
                                     touch()

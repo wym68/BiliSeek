@@ -45,6 +45,7 @@ import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.app.toSearchVideo
 import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.DynamicScreen
+import com.biliseek.app.ui.DynamicVideoActions
 import com.biliseek.app.ui.FollowingListScreen
 import com.biliseek.app.ui.HomeEmptyState
 import com.biliseek.app.ui.LibraryScreen
@@ -157,6 +158,13 @@ class MainActivity : ComponentActivity() {
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置（搜索结果 / 多 P 分 P / UP 投稿共用）
                 var downloadFor by remember { mutableStateOf<com.biliseek.app.ui.DownloadTarget?>(null) }
+                // 视频动态长按菜单：动态 tab 与 UP 空间「动态」共用，四项全部复用搜索结果那套动作
+                val dynamicVideoActions = DynamicVideoActions(
+                    addToPlaylist = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                    appendToQueue = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                    playNext = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                    download = { entry -> entry.toSearchVideo()?.let { downloadFor = it.toDownloadTarget() } },
+                )
                 // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // UP 空间页导航信号：AppShell 收到后 push UP_SPACE destination。
@@ -365,7 +373,7 @@ class MainActivity : ComponentActivity() {
                             session = session,
                             loginState = loginState,
                             onInit = viewModel.dynamics::initDynamic,
-                            onRefresh = viewModel.dynamics::initDynamic,
+                            onRefresh = viewModel.dynamics::refreshDynamic,
                             onTypeFilterChange = viewModel.dynamics::setDynamicTypeFilter,
                             onSelectUp = viewModel.dynamics::selectDynamicUp,
                             onLoadMore = viewModel.dynamics::loadMoreDynamic,
@@ -394,6 +402,7 @@ class MainActivity : ComponentActivity() {
                             },
                             dynamicExpand = dynamicExpand,
                             onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
+                            videoActions = dynamicVideoActions,
                         )
                     },
                     searchContent = {
@@ -628,6 +637,7 @@ class MainActivity : ComponentActivity() {
                             },
                             dynamicExpand = dynamicExpand,
                             onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
+                            videoActions = dynamicVideoActions,
                             // 投稿复选与动作
                             isSelection = upSelectionActive,
                             selectedBvids = selectedUpKeys,

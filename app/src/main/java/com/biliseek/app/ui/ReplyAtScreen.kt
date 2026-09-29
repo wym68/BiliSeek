@@ -2,7 +2,6 @@ package com.biliseek.app.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,8 +22,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -79,38 +76,36 @@ fun ReplyAtScreen(
     Column(modifier.fillMaxSize()) {
         BsTopBar(title = "回复与@", onNavigate = onBack)
 
-        val refreshState = rememberPullToRefreshState()
-        Box(Modifier.fillMaxSize()) {
-            PullToRefreshBox(
-                isRefreshing = state.isLoading,
-                onRefresh = onRetry,
-                state = refreshState,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                    when {
-                        state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
-                        state.errorMessage != null && state.items.isEmpty() -> item {
-                            BsErrorState("加载失败：${state.errorMessage}", onRetry = onRetry)
-                        }
-                        state.items.isEmpty() -> item {
-                            BsEmptyState("暂无回复与@", icon = Icons.Outlined.AlternateEmail)
-                        }
-                        else -> items(state.items, key = { it.listKey() }) { entry ->
-                            ReplyAtRow(
-                                item = entry,
-                                onClick = { onPlayItem(entry) },
-                                onLongClick = if (entry.canReplyInApp()) {
-                                    {
-                                        pendingReply = entry
-                                        replyDraft = ""
-                                    }
-                                } else {
-                                    null
-                                },
-                            )
-                            HorizontalDivider()
-                        }
+        PullRefreshContainer(
+            isRefreshing = state.isLoading && state.items.isNotEmpty(),
+            errorMessage = state.errorMessage,
+            successText = "回复与@已刷新",
+            onRefresh = onRetry,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                when {
+                    state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
+                    state.errorMessage != null && state.items.isEmpty() -> item {
+                        BsErrorState("加载失败：${state.errorMessage}", onRetry = onRetry)
+                    }
+                    state.items.isEmpty() -> item {
+                        BsEmptyState("暂无回复与@", icon = Icons.Outlined.AlternateEmail)
+                    }
+                    else -> items(state.items, key = { it.listKey() }) { entry ->
+                        ReplyAtRow(
+                            item = entry,
+                            onClick = { onPlayItem(entry) },
+                            onLongClick = if (entry.canReplyInApp()) {
+                                {
+                                    pendingReply = entry
+                                    replyDraft = ""
+                                }
+                            } else {
+                                null
+                            },
+                        )
+                        HorizontalDivider()
                     }
                 }
             }

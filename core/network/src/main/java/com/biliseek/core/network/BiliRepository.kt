@@ -191,12 +191,8 @@ class BiliRepository internal constructor(
      */
     suspend fun favoriteFolders(): Result<List<FavoriteFolderItem>> = runCatching {
         val mid = requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.favoriteFolders(upMid = mid)
-        require(response.code == 0) {
-            "收藏夹目录失败：code=${response.code} ${response.message}"
-        }
-        response.data?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
+        accountRead("收藏夹目录") { api.favoriteFolders(upMid = mid) }
+            ?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
     }
 
     /** 收藏夹内容（分页，`ps ≤ 20`）。必须登录。 */
@@ -206,12 +202,8 @@ class BiliRepository internal constructor(
         pageSize: Int = 20,
     ): Result<FavoriteResourcePage> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.favoriteResources(mediaId, pn = page, ps = pageSize)
-        require(response.code == 0) {
-            "收藏夹内容失败：code=${response.code} ${response.message}"
-        }
-        val data = response.data ?: throw IllegalStateException("收藏夹内容为空")
+        val data = accountRead("收藏夹内容") { api.favoriteResources(mediaId, pn = page, ps = pageSize) }
+            ?: throw IllegalStateException("收藏夹内容为空")
         FavoriteResourcePage(
             items = data.medias.filter { it.bvid.isNotBlank() && it.type == 2 },
             page = page,
@@ -226,12 +218,8 @@ class BiliRepository internal constructor(
      * 都有 cover；空收藏夹或请求失败返回 null。失败不抛——封面是装饰，主流程不能被它阻塞。
      */
     suspend fun firstMediaCover(mediaId: Long): String? = runCatching {
-        authGate.awaitReady()
-        val response = api.favoriteResources(mediaId, pn = 1, ps = 20)
-        require(response.code == 0) {
-            "收藏夹内容失败：code=${response.code} ${response.message}"
-        }
-        response.data?.medias?.firstOrNull()?.cover?.takeIf { it.isNotBlank() }
+        accountRead("收藏夹内容") { api.favoriteResources(mediaId, pn = 1, ps = 20) }
+            ?.medias?.firstOrNull()?.cover?.takeIf { it.isNotBlank() }
     }.getOrNull()
 
     // ── 合集（M13-N）──────────────────────────────────
@@ -254,12 +242,8 @@ class BiliRepository internal constructor(
         pageSize: Int = 20,
     ): Result<CollectedListPage> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.collectedList(upMid = mid, pn = page, ps = pageSize)
-        require(response.code == 0) {
-            "订阅合集列表失败：code=${response.code} ${response.message}"
-        }
-        val data = response.data ?: throw IllegalStateException("订阅合集列表为空")
+        val data = accountRead("订阅合集列表") { api.collectedList(upMid = mid, pn = page, ps = pageSize) }
+            ?: throw IllegalStateException("订阅合集列表为空")
         CollectedListPage(
             items = data.list.filter { it.id > 0 && it.title.isNotBlank() },
             page = page,
@@ -295,12 +279,9 @@ class BiliRepository internal constructor(
         pageSize: Int = 20,
     ): Result<CollectionSeasonPage> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.collectionSeasonList(seasonId = seasonId, pn = page, ps = pageSize)
-        require(response.code == 0) {
-            "追更合集内容失败：code=${response.code} ${response.message}"
-        }
-        val data = response.data ?: throw IllegalStateException("追更合集内容为空")
+        val data = accountRead("追更合集内容") {
+            api.collectionSeasonList(seasonId = seasonId, pn = page, ps = pageSize)
+        } ?: throw IllegalStateException("追更合集内容为空")
         val medias = data.medias.orEmpty().filter { it.bvid.isNotBlank() }
         CollectionSeasonPage(
             info = data.info,
@@ -329,12 +310,7 @@ class BiliRepository internal constructor(
         offset: String = "",
     ): Result<DynamicPage> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.dynamicFeed(type = type, offset = offset)
-        require(response.code == 0) {
-            "动态流失败：code=${response.code} ${response.message}"
-        }
-        response.data.toDynamicPage(offset)
+        accountRead("动态流") { api.dynamicFeed(type = type, offset = offset) }.toDynamicPage(offset)
     }
 
     /** 单个 UP 的空间动态（UP 筛选）。必须登录。 */
@@ -343,12 +319,7 @@ class BiliRepository internal constructor(
         offset: String = "",
     ): Result<DynamicPage> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.dynamicSpace(hostMid = hostMid, offset = offset)
-        require(response.code == 0) {
-            "UP 动态失败：code=${response.code} ${response.message}"
-        }
-        response.data.toDynamicPage(offset)
+        accountRead("UP 动态") { api.dynamicSpace(hostMid = hostMid, offset = offset) }.toDynamicPage(offset)
     }
 
     /**
@@ -447,12 +418,8 @@ class BiliRepository internal constructor(
     /** 关注列表（UP 筛选 chips）。必须登录，内存缓存由调用方持有。 */
     suspend fun followings(): Result<List<FollowingUp>> = runCatching {
         val mid = requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.followings(vmid = mid)
-        require(response.code == 0) {
-            "关注列表失败：code=${response.code} ${response.message}"
-        }
-        response.data?.list.orEmpty().filter { it.mid > 0 && it.uname.isNotBlank() }
+        accountRead("关注列表") { api.followings(vmid = mid) }
+            ?.list.orEmpty().filter { it.mid > 0 && it.uname.isNotBlank() }
     }
 
     // ── 稍后再看 ────────────────────────────────────────
@@ -464,12 +431,8 @@ class BiliRepository internal constructor(
      */
     suspend fun watchLater(): Result<List<WatchLaterItem>> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.watchLater()
-        require(response.code == 0) {
-            "稍后再看失败：code=${response.code} ${response.message}"
-        }
-        response.data?.list.orEmpty().filter { it.bvid.isNotBlank() }
+        accountRead("稍后再看") { api.watchLater() }
+            ?.list.orEmpty().filter { it.bvid.isNotBlank() }
     }
 
     // ── UP 主搜索与空间投稿（M11-D）────────────────────────
@@ -710,6 +673,19 @@ class BiliRepository internal constructor(
         if (riskCooldown.remaining() > 0) {
             throw SearchException(SearchError.Blocked, "触发风控冷却中，请稍后再试")
         }
+    }
+
+    /**
+     * 账号页读请求（收藏夹、合集、动态、关注、稍后再看）的统一出口，风控分流与消息中心读路径同口径
+     * （见 [checkMessageRead]）：冷却期内本地快速失败，-352 记入全局冷却、**绝不重试**，-412 重置设备凭据。
+     *
+     * 这些页面都能下拉刷新。早期它们各自 `require(code == 0)`：撞了 -352 不进冷却，
+     * 用户每拉一次就真打一次服务端——正是《架构设计篇》§3.2 说的「越被拦越猛打」。
+     */
+    private suspend fun <T> accountRead(what: String, request: suspend () -> BiliResponse<T>): T? {
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        return checkMessageRead(request(), what)
     }
 
     // ── 弹幕 ────────────────────────────────────────────

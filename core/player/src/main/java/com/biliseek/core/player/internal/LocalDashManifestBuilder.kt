@@ -19,10 +19,12 @@ internal fun buildLocalDashManifest(
     minBufferMs: Long,
     videoTracks: List<DashTrack>,
     audioTracks: List<DashTrack>,
+    /** 最近连不上的主机，线路排序时放到最后（见 [orderCdnUrls]）。 */
+    avoidHosts: Set<String> = emptySet(),
 ): String = buildString {
     append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
     append(
-        """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" """ +
+        """<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:dvb="urn:dvb:dash:extensions:2014-1" type="static" """ +
             """profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" """ +
             """mediaPresentationDuration="${durationMs.toIsoDuration()}" """ +
             """minBufferTime="${minBufferMs.toIsoDuration()}">""",
@@ -32,13 +34,13 @@ internal fun buildLocalDashManifest(
     if (videoTracks.isNotEmpty()) {
         append("""    <AdaptationSet contentType="video" mimeType="${videoTracks.first().mimeType.esc()}">""")
         append('\n')
-        videoTracks.forEachIndexed { index, track -> appendVideo(track, index) }
+        videoTracks.forEachIndexed { index, track -> appendVideo(track, index, avoidHosts) }
         append("    </AdaptationSet>").append('\n')
     }
     if (audioTracks.isNotEmpty()) {
         append("""    <AdaptationSet contentType="audio" mimeType="${audioTracks.first().mimeType.esc()}">""")
         append('\n')
-        audioTracks.forEach { appendAudio(it) }
+        audioTracks.forEach { appendAudio(it, avoidHosts) }
         append("    </AdaptationSet>").append('\n')
     }
 
@@ -68,28 +70,34 @@ internal fun collectTracks(
 }
 
 // id 不能直接用 qn：同一档常有 AVC / HEVC / AV1 三条轨，会撞 id（见 videoRepresentationId）
-private fun StringBuilder.appendVideo(t: DashTrack, index: Int) {
+private fun StringBuilder.appendVideo(t: DashTrack, index: Int, avoidHosts: Set<String>) {
     append(
         """      <Representation id="${videoRepresentationId(t.id, index)}" bandwidth="${t.bandwidth}" """ +
             """codecs="${t.codecs.esc()}" width="${t.width}" height="${t.height}" """ +
             """frameRate="${t.frameRate.ifBlank { "25" }.esc()}">""",
     ).append('\n')
-    appendCommon(t)
+    appendCommon(t, avoidHosts)
 }
 
-private fun StringBuilder.appendAudio(t: DashTrack) {
+private fun StringBuilder.appendAudio(t: DashTrack, avoidHosts: Set<String>) {
     append(
         """      <Representation id="${t.id}" bandwidth="${t.bandwidth}" codecs="${t.codecs.esc()}">""",
     ).append('\n')
     append("""        <AudioChannelConfiguration """)
     append("""schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="2"/>""")
     append('\n')
-    appendCommon(t)
+    appendCommon(t, avoidHosts)
 }
 
-private fun StringBuilder.appendCommon(t: DashTrack) {
-    // B 站的 URL 里带 & 查询参数，不转义会让 XML 解析直接崩
-    append("        <BaseURL>${t.url().esc()}</BaseURL>").append('\n')
+private fun StringBuilder.appendCommon(t: DashTrack, avoidHosts: Set<String>) {
+    // 多条线路按 dvb:priority 排队（小的优先）：当前线路 403/404/5xx 时 ExoPlayer 自己换下一条，
+    // 不重新取流、不 seek、不重建播放源。只有一条时照旧不带属性
+    val urls = orderCdnUrls(t.url(), t.backupUrls(), avoidHosts)
+    urls.forEachIndexed { i, url ->
+        val priority = if (urls.size > 1) """ dvb:priority="${i + 1}"""" else ""
+        // B 站的 URL 里带 & 查询参数，不转义会让 XML 解析直接崩
+        append("        <BaseURL$priority>${url.esc()}</BaseURL>").append('\n')
+    }
     t.segment()?.let { seg ->
         val range = seg.range()
         if (range.isNotBlank()) {

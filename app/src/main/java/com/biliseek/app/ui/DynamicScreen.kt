@@ -4,6 +4,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,8 +40,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -96,6 +95,8 @@ fun DynamicScreen(
     // 正文原地展开/收起（四级降级拉详情，按 idStr 独立维护）
     dynamicExpand: Map<String, DynamicExpandState> = emptyMap(),
     onToggleExpand: (DynamicEntry) -> Unit = {},
+    // 视频行长按菜单（加入列表 / 加入队列 / 下一首播放 / 下载）
+    videoActions: DynamicVideoActions = DynamicVideoActions(),
     // Ch4
     onOpenImagePreview: (List<String>, Int) -> Unit = { _, _ -> },
     onOpenRepost: (String) -> Unit = {},
@@ -107,24 +108,6 @@ fun DynamicScreen(
     onOpenMessages: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var refreshMessage by remember { mutableStateOf<String?>(null) }
-    var refreshIsError by remember { mutableStateOf(false) }
-
-    // 监听刷新状态变化，显示提示
-    LaunchedEffect(state.feed.isLoading, state.feed.errorMessage) {
-        if (!state.feed.isLoading && state.feed.items.isNotEmpty()) {
-            if (state.feed.errorMessage != null) {
-                refreshMessage = "刷新失败：${state.feed.errorMessage}"
-                refreshIsError = true
-            } else if (refreshMessage == null) {
-                // 首次加载完成不显示提示
-            } else {
-                refreshMessage = "动态已刷新"
-                refreshIsError = false
-            }
-        }
-    }
-
     if (!session.isLoggedIn) {
         Column(
             Modifier.fillMaxSize().padding(16.dp),
@@ -151,46 +134,69 @@ fun DynamicScreen(
     // 登录后首次进入自动初始化（拉关注列表 + 第一页）
     LaunchedEffect(Unit) { onInit() }
 
-    val refreshState = rememberPullToRefreshState()
-    Box(modifier.fillMaxSize()) {
-        PullToRefreshBox(
-            isRefreshing = state.feed.isLoading && state.feed.items.isEmpty(),
-            onRefresh = onRefresh,
-            state = refreshState,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                DynamicFilterBar(
-                    typeFilter = state.typeFilter,
-                    onTypeFilterChange = onTypeFilterChange,
-                    unreadCount = unreadCount,
-                    onOpenMessages = onOpenMessages,
-                )
+    PullRefreshContainer(
+        isRefreshing = state.feed.isLoading && state.feed.items.isNotEmpty(),
+        errorMessage = state.feed.errorMessage,
+        successText = "动态已刷新",
+        onRefresh = onRefresh,
+        modifier = modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            DynamicFilterBar(
+                typeFilter = state.typeFilter,
+                onTypeFilterChange = onTypeFilterChange,
+                unreadCount = unreadCount,
+                onOpenMessages = onOpenMessages,
+            )
 
-                when {
-                    state.initState is DynamicInitState.Loading &&
-                        state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                    }
+            when {
+                state.initState is DynamicInitState.Loading &&
+                    state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                }
 
-                    state.initState is DynamicInitState.Error &&
-                        state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    state.initState.message,
-                                    Modifier.padding(16.dp),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                                Button(onClick = onRetryInit) { Text("重试") }
-                            }
+                state.initState is DynamicInitState.Error &&
+                    state.upChips.isEmpty() && state.feed.items.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                state.initState.message,
+                                Modifier.padding(16.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Button(onClick = onRetryInit) { Text("重试") }
                         }
                     }
+                }
 
-                    state.feed.items.isEmpty() && !state.feed.isLoading -> {
-                        Column(Modifier.fillMaxSize()) {
-                            // 空态下保留「最常访问」，便于切换 UP 筛选
-                            if (state.upChips.isNotEmpty()) {
+                state.feed.items.isEmpty() && !state.feed.isLoading -> {
+                    Column(Modifier.fillMaxSize()) {
+                        // 空态下保留「最常访问」，便于切换 UP 筛选
+                        if (state.upChips.isNotEmpty()) {
+                            MostVisitedUpRow(
+                                upChips = state.upChips,
+                                selectedUpMid = state.selectedUpMid,
+                                onSelectUp = onSelectUp,
+                                onOpenFollowList = onOpenFollowList,
+                            )
+                        }
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text(
+                                when (state.feed.errorMessage) {
+                                    null -> "没有动态" + (if (state.selectedUpMid != null) "，换个 UP 看看" else "")
+                                    else -> state.feed.errorMessage
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        // 「最常访问」作为列表 header，随滚动向上滑走
+                        if (state.upChips.isNotEmpty()) {
+                            item(key = "most-visited") {
                                 MostVisitedUpRow(
                                     upChips = state.upChips,
                                     selectedUpMid = state.selectedUpMid,
@@ -198,61 +204,37 @@ fun DynamicScreen(
                                     onOpenFollowList = onOpenFollowList,
                                 )
                             }
-                            Box(Modifier.fillMaxSize(), Alignment.Center) {
-                                Text(
-                                    when (state.feed.errorMessage) {
-                                        null -> "没有动态" + (if (state.selectedUpMid != null) "，换个 UP 看看" else "")
-                                        else -> state.feed.errorMessage
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
                         }
-                    }
-
-                    else -> {
-                        LazyColumn(Modifier.fillMaxSize()) {
-                            // 「最常访问」作为列表 header，随滚动向上滑走
-                            if (state.upChips.isNotEmpty()) {
-                                item(key = "most-visited") {
-                                    MostVisitedUpRow(
-                                        upChips = state.upChips,
-                                        selectedUpMid = state.selectedUpMid,
-                                        onSelectUp = onSelectUp,
-                                        onOpenFollowList = onOpenFollowList,
-                                    )
+                        items(state.feed.items, key = { it.idStr }) { entry ->
+                            DynamicCard(
+                                entry = entry,
+                                onClick = { onEntryClick(entry) },
+                                onAuthorClick = { onAuthorClick(entry) },
+                                expandState = dynamicExpand[entry.idStr],
+                                onToggleExpand = { onToggleExpand(entry) },
+                                onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
+                                onRepostClick = { onOpenRepost(entry.idStr) },
+                                onCommentClick = { onOpenComment(entry) },
+                                onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
+                                videoActions = videoActions,
+                            )
+                            HorizontalDivider()
+                        }
+                        if (state.feed.hasMore || state.feed.isLoadingMore) {
+                            item(key = "footer") {
+                                if (state.feed.hasMore && !state.feed.isLoadingMore) {
+                                    LaunchedEffect(state.feedOffset) { onLoadMore() }
                                 }
-                            }
-                            items(state.feed.items, key = { it.idStr }) { entry ->
-                                DynamicCard(
-                                    entry = entry,
-                                    onClick = { onEntryClick(entry) },
-                                    onAuthorClick = { onAuthorClick(entry) },
-                                    expandState = dynamicExpand[entry.idStr],
-                                    onToggleExpand = { onToggleExpand(entry) },
-                                    onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
-                                    onRepostClick = { onOpenRepost(entry.idStr) },
-                                    onCommentClick = { onOpenComment(entry) },
-                                    onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
-                                )
-                                HorizontalDivider()
-                            }
-                            if (state.feed.hasMore || state.feed.isLoadingMore) {
-                                item(key = "footer") {
-                                    if (state.feed.hasMore && !state.feed.isLoadingMore) {
-                                        LaunchedEffect(state.feedOffset) { onLoadMore() }
-                                    }
-                                    Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
-                                        if (state.feed.isLoadingMore) {
-                                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                        } else if (state.feed.errorMessage != null) {
-                                            Text(
-                                                state.feed.errorMessage,
-                                                style = MaterialTheme.typography.labelSmall,
-                                            )
-                                        } else {
-                                            Text("加载中…", style = MaterialTheme.typography.labelSmall)
-                                        }
+                                Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
+                                    if (state.feed.isLoadingMore) {
+                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else if (state.feed.errorMessage != null) {
+                                        Text(
+                                            state.feed.errorMessage,
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    } else {
+                                        Text("加载中…", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
@@ -261,11 +243,6 @@ fun DynamicScreen(
                 }
             }
         }
-        RefreshStateSnackbar(
-            message = refreshMessage,
-            isError = refreshIsError,
-            onDismiss = { refreshMessage = null },
-        )
     }
 }
 
@@ -390,10 +367,21 @@ private fun UpAvatarChip(
     }
 }
 
+/** 视频动态长按菜单的动作集合。动态 tab 与 UP 空间「动态」共用一份，由宿主逐层透传。 */
+data class DynamicVideoActions(
+    val addToPlaylist: (DynamicEntry) -> Unit = {},
+    /** 追加到播放队列末尾。 */
+    val appendToQueue: (DynamicEntry) -> Unit = {},
+    /** 插到当前曲目之后。 */
+    val playNext: (DynamicEntry) -> Unit = {},
+    val download: (DynamicEntry) -> Unit = {},
+)
+
 /** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文用 DrawGrid）。
  * 动态 tab 与 UP 空间页「动态」视图共用（M11-D）。Ch4 接入互动操作。
  * 点击区域拆成三块独立热区——头像/昵称跳 UP 主页、视频行播放、正文原地展开/收起，
  * 不再有"整卡可点"的大热区（避免图文动态点空白处误触、视频动态点文字误播放）。 */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun DynamicCard(
     entry: DynamicEntry,
@@ -405,6 +393,8 @@ internal fun DynamicCard(
     onRepostClick: () -> Unit = {},
     onCommentClick: () -> Unit = {},
     onLikeClick: () -> Unit = {},
+    /** 视频行长按弹出的动作菜单。null = 不挂长按。 */
+    videoActions: DynamicVideoActions? = null,
 ) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Row(
@@ -452,8 +442,25 @@ internal fun DynamicCard(
 
         val video = entry.video
         if (video != null) {
+            // 点按播放，长按弹动作菜单。早先只挂了 clickable：长按松手也被当成一次点按，直接开播
+            var showActions by remember { mutableStateOf(false) }
+            if (showActions && videoActions != null) {
+                ActionListSheet(
+                    title = video.title,
+                    items = listOf(
+                        "加入列表" to { showActions = false; videoActions.addToPlaylist(entry) },
+                        "加入队列" to { showActions = false; videoActions.appendToQueue(entry) },
+                        "下一首播放" to { showActions = false; videoActions.playNext(entry) },
+                        "下载" to { showActions = false; videoActions.download(entry) },
+                    ),
+                    onDismiss = { showActions = false },
+                )
+            }
             Row(
-                Modifier.padding(top = 8.dp).fillMaxWidth().clickable(onClick = onClick),
+                Modifier.padding(top = 8.dp).fillMaxWidth().combinedClickable(
+                    onClick = onClick,
+                    onLongClick = videoActions?.let { { showActions = true } },
+                ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

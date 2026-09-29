@@ -6,7 +6,6 @@ import com.biliseek.designsystem.component.BsEmptyState
 import androidx.compose.material.icons.outlined.PersonAdd
 import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,8 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -53,25 +50,23 @@ fun FollowerScreen(
     Column(modifier.fillMaxSize()) {
         BsTopBar(title = "新增粉丝", onNavigate = onBack)
 
-        val refreshState = rememberPullToRefreshState()
-        Box(Modifier.fillMaxSize()) {
-            PullToRefreshBox(
-                isRefreshing = state.isLoading,
-                onRefresh = onRetry,
-                state = refreshState,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                    when {
-                        state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
-                        state.errorMessage != null && state.items.isEmpty() -> item {
-                            BsErrorState("加载失败：${state.errorMessage}", onRetry = onRetry)
-                        }
-                        state.items.isEmpty() -> item { BsEmptyState("暂无新增粉丝", icon = Icons.Outlined.PersonAdd) }
-                        else -> items(state.items, key = { it.mid }) { entry ->
-                            FollowerRow(item = entry, onClick = { onOpenSpace(entry) })
-                            HorizontalDivider()
-                        }
+        PullRefreshContainer(
+            isRefreshing = state.isLoading && state.items.isNotEmpty(),
+            errorMessage = state.errorMessage,
+            successText = "新增粉丝已刷新",
+            onRefresh = onRetry,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                when {
+                    state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
+                    state.errorMessage != null && state.items.isEmpty() -> item {
+                        BsErrorState("加载失败：${state.errorMessage}", onRetry = onRetry)
+                    }
+                    state.items.isEmpty() -> item { BsEmptyState("暂无新增粉丝", icon = Icons.Outlined.PersonAdd) }
+                    else -> items(state.items, key = { it.mid }) { entry ->
+                        FollowerRow(item = entry, onClick = { onOpenSpace(entry) })
+                        HorizontalDivider()
                     }
                 }
             }

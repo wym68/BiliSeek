@@ -175,6 +175,7 @@ data class DashTrack(
     @SerialName("baseUrl") val baseUrl: String = "",
     @SerialName("base_url") val baseUrlAlt: String = "",
     @SerialName("backupUrl") val backupUrl: List<String>? = null,
+    @SerialName("backup_url") val backupUrlAlt: List<String>? = null,
     val bandwidth: Long = 0,
     @SerialName("mimeType") val mimeType: String = "",
     val codecs: String = "",
@@ -186,6 +187,9 @@ data class DashTrack(
 ) {
     /** 接口在不同路径下字段名不一致，统一取值。 */
     fun url(): String = baseUrl.ifBlank { baseUrlAlt }
+
+    /** 同一份文件的备用 CDN 线路。字段名同样有两种写法。 */
+    fun backupUrls(): List<String> = (backupUrl ?: backupUrlAlt).orEmpty().filter { it.isNotBlank() }
 
     fun segment(): SegmentBase? = segmentBase ?: segmentBaseAlt
 }

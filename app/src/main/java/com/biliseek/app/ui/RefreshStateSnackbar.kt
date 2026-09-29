@@ -54,9 +54,10 @@ fun RefreshStateSnackbar(
         ) {
             Text(
                 text = message ?: "",
+                // 所在内容区已由 Scaffold 让出迷你播放条与底部导航栏，这里只留常规边距；
+                // 早先额外垫的 80dp 与之叠加，提示飘在播放条上方老远
                 modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .padding(bottom = 80.dp)
+                    .padding(16.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f))
                     .padding(horizontal = 12.dp, vertical = 8.dp),
