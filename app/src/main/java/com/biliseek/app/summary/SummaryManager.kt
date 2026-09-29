@@ -63,6 +63,9 @@ sealed interface JobSource {
 
     /** 本地识别（AI-8）。 */
     data class LocalAsr(val chapters: List<Chapter>) : JobSource
+
+    /** 执行时再决定：先查字幕，没有字幕且离线识别就绪时本地识别（多 P 批量用）。 */
+    data object Auto : JobSource
 }
 
 /** 进行中的实时进度（只在内存，不落库）。 */
@@ -117,6 +120,10 @@ class SummaryManager private constructor(private val app: Application) {
     @Volatile
     var localAsrRunner: LocalAsrRunner? = null
 
+    /** 离线识别模型是否已就绪（AI-8 注入）。 */
+    @Volatile
+    var asrModelReady: () -> Boolean = { false }
+
     private val _live = MutableStateFlow<Map<Long, SummaryLive>>(emptyMap())
 
     /** 当前执行中的行（通知用）。 */
@@ -151,8 +158,9 @@ class SummaryManager private constructor(private val app: Application) {
             val sourceKind = when (source) {
                 is JobSource.Subtitle -> AiSummarySource.SUBTITLE
                 is JobSource.LocalAsr -> AiSummarySource.LOCAL_ASR
+                JobSource.Auto -> AiSummarySource.AUTO
             }
-            if (old != null && old.sourceKind != sourceKind) files.transcript.delete()
+            if (old != null && old.sourceKind != sourceKind && source != JobSource.Auto) files.transcript.delete()
             val now = System.currentTimeMillis()
             val row = AiSummaryEntity(
                 id = old?.id ?: 0,
@@ -182,6 +190,7 @@ class SummaryManager private constructor(private val app: Application) {
             val chapters = when (source) {
                 is JobSource.Subtitle -> source.chapters
                 is JobSource.LocalAsr -> source.chapters
+                JobSource.Auto -> emptyList()
             }
             synchronized(chaptersById) { chaptersById[id] = chapters }
             video.context?.let { synchronized(contextById) { contextById[id] = it } }
@@ -354,6 +363,34 @@ class SummaryManager private constructor(private val app: Application) {
         }
 
         // 2. 原文：已有就复用（不再打 B 站 / 不再识别）
+        if (row.sourceKind == AiSummarySource.AUTO && !files.transcript.exists()) {
+            publish(row, SummaryLive("查找字幕"), service)
+            if (!network.online.value) return Outcome.WaitNetwork
+            val probe = probeSubtitles(repository, row.bvid, row.cid, row.durationMs.takeIf { it > 0 })
+            if (probe.failed && !network.online.value) return Outcome.WaitNetwork
+            synchronized(chaptersById) { chaptersById[row.id] = probe.chapters }
+            val asrReady = localAsrRunner != null && asrModelReady()
+            row = when (val source = SummarySourcePolicy.resolve(probe.pick, asrReady, hasLocalAudio = false)) {
+                is SummarySource.UseSubtitle -> update(row) {
+                    it.copy(
+                        sourceKind = AiSummarySource.SUBTITLE,
+                        subtitleUrl = source.track.subtitleUrl,
+                        subtitleLan = source.track.lan,
+                    )
+                }
+                is SummarySource.UseLocalAsr -> update(row) { it.copy(sourceKind = AiSummarySource.LOCAL_ASR) }
+                is SummarySource.NeedsLoginOrAsr -> if (source.asrReady) {
+                    update(row) { it.copy(sourceKind = AiSummarySource.LOCAL_ASR) }
+                } else {
+                    finishFailed(row, FailureKind.SOURCE, "字幕需要登录后才能获取；也可以先下载离线识别模型", service)
+                    return Outcome.Failed
+                }
+                SummarySource.NeedsAsrModel -> {
+                    finishFailed(row, FailureKind.SOURCE, "这个视频没有字幕，需要先在设置里下载离线识别模型", service)
+                    return Outcome.Failed
+                }
+            }
+        }
         val chapters = synchronized(chaptersById) { chaptersById[row.id] }.orEmpty()
         val transcript = files.readTranscript() ?: run {
             val t = when (row.sourceKind) {

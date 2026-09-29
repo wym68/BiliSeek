@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.MonetizationOn
 import androidx.compose.material.icons.outlined.Share
@@ -76,6 +77,8 @@ fun VideoActionBar(
     onOpenComments: () -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
+    /** AI 总结（工单 AI-6）。 */
+    onSummary: () -> Unit = {},
     activeColor: Color = MaterialTheme.colorScheme.primary,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -140,6 +143,13 @@ fun VideoActionBar(
             label = "分享",
             count = state?.shareCount,
             onClick = onShare,
+            layout = BsIconActionLayout.Vertical,
+            activeColor = activeColor,
+        )
+        BsIconAction(
+            icon = Icons.Outlined.AutoAwesome,
+            label = "总结",
+            onClick = onSummary,
             layout = BsIconActionLayout.Vertical,
             activeColor = activeColor,
         )

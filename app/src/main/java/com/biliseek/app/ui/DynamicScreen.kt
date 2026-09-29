@@ -375,6 +375,8 @@ data class DynamicVideoActions(
     /** 插到当前曲目之后。 */
     val playNext: (DynamicEntry) -> Unit = {},
     val download: (DynamicEntry) -> Unit = {},
+    /** AI 总结（工单 AI-6）。 */
+    val summarize: (DynamicEntry) -> Unit = {},
 )
 
 /** 一条动态卡片：UP 头像/名字/时间 + 文案 + 封面（视频显示标题与时长，图文用 DrawGrid）。
@@ -452,6 +454,7 @@ internal fun DynamicCard(
                         "加入队列" to { showActions = false; videoActions.appendToQueue(entry) },
                         "下一首播放" to { showActions = false; videoActions.playNext(entry) },
                         "下载" to { showActions = false; videoActions.download(entry) },
+                        "AI 总结" to { showActions = false; videoActions.summarize(entry) },
                     ),
                     onDismiss = { showActions = false },
                 )

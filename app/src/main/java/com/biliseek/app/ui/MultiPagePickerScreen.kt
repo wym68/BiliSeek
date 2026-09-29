@@ -44,9 +44,16 @@ fun MultiPagePickerScreen(
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onDismiss)
-    // 默认全选：进来通常就是想对整张多 P 执行
+    // 默认全选：进来通常就是想对整张多 P 执行。
+    // AI 总结例外（工单 AI-6）：默认不选，避免一口气给几十个 P 排上总结任务
     var selected by remember(state.bvid) {
-        mutableStateOf(state.pages.map { it.cid }.toSet())
+        mutableStateOf(
+            if (state.pendingAction == com.biliseek.app.PendingAction.Summarize) {
+                emptySet()
+            } else {
+                state.pages.map { it.cid }.toSet()
+            },
+        )
     }
     Surface(modifier = modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {

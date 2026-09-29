@@ -26,6 +26,7 @@ zxing = "3.5.3"
 room = "2.8.4"
 coil = "3.5.0"
 zoomimage = "1.6.0"
+markdownRenderer = "0.45.0"
 ksp = "2.3.11"
 
 # 协程
@@ -85,6 +86,9 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 
 # 图片缩放（panpf/zoomimage，集成 Coil 3）
 zoomimage-compose-coil3 = { group = "io.github.panpf.zoomimage", name = "zoomimage-compose-coil3", version.ref = "zoomimage" }
+
+# AI 总结阅读页的 Markdown 渲染（Compose Material 3）。链接点击走 LocalUriHandler，时间戳跳播靠它拦截
+markdown-renderer-m3 = { group = "com.mikepenz", name = "multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
 
 # 封面取色（莫奈取色的「封面」半边，M12-A）。官方小库，正是
 # BBPlayer packages/image-theme-colors 的等价实现；配合设计系统策略层使用

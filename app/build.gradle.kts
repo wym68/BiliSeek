@@ -152,6 +152,9 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.zoomimage.compose.coil3)
 
+    // AI 总结阅读页（工单 AI-6）
+    implementation(libs.markdown.renderer.m3)
+
     // 封面取色（M12-A）。官方小库，配合 design-system 的策略层
     implementation(libs.palette.ktx)
 

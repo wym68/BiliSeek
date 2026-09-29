@@ -95,6 +95,7 @@ fun PlayerScreen(
     /** 视频互动栏状态（点赞 / 投币 / 收藏计数与已互动态）。null = 未绑定或本地文件。 */
     interaction: com.biliseek.app.interaction.VideoInteractionState? = null,
     interactionHandlers: VideoActionHandlers = VideoActionHandlers(),
+    onSummary: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
@@ -159,6 +160,7 @@ fun PlayerScreen(
                 onOpenComments = onOpenComments,
                 onShare = onShare,
                 activeColor = accent.accent ?: MaterialTheme.colorScheme.primary,
+                onSummary = onSummary,
             )
 
             ProgressBar(state, onSeek)

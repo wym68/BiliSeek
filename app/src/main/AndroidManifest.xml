@@ -75,6 +75,17 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- AI 总结「分享 .md」：只暴露 filesDir/ai_summary/（工单 AI-6） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- AI 总结：取字幕 / 本地识别 / 调用大模型都是长任务，锁屏与切后台不中断（工单 AI-5） -->
         <service
             android:name=".summary.SummaryService"

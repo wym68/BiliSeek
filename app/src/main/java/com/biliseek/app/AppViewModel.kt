@@ -86,7 +86,7 @@ sealed interface SelectionMode {
 }
 
 /** 批量 / 单条动作类型（Ch3）。 */
-enum class PendingAction { AddToPlaylist, AppendToQueue, EnqueueNext, Download }
+enum class PendingAction { AddToPlaylist, AppendToQueue, EnqueueNext, Download, Summarize }
 
 /**
  * 通用复选作用域：多 P 面板与 UP 空间投稿各持有一个实例。
@@ -290,6 +290,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val loginState: StateFlow<LoginState> = network.loginManager.state
     val session: StateFlow<BiliSession> = network.sessionStore.session
 
+    /**
+     * AI 总结任务队列（工单 AI-5）。它持有 AI 专用的 HTTP 客户端：与 B 站的 client **完全分开**，
+     * 不挂任何 B 站拦截器与 Cookie（工单 §3.6；`:core:ai` 内部还会再派生一次隔离的 client 兜底）。
+     */
+    val summaryManager = com.biliseek.app.summary.SummaryManager.get(app)
+
+    /** AI 总结的界面编排：入口 → 风格弹窗 → 阅读页（工单 AI-6）。 */
+    val summary = com.biliseek.app.summary.SummaryController(
+        scope = viewModelScope,
+        manager = summaryManager,
+        repository = network.repository,
+        session = session,
+        emitMessage = ::emitMessage,
+    )
+
+    /** 设置 → AI 总结（工单 AI-3）。 */
+    val aiSettings = com.biliseek.app.summary.AiSettingsController(
+        scope = viewModelScope,
+        store = summaryManager.settings,
+        aiHttp = summaryManager.aiHttp,
+        emitMessage = ::emitMessage,
+    )
+
 
     /**
      * 「已开始播放」事件。UI 据此切到播放页。
@@ -312,6 +335,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 复制链接后的一次性提示（Toast），走既有 [transientMessage] 管道。 */
     fun notifyLinkCopied() = emitMessage("链接已复制")
+
+    /** 界面层（如 SAF 导出回调）需要提示时用。 */
+    fun notifyMessage(text: String) = emitMessage(text)
 
     // ── Ch5 MiniPlayer 状态 ─────────────────────────
 
@@ -655,8 +681,19 @@ return pages.map { p ->
                 requests.forEach { downloadManager.enqueue(toBatchDownloadRequest(it)) }
                 emitMessage("已加入 ${requests.size} 项到下载队列")
             }
+            PendingAction.Summarize -> summary.open(requests.map { it.toSummaryVideo() })
         }
     }
+
+    private fun PlaybackRequest.Bili.toSummaryVideo() = com.biliseek.app.summary.SummaryVideo(
+        bvid = bvid,
+        cid = cid ?: 0,
+        title = title,
+        author = author,
+        upMid = authorMid,
+        coverUrl = coverUrl,
+        durationMs = durationSec * 1000,
+    )
 
     /** 批量动作：展开选中集全部 P（自然顺序）后执行。 */
     private fun runBatch(action: PendingAction) = viewModelScope.launch {
@@ -1512,19 +1549,94 @@ return pages.map { p ->
         emitMessage = ::emitMessage,
     )
 
-    /**
-     * AI 总结任务队列（工单 AI-5）。它持有 AI 专用的 HTTP 客户端：与 B 站的 client **完全分开**，
-     * 不挂任何 B 站拦截器与 Cookie（工单 §3.6；`:core:ai` 内部还会再派生一次隔离的 client 兜底）。
-     */
-    val summaryManager = com.biliseek.app.summary.SummaryManager.get(app)
 
-    /** 设置 → AI 总结（工单 AI-3）。 */
-    val aiSettings = com.biliseek.app.summary.AiSettingsController(
-        scope = viewModelScope,
-        store = summaryManager.settings,
-        aiHttp = summaryManager.aiHttp,
-        emitMessage = ::emitMessage,
+
+    /** 列表三点菜单 / 动态长按的「AI 总结」：单 P 直接进弹窗，多 P 先挑 P。 */
+    fun summarizeVideo(video: SearchVideo) = startSingleAction(video, PendingAction.Summarize)
+
+    /** 播放页操作栏的「总结」：总结当前播放的这一 P。 */
+    fun summarizeCurrent() {
+        val s = connection.state.value
+        val track = currentPlayingTrack()
+        val cid = s.resolvedCid.takeIf { it > 0 } ?: s.cid
+        if (s.bvid.isBlank() || cid <= 0) {
+            emitMessage("无法获取视频信息")
+            return
+        }
+        summary.open(
+            listOf(
+                com.biliseek.app.summary.SummaryVideo(
+                    bvid = s.bvid,
+                    cid = cid,
+                    title = s.title,
+                    author = track?.author.orEmpty(),
+                    upMid = track?.authorMid ?: 0,
+                    coverUrl = s.coverUrl,
+                    durationMs = s.durationMs.takeIf { it > 0 } ?: ((track?.durationSec ?: 0) * 1000),
+                ),
+            ),
+        )
+    }
+
+    /** 阅读页点时间戳：正在播同一 P 就原地跳，否则从该处开始听（默认只听）。 */
+    fun openSummaryTimestamp(positionMs: Long) {
+        val target = summary.reader.value ?: return
+        val s = connection.state.value
+        val currentCid = s.resolvedCid.takeIf { it > 0 } ?: s.cid
+        if (com.biliseek.app.summary.TimestampLinkPolicy.shouldSeekInPlace(s.bvid, currentCid, target.bvid, target.cid)) {
+            connection.seekTo(positionMs)
+            return
+        }
+        viewModelScope.launch {
+            val row = summaryManager.find(target.bvid, target.cid)
+            val request = PlaybackRequest.Bili(
+                bvid = target.bvid,
+                cid = target.cid,
+                title = row?.title ?: target.video?.title.orEmpty(),
+                coverUrl = row?.coverUrl ?: target.video?.coverUrl.orEmpty(),
+                author = row?.author ?: target.video?.author.orEmpty(),
+                durationSec = (row?.durationMs ?: 0) / 1000,
+                authorMid = row?.upMid ?: 0,
+            )
+            runCatching { connection.play(request, startPositionOverride = positionMs) }
+                .onFailure { emitMessage("播放失败：${it.message ?: "未知错误"}") }
+        }
+    }
+
+    /** 请求打开 设置 → AI 总结（失败出路「去设置」、弹窗里的「去设置」）。 */
+    private val _openAiSettingsRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openAiSettingsRequests: kotlinx.coroutines.flow.SharedFlow<Unit> = _openAiSettingsRequests
+
+    fun requestOpenAiSettings() {
+        summary.dismissSheet()
+        summary.closeReader()
+        _openAiSettingsRequests.tryEmit(Unit)
+    }
+
+    /** 阅读页失败横幅 / 通知的出路。 */
+    fun onSummaryFailureAction(action: com.biliseek.app.summary.FailureAction, row: com.biliseek.app.data.AiSummaryEntity) {
+        when (action) {
+            com.biliseek.app.summary.FailureAction.RETRY -> summaryManager.retry(row.id)
+            com.biliseek.app.summary.FailureAction.SWITCH_TO_BACKUP -> summaryManager.switchToBackup(row.id)
+            com.biliseek.app.summary.FailureAction.TRANSCRIPT_NOTE -> summaryManager.makeTranscriptNote(row.id)
+            com.biliseek.app.summary.FailureAction.OPEN_SETTINGS -> requestOpenAiSettings()
+            com.biliseek.app.summary.FailureAction.USE_OFFICIAL -> summary.regenerate(row.toSummaryVideo())
+        }
+    }
+
+    fun regenerateSummary(row: com.biliseek.app.data.AiSummaryEntity) = summary.regenerate(row.toSummaryVideo())
+
+    private fun com.biliseek.app.data.AiSummaryEntity.toSummaryVideo() = com.biliseek.app.summary.SummaryVideo(
+        bvid = bvid,
+        cid = cid,
+        title = title,
+        pageTitle = pageTitle,
+        author = author,
+        upMid = upMid,
+        coverUrl = coverUrl,
+        durationMs = durationMs,
     )
+
 
     /** 打开播放页评论区对话框。 */
     fun openPlayerComment() {

@@ -88,6 +88,20 @@ class MainActivity : ComponentActivity() {
             pendingStorageDownload = null
         }
 
+    /** AI 总结「另存为…」：SAF 让用户选位置，写入待导出的 md（工单 AI-6）。 */
+    private var pendingSummaryExport: String? = null
+    private val exportSummary =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+            val text = pendingSummaryExport
+            pendingSummaryExport = null
+            if (uri != null && text != null) {
+                val ok = runCatching {
+                    contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) } != null
+                }.getOrDefault(false)
+                viewModel.notifyMessage(if (ok) "已保存" else "保存失败")
+            }
+        }
+
     /** 等权限就绪后入队的下载（仅 API 26–28 + 公共媒体库路径）。 */
     private var pendingStorageDownload: com.biliseek.app.download.DownloadRequest? = null
 
@@ -96,6 +110,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ensureNotificationPermission()
         handleSharedIntent(intent)
+        handleSummaryIntent(intent)
 
         setContent {
             BiliSeekTheme {
@@ -134,6 +149,9 @@ class MainActivity : ComponentActivity() {
                 val selectionMode by viewModel.selectionMode.collectAsState()
                 val selectedBvids by viewModel.selectedBvids.collectAsState()
                 val multiPagePicker by viewModel.multiPagePicker.collectAsState()
+                val summarySheet by viewModel.summary.sheet.collectAsState()
+                val summaryReader by viewModel.summary.reader.collectAsState()
+                val summaryReaderState by viewModel.summary.readerState.collectAsState(initial = null)
                 // 多 P 面板 / UP 空间投稿的复选作用域（与搜索结果复选互斥）
                 val pageSelectionActive by viewModel.pageSelection.active.collectAsState()
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
@@ -164,6 +182,7 @@ class MainActivity : ComponentActivity() {
                     appendToQueue = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
                     playNext = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
                     download = { entry -> entry.toSearchVideo()?.let { downloadFor = it.toDownloadTarget() } },
+                    summarize = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.Summarize) },
                 )
                 // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
@@ -187,6 +206,13 @@ class MainActivity : ComponentActivity() {
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
                 var aiSettingsOpen by remember { mutableStateOf(false) }
+                // 「去设置」：切到设置 tab 并打开 AI 总结设置页
+                LaunchedEffect(Unit) {
+                    viewModel.openAiSettingsRequests.collect {
+                        aiSettingsOpen = true
+                        tabSwitchRequests.tryEmit(Destination.SETTINGS)
+                    }
+                }
                 val aiSettingsState by viewModel.aiSettings.state.collectAsState()
                 val aiConnectionTests by viewModel.aiSettings.tests.collectAsState()
                 // 列表 tab 选中的页
@@ -332,6 +358,7 @@ class MainActivity : ComponentActivity() {
                             onCoin = viewModel.videoInteraction::addCoin,
                         )
                     },
+                    onSummary = viewModel::summarizeCurrent,
                     onShare = {
                         viewModel.currentVideoUrl()?.let { url ->
                             copyToClipboard(url)
@@ -438,6 +465,8 @@ class MainActivity : ComponentActivity() {
                             onCopyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
                             onShowPages = viewModel::showPages,
                             onDownload = { downloadFor = it.toDownloadTarget() },
+                            onSummarize = viewModel::summarizeVideo,
+                            onPageSummarize = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.Summarize) },
                             onViewUpOwner = { video ->
                                 viewModel.openUpSpace(
                                     SearchUser(mid = video.mid, uname = video.author),
@@ -678,6 +707,7 @@ class MainActivity : ComponentActivity() {
                             onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
                             onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
                             onPostDownload = { downloadFor = it.toSearchVideo().toDownloadTarget() },
+                            onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
                         )
                     },
                     followingListContent = { onBack ->
@@ -792,6 +822,69 @@ class MainActivity : ComponentActivity() {
                         onDeleteFavorite = viewModel::deleteFavoriteFolder,
                         deletingFavoriteMediaId = deletingFavoriteMediaId,
                         onDismiss = viewModel::dismissBatchAdd,
+                    )
+                }
+
+                // AI 总结：风格弹窗与阅读页（工单 AI-6）
+                summarySheet?.let { sheetState ->
+                    com.biliseek.app.ui.SummaryStyleSheet(
+                        state = sheetState,
+                        onConfirm = viewModel.summary::confirm,
+                        onDismiss = viewModel.summary::dismissSheet,
+                        onOpenSettings = viewModel::requestOpenAiSettings,
+                        onLogin = {
+                            viewModel.summary.dismissSheet()
+                            tabSwitchRequests.tryEmit(Destination.SETTINGS)
+                        },
+                    )
+                }
+                summaryReader?.let { target ->
+                    BackHandler(onBack = viewModel.summary::closeReader)
+                    val entity = summaryReaderState?.entity
+                    var markdown by remember(target.bvid, target.cid) { mutableStateOf<String?>(null) }
+                    var transcriptText by remember(target.bvid, target.cid) { mutableStateOf<String?>(null) }
+                    LaunchedEffect(target.bvid, target.cid, entity?.status, entity?.updatedAt) {
+                        markdown = viewModel.summary.readMarkdown(target.bvid, target.cid)
+                    }
+                    val failureActions = entity?.let { row ->
+                        com.biliseek.app.summary.FailureActionPolicy.actions(
+                            kind = com.biliseek.app.summary.FailureKind.parse(row.failureKind)
+                                ?: com.biliseek.app.summary.FailureKind.SOURCE,
+                            hasTranscript = row.hasTranscript,
+                            hasBackup = aiSettingsState.backupReady,
+                            usingBackup = row.slot == com.biliseek.app.summary.EndpointSlot.BACKUP.name,
+                            officialAvailable = false,
+                        )
+                    }.orEmpty()
+                    com.biliseek.app.ui.SummaryReaderScreen(
+                        state = summaryReaderState,
+                        markdown = markdown,
+                        transcript = transcriptText,
+                        failureActions = failureActions,
+                        onClose = viewModel.summary::closeReader,
+                        onTimestamp = viewModel::openSummaryTimestamp,
+                        onShare = {
+                            val file = viewModel.summaryManager.files(target.bvid, target.cid).summary
+                            com.biliseek.app.summary.SummaryShare.share(this@MainActivity, file, entity?.title.orEmpty())
+                        },
+                        onExport = {
+                            markdown?.let { md ->
+                                pendingSummaryExport = md
+                                exportSummary.launch(com.biliseek.app.summary.SummaryShare.fileName(entity?.title.orEmpty()))
+                            }
+                        },
+                        onRegenerate = { entity?.let(viewModel::regenerateSummary) },
+                        onDelete = {
+                            entity?.let { viewModel.summaryManager.delete(it.id) }
+                            viewModel.summary.closeReader()
+                        },
+                        onCancel = { entity?.let { viewModel.summaryManager.cancel(it.id) } },
+                        onFailureAction = { action -> entity?.let { viewModel.onSummaryFailureAction(action, it) } },
+                        onLoadTranscript = {
+                            coroutineScope.launch {
+                                transcriptText = viewModel.summary.readTranscriptText(target.bvid, target.cid)
+                            }
+                        },
                     )
                 }
 
@@ -920,6 +1013,21 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleSharedIntent(intent)
+        handleSummaryIntent(intent)
+    }
+
+    /** 总结通知点进来：打开对应的阅读页，或「去设置」打开 AI 总结设置。 */
+    private fun handleSummaryIntent(intent: Intent?) {
+        intent ?: return
+        if (intent.getBooleanExtra(com.biliseek.app.summary.SummaryService.EXTRA_OPEN_AI_SETTINGS, false)) {
+            intent.removeExtra(com.biliseek.app.summary.SummaryService.EXTRA_OPEN_AI_SETTINGS)
+            viewModel.requestOpenAiSettings()
+            return
+        }
+        val bvid = intent.getStringExtra(com.biliseek.app.summary.SummaryService.EXTRA_OPEN_BVID) ?: return
+        val cid = intent.getLongExtra(com.biliseek.app.summary.SummaryService.EXTRA_OPEN_CID, 0L)
+        intent.removeExtra(com.biliseek.app.summary.SummaryService.EXTRA_OPEN_BVID)
+        if (bvid.isNotBlank() && cid > 0) viewModel.summary.openReader(bvid, cid)
     }
 
     private fun handleSharedIntent(intent: Intent?) {

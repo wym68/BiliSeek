@@ -124,6 +124,8 @@ fun AppShell(
     onOpenComments: () -> Unit = {},
     /** 分享当前视频。 */
     onShare: () -> Unit = {},
+    /** AI 总结当前视频（工单 AI-6）。 */
+    onSummary: () -> Unit = {},
     /** 播放页视频互动栏（点赞 / 投币 / 收藏）状态与动作。 */
     videoInteraction: com.biliseek.app.interaction.VideoInteractionState? = null,
     videoActionHandlers: VideoActionHandlers = VideoActionHandlers(),
@@ -400,6 +402,7 @@ fun AppShell(
                         onOpenQueue = onOpenQueue,
                         onOpenComments = onOpenComments,
                         onShare = onShare,
+                        onSummary = onSummary,
                         onOpenAddToList = onOpenAddToList,
                         onOpenUpSpace = onOpenUpSpace,
                         onDownload = onDownloadCurrent,

@@ -230,6 +230,8 @@ object AiSummaryStatus {
 }
 
 object AiSummarySource {
+    /** 执行时再决定（多 P 批量）：先查字幕，没有再本地识别。 */
+    const val AUTO = "AUTO"
     const val OFFICIAL = "OFFICIAL"
     const val SUBTITLE = "SUBTITLE"
     const val LOCAL_ASR = "LOCAL_ASR"
