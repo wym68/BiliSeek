@@ -2,6 +2,8 @@ package com.biliseek.core.network
 
 import android.util.Log
 import com.biliseek.core.network.dto.PageItem
+import com.biliseek.core.network.dto.PlayerV2Data
+import com.biliseek.core.network.dto.SubtitleBody
 import com.biliseek.core.network.dto.VideoViewInfo
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
@@ -688,6 +690,77 @@ class BiliRepository internal constructor(
         return checkMessageRead(request(), what)
     }
 
+    // ── AI 总结：字幕与章节（工单 AI-4）─────────────────────
+
+    /**
+     * 字幕列表 + UP 主章节（`x/player/wbi/v2`）。
+     *
+     * **只在用户点「AI 总结」、打开风格弹窗那一刻查一次**，绝不在打开播放页时预取。
+     * 风控分流与其他读接口一致：冷却期内快速失败，-352 记入冷却**不重试**，-412 重置设备凭据。
+     */
+    suspend fun playerSubtitles(bvid: String, cid: Long): Result<PlayerV2Data> = runCatching {
+        val credentials = authGate.awaitReady()
+        val signed = WbiSigner.sign(
+            params = mapOf("bvid" to bvid, "cid" to cid.toString()),
+            imgKey = credentials.wbiImgKey,
+            subKey = credentials.wbiSubKey,
+        )
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+            api.playerV2(signed)
+        }
+        checkMessageRead(response, "字幕列表") ?: PlayerV2Data()
+    }
+
+    /** 字幕文件本体。[url] 来自 [com.biliseek.core.network.dto.SubtitleTrack.subtitleUrl]，只接受 B 站字幕域名。 */
+    suspend fun subtitleBody(url: String): Result<SubtitleBody> = runCatching {
+        val full = normalizeSubtitleUrl(url) ?: throw IllegalArgumentException("字幕地址不在 B 站域内")
+        ensureNotCoolingRead()
+        requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+            api.subtitleBody(full)
+        }
+    }
+
+    /**
+     * B 站官方 AI 总结（工单 AI-4b）。返回外层 code 与 data，由调用方按状态表判断（-101 不当异常）。
+     *
+     * 与 BiliPai 不同，这里**刻意收紧**：只在用户点「AI 总结」时调用一次；排队中不轮询；
+     * 风控码（-352 / -412）与 HTTP 412 都只请求一次、不重试，并照常记入冷却 / 重置凭据。
+     * 未登录时调用方应直接跳过，不发请求。
+     */
+    suspend fun viewConclusion(bvid: String, cid: Long, upMid: Long?): Result<ConclusionResult> = runCatching {
+        val credentials = authGate.awaitReady()
+        val params = buildMap {
+            put("bvid", bvid)
+            put("cid", cid.toString())
+            if (upMid != null && upMid > 0) put("up_mid", upMid.toString())
+        }
+        val signed = WbiSigner.sign(params, credentials.wbiImgKey, credentials.wbiSubKey)
+        ensureNotCoolingRead()
+        val response = try {
+            requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                api.viewConclusion(signed)
+            }
+        } catch (e: retrofit2.HttpException) {
+            // HTTP 412 同样是风控拦截：进冷却，不重试
+            if (e.code() == 412) riskCooldown.onRiskControl()
+            throw e
+        }
+        when (resolveRetryAction(response.code)) {
+            RetryAction.BACKOFF_NO_RETRY -> {
+                riskCooldown.onRiskControl()
+                throw SearchException(SearchError.Blocked, "触发风控（-352），已进入退避")
+            }
+            RetryAction.RESEED_CREDENTIALS -> {
+                authGate.invalidate()
+                throw SearchException(SearchError.CredentialsInvalid, "请求被拦截（-412），已重置设备凭据")
+            }
+            else -> Unit
+        }
+        if (response.code == 0) riskCooldown.onSuccess()
+        ConclusionResult(rootCode = response.code, data = response.data)
+    }
+
     // ── 弹幕 ────────────────────────────────────────────
 
     /**
@@ -1334,6 +1407,7 @@ class BiliRepository internal constructor(
         const val SEARCH_MIN_INTERVAL_MS = 800L
         const val FEED_MIN_INTERVAL_MS = 600L
         const val DANMAKU_MIN_INTERVAL_MS = 1_000L
+        const val SUMMARY_MIN_INTERVAL_MS = 800L
         const val WRITE_MIN_INTERVAL_MS = 1_000L
         /** 消息中心限速：B 站私信接口对连发敏感，按 800ms/req 起步。 */
         const val MESSAGE_MIN_INTERVAL_MS = 800L

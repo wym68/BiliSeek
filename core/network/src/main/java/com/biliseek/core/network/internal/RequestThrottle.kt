@@ -15,6 +15,8 @@ internal object ThrottleBucket {
     const val MESSAGE = "message"
     /** 弹幕分段：随播放进度按需拉取，与 FEED 隔离，不拖慢评论等页面读 */
     const val DANMAKU = "danmaku"
+    /** AI 总结的字幕 / 官方总结查询：只在用户点「AI 总结」时发，与其他页面读隔离 */
+    const val SUMMARY = "summary"
 }
 
 /**
