@@ -129,6 +129,7 @@ ksp {
 dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:player"))
+    implementation(project(":core:ai"))
     implementation(project(":design-system"))
 
     implementation(libs.androidx.core.ktx)

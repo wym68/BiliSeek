@@ -25,4 +25,5 @@ rootProject.name = "BiliSeek"
 include(":app")
 include(":core:network")
 include(":core:player")
+include(":core:ai")
 include(":design-system")

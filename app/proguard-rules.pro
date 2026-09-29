@@ -27,6 +27,15 @@
 -keepclassmembers class com.biliseek.core.network.internal.DeviceFingerprint {
     *** Companion;
 }
+# AI 总结（:core:ai）的 @Serializable：transcript.json 等落盘结构与 AI 服务 DTO。
+# 裁掉的表现同上——重新生成时原文静默读不出来，只能从头取字幕 / 重新识别。
+-keep,includedescriptorclasses class com.biliseek.core.ai.**$$serializer { *; }
+-keepclassmembers class com.biliseek.core.ai.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.biliseek.core.ai.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
 
 # ── Room：实体 / DAO / 数据库 ────────────────────────────────────
 # Room 生成的实现类按全名引用实体与 DAO；混淆后打开即崩。
