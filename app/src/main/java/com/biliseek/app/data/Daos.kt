@@ -155,6 +155,32 @@ interface DownloadDao {
 }
 
 @Dao
+interface AiSummaryDao {
+
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    fun observe(bvid: String, cid: Long): Flow<AiSummaryEntity?>
+
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    suspend fun find(bvid: String, cid: Long): AiSummaryEntity?
+
+    @Query("SELECT * FROM ai_summary WHERE id = :id")
+    suspend fun byId(id: Long): AiSummaryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: AiSummaryEntity): Long
+
+    @Query("DELETE FROM ai_summary WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /** 队列里下一个要跑的（按入队先后）。 */
+    @Query("SELECT * FROM ai_summary WHERE status = 'QUEUED' ORDER BY createdAt ASC LIMIT 1")
+    suspend fun nextQueued(): AiSummaryEntity?
+
+    @Query("SELECT * FROM ai_summary WHERE status IN (:statuses)")
+    suspend fun byStatuses(statuses: List<String>): List<AiSummaryEntity>
+}
+
+@Dao
 interface SearchHistoryDao {
 
     @Query("SELECT * FROM search_history ORDER BY searchedAt DESC LIMIT :limit")

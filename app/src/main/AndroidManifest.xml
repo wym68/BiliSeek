@@ -75,6 +75,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- AI 总结：取字幕 / 本地识别 / 调用大模型都是长任务，锁屏与切后台不中断（工单 AI-5） -->
+        <service
+            android:name=".summary.SummaryService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
 
 </manifest>

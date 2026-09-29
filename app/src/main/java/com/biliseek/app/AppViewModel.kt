@@ -1037,6 +1037,8 @@ return pages.map { p ->
         viewModelScope.launch {
             settingsStore.load()
             aiSettings.store.load()
+            // 进程被杀前没做完的总结按断点重新入队
+            summaryManager.resumePending()
             network.sessionStore.load()
             // 登录态加载后再启动风控种植：GenWebTicket 需要 bili_jct 作 csrf（登录态下空 csrf → -111）
             network.authGate.start()
@@ -1511,16 +1513,16 @@ return pages.map { p ->
     )
 
     /**
-     * AI 总结专用的 HTTP 客户端：与 B 站的 client **完全分开**，不挂任何 B 站拦截器与 Cookie
-     * （工单 §3.6；`:core:ai` 内部还会再派生一次隔离的 client 兜底）。
+     * AI 总结任务队列（工单 AI-5）。它持有 AI 专用的 HTTP 客户端：与 B 站的 client **完全分开**，
+     * 不挂任何 B 站拦截器与 Cookie（工单 §3.6；`:core:ai` 内部还会再派生一次隔离的 client 兜底）。
      */
-    private val aiHttp = okhttp3.OkHttpClient()
+    val summaryManager = com.biliseek.app.summary.SummaryManager.get(app)
 
     /** 设置 → AI 总结（工单 AI-3）。 */
     val aiSettings = com.biliseek.app.summary.AiSettingsController(
         scope = viewModelScope,
-        store = com.biliseek.app.summary.AiSettingsStore(app, com.biliseek.app.data.KeystoreCipher()),
-        aiHttp = aiHttp,
+        store = summaryManager.settings,
+        aiHttp = summaryManager.aiHttp,
         emitMessage = ::emitMessage,
     )
 

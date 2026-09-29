@@ -127,16 +127,26 @@ class AiSettingsStore(
         val hint = stringPreferencesKey("${prefix}_key_hint")
     }
 
-    private companion object {
-        val PRIMARY_KEYS = SlotKeys("primary")
-        val BACKUP_KEYS = SlotKeys("backup")
-        fun keys(slot: EndpointSlot) = if (slot == EndpointSlot.PRIMARY) PRIMARY_KEYS else BACKUP_KEYS
+    companion object {
+        @Volatile
+        private var instance: AiSettingsStore? = null
 
-        val KEY_LAST_STYLE = stringPreferencesKey("last_style")
-        val KEY_CUSTOM_PROMPT = stringPreferencesKey("custom_prompt")
-        val KEY_PRIVACY = booleanPreferencesKey("privacy_accepted")
-        val KEY_ASR_RTF = floatPreferencesKey("asr_rtf")
-        val KEY_VERIFIED = stringSetPreferencesKey("verified_configs")
-        const val MAX_VERIFIED = 8
+        /** 进程内单例：设置页与后台总结任务读写同一份状态。 */
+        fun get(context: Context): AiSettingsStore =
+            instance ?: synchronized(this) {
+                instance ?: AiSettingsStore(context.applicationContext, com.biliseek.app.data.KeystoreCipher())
+                    .also { instance = it }
+            }
+
+        private val PRIMARY_KEYS = SlotKeys("primary")
+        private val BACKUP_KEYS = SlotKeys("backup")
+        private fun keys(slot: EndpointSlot) = if (slot == EndpointSlot.PRIMARY) PRIMARY_KEYS else BACKUP_KEYS
+
+        private val KEY_LAST_STYLE = stringPreferencesKey("last_style")
+        private val KEY_CUSTOM_PROMPT = stringPreferencesKey("custom_prompt")
+        private val KEY_PRIVACY = booleanPreferencesKey("privacy_accepted")
+        private val KEY_ASR_RTF = floatPreferencesKey("asr_rtf")
+        private val KEY_VERIFIED = stringSetPreferencesKey("verified_configs")
+        private const val MAX_VERIFIED = 8
     }
 }
