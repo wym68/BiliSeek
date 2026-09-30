@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// AI 总结能力模块（工单 docs/10-AI总结-实现工单.md）。
+// AI 总结能力模块（工单 docs/archive/10-AI总结-实现工单.md）。
 // 刻意不依赖任何 Android API、也不依赖 :core:network / :core:player——不认识 B 站，
 // 只认「文本 + 时间戳 → Markdown」。B 站相关接线在 :app。
 android {

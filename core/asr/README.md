@@ -1,6 +1,6 @@
 # :core:asr — 离线语音识别
 
-工单：`docs/10-AI总结-实现工单.md` AI-7。只认「本地音频文件 → 带时间戳的句子」，
+工单：`docs/archive/10-AI总结-实现工单.md` AI-7。只认「本地音频文件 → 带时间戳的句子」，
 不依赖 `:core:ai` / `:core:network` / `:core:player`，不知道 B 站。
 
 ```
