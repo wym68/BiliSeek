@@ -1619,8 +1619,8 @@ return pages.map { p ->
         val s = connection.state.value
         val currentCid = s.resolvedCid.takeIf { it > 0 } ?: s.cid
         if (com.biliseek.app.summary.TimestampLinkPolicy.shouldSeekInPlace(s.bvid, currentCid, target.bvid, target.cid)) {
-            connection.seekTo(positionMs)
-            return
+            // 暂停中也要接着播；播放器里没有已加载媒体（冷恢复）时返回 false，落到下面的「从该处开始播放」
+            if (connection.seekAndPlay(positionMs)) return
         }
         viewModelScope.launch {
             val row = summaryManager.find(target.bvid, target.cid)
