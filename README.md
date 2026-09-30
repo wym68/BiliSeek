@@ -100,7 +100,7 @@ M0–M4 打通闭环，M5–M7 抹平日常使用的硌手点，M8 做实设置�
 | 能力                                         | 状态                                  |
 | ------------------------------------------ | ----------------------------------- |
 | Web 扫码登录 + 「用 B 站 App 一键登录」                | ✅ 真机验证                              |
-| 登录态续期（Cookie 刷新）                           | 🔸 公钥已从线上 wasm 提取（字节级验证）；端到端刷新需真人实测 |
+| 登录态续期（Cookie 刷新，启动时检查一次；写请求 `-111` 时刷新重试一次） | 🔸 公钥已从线上 wasm 提取（字节级验证）；端到端刷新需真人实测；`-101` 自动续期重试尚未接线 |
 | 写操作地基（csrf 结构性注入、`-111` 刷新重试一次、`-352` 不重试） | ✅ 离线单测全绿                            |
 | 视频互动栏：点赞 / 投币 / 收藏 / 评论 / 分享，长按点赞一键三连      | ✅ 真机验收通过                            |
 | 关注动态（底部 tab，全部/仅视频 + 按 UP 筛选，转发/评论/点赞）     | ✅                                   |
@@ -141,7 +141,7 @@ M0–M4 打通闭环，M5–M7 抹平日常使用的硌手点，M8 做实设置�
 ### 步骤
 
 ```bash
-git clone <repo> && cd biliseek
+git clone https://github.com/wym68/BiliSeek.git && cd BiliSeek
 
 # 配置 SDK 路径
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
@@ -175,7 +175,7 @@ Release 构建开启 R8，过度裁剪不会编译失败、只会运行时崩溃
 **没有 `mapping.txt` 就不算一次发版**。也可在 GitHub Actions 手动触发 `Build Release (draft)` 生成签名包与草稿 Release。
 步骤见 [发版清单](docs/发版清单.md)。
 
-CI：`ci.yml` 每次 push 跑 `./gradlew test assembleDebug`；`build-debug-apk.yml` 手动发布 debug APK。
+CI：`ci.yml` 每次 push 跑 `./gradlew test assembleDebug`；`build-debug-apk.yml` 手动发布 debug APK；`build-release.yml` 手动构建签名正式版并生成草稿 Release。
 
 > 干净机器的完整配置步骤（SDK 组件清单、环境变量、AVD、排障）见
 > [开发环境搭建](docs/01-开发环境搭建.md)。
@@ -190,7 +190,7 @@ CI：`ci.yml` 每次 push 跑 `./gradlew test assembleDebug`；`build-debug-apk.
 :core:player      取流、DASH 组装、画质/音质选择、播放内核、PlaybackService
 :core:ai          AI 总结：Provider 预设（OpenAI 兼容）、分块总结流水线 → Markdown；不认识 B 站
 :core:asr         离线语音识别（sherpa-onnx + SenseVoice + Silero VAD）、模型下载 / 导入 / 校验
-:design-system    主题、设计 token（间距/尺寸/圆角）、共用组件、封面取色
+:design-system    主题、设计 token（间距/尺寸/圆角）、共用 Bs* 组件、强调色策略（封面取色本身在 :app）
 ```
 
 两条贯穿全局的架构约束：
@@ -205,8 +205,32 @@ CI：`ci.yml` 每次 push 跑 `./gradlew test assembleDebug`；`build-debug-apk.
 
 ## 文档
 
-| 文档                                | 内容                                                                     |
-| --------------------------------- | ---------------------------------------------------------------------- |
+文档以代码为准：发现文档与代码不一致时，改文档。
+
+**活文档（随代码维护）**
+
+| 文档 | 内容 |
+| --- | --- |
+| [架构设计篇](docs/03-架构设计篇.md) | 模块边界、网络与风控、取流、播放内核与切轨时序、数据层、导航——按现状描述 |
+| [开发环境搭建](docs/01-开发环境搭建.md) | 干净机器从零配好环境，到跑通测试与安装 |
+| [功能优化篇](docs/05-功能优化篇.md) | M5–M13 里程碑记录 + **§10 欠账总表** + §13 逐条优化记录 |
+| [UI 规范与重构](docs/09-UI规范与重构.md) | 设计 token、共用组件、按钮与图标规则——新页面按此写 |
+| [播放队列工单](docs/10-播放队列工单.md) | 两层队列、列表来源播放、右滑删除与撤销的规则与实现 |
+| [手动测试指南](docs/BiliSeek-手动测试指南.md) | 模拟器 / 真机有线 / 真机无线三条完整流程；附录 3 为已知缺口 |
+| [发版清单](docs/发版清单.md) | 版本口径、构建归档、发版前人工检查 |
+
+**记录**
+
+| 文档 | 内容 |
+| --- | --- |
+| [验收记录](docs/验收记录/) | M0–M13、写操作接入、风控加固、播放队列、AI 总结的实测证据，含 [Android 16 真机实跑](docs/验收记录/真机-2026-08-26.md) |
+| [功能设计小稿](docs/superpowers/specs/) | 动态卡片、充电标识、消息中心、加入列表等小功能的设计稿 |
+
+**归档（已冻结，记录「当时为什么这么做」）** —— [docs/archive/](docs/archive/)
+
+[功能选型篇](docs/archive/02-功能选型篇.md) · [MVP 验收清单](docs/archive/04-MVP验收清单.md) · [MVP 收尾总结](docs/archive/BiliSeek-MVP收尾总结.md) · [写操作接入工单](docs/archive/06-写操作接入-实现工单.md) · [风控加固工单](docs/archive/07-风控加固-实现工单.md) · [UI 开发工单](docs/archive/08-app_UI开发工单.md) · [AI 总结工单](docs/archive/10-AI总结-实现工单.md) · 学习文档（[BiliPai](docs/archive/BiliSeek-学习文档-BiliPai.md) / [BBPlayer](docs/archive/BiliSeek-学习文档-BBPlayer.md) / [biu](docs/archive/BiliSeek-学习文档-biu.md)）
+
+--------------------------------- | ---------------------------------------------------------------------- |
 | [开发环境搭建](docs/01-开发环境搭建.md)       | 干净机器从零配好环境，到跑通测试与安装                                                    |
 | [功能选型篇](docs/archive/02-功能选型篇.md)         | 做什么、从哪取、为什么不做某些事                                                       |
 | [架构设计篇](docs/03-架构设计篇.md)         | 模块边界、播放内核、切轨时序、数据流                                                     |
