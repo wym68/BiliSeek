@@ -177,10 +177,11 @@ object DownloadLocation {
 /**
  * AI 总结索引（工单 AI-5）。正文与原文存在 `filesDir/ai_summary/{bvid}_{cid}/`，表里只存索引与任务状态。
  *
- * 同一 (bvid, cid) 只保留一行，重新生成即覆盖。总结是用户主动触发生成的本地成果；
- * 原文（transcript.json）只作为它的原料随之保存，删除记录时整目录删除。
+ * 同一 (bvid, cid) 可以有多个「版本」（多行）：重新生成不覆盖旧版本，用户自己决定保留哪几个、删掉哪几个。
+ * 每个版本自己的 summary.md 与总结断点在 `v{id}/` 子目录；原文（transcript.json）与识别断点、临时音频
+ * 是这条视频共用的原料，放在视频目录，所有版本删光时才整目录删除。
  */
-@Entity(tableName = "ai_summary", indices = [Index(value = ["bvid", "cid"], unique = true)])
+@Entity(tableName = "ai_summary", indices = [Index(value = ["bvid", "cid"])])
 data class AiSummaryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bvid: String,

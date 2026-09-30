@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UpVisitEntity::class,
         AiSummaryEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -43,7 +43,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
 
         /**
@@ -145,7 +145,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
         /**
          * v5 → v6：新增 AI 总结索引表（工单 AI-5）。
          *
-         * 正文与原文在私有目录的文件里，表里只存索引与任务状态；(bvid, cid) 唯一，重新生成即覆盖。
+         * 正文与原文在私有目录的文件里，表里只存索引与任务状态；同一 (bvid, cid) 可有多个版本（v6→v7 起）。
          */
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -180,6 +180,17 @@ abstract class BiliSeekDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_ai_summary_bvid_cid` ON `ai_summary` (`bvid`, `cid`)",
                 )
+            }
+        }
+
+        /**
+         * v6 → v7：AI 总结支持同一视频保存多个版本，(bvid, cid) 的索引由唯一改为普通索引。
+         * 索引名不变（Room 按名字校验）；表结构与数据都不动。
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS `index_ai_summary_bvid_cid`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_summary_bvid_cid` ON `ai_summary` (`bvid`, `cid`)")
             }
         }
     }

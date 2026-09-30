@@ -29,6 +29,8 @@ data class StyleSheetState(
     val llmReady: Boolean = false,
     val loggedIn: Boolean = false,
     val isMetered: Boolean = false,
+    /** 这条视频已有版本（「生成新版本」进来的）：弹窗里提示旧版本不会被覆盖。 */
+    val hasExisting: Boolean = false,
     /** 本地识别的实测 RTF（滑动平均）；null = 还没测过，按默认值估。 */
     val asrRtf: Float? = null,
 ) {
@@ -43,8 +45,8 @@ sealed interface SheetChoice {
     data class Generate(val style: StyleChoice, val customPrompt: String, val forceLocalAsr: Boolean = false) : SheetChoice
 }
 
-/** 阅读页打开的是哪一条。 */
-data class ReaderTarget(val bvid: String, val cid: Long, val video: SummaryVideo?)
+/** 阅读页打开的是哪一条；[versionId] 为 null 显示最新版本。 */
+data class ReaderTarget(val bvid: String, val cid: Long, val video: SummaryVideo?, val versionId: Long? = null)
 
 /**
  * AI 总结的界面编排（工单 AI-6）：入口 → 风格弹窗（查一次官方总结与字幕）→ 入队 / 保存 → 阅读页。
@@ -68,7 +70,7 @@ class SummaryController(
 
     /** 阅读页当前条目的状态（库 + 实时进度）。 */
     val readerState: Flow<SummaryUiState?> = _reader.flatMapLatest { target ->
-        if (target == null) flowOf(null) else manager.observe(target.bvid, target.cid)
+        if (target == null) flowOf(null) else manager.observe(target.bvid, target.cid, target.versionId)
     }
 
     private data class Probe(val official: OfficialSummary, val subtitles: SubtitleProbe?)
@@ -116,6 +118,7 @@ class SummaryController(
                     llmReady = settings.primaryReady,
                     loggedIn = session.value.isLoggedIn,
                     isMetered = manager.network.isMetered(),
+                    hasExisting = true,
                     asrRtf = settings.asrRtf,
                 ),
                 video,
@@ -210,13 +213,37 @@ class SummaryController(
         _reader.value = ReaderTarget(bvid, cid, null)
     }
 
+    /** 阅读页切换到某个版本（null = 回到最新）。 */
+    fun selectVersion(versionId: Long?) {
+        _reader.update { it?.copy(versionId = versionId) }
+    }
+
+    /**
+     * 删除阅读页当前的版本。[versionCount] 是删除前的版本数：只剩这一个就一并退出阅读页；
+     * 否则留在页内，自动显示剩下的最新版本。
+     */
+    fun deleteVersion(versionId: Long, versionCount: Int) {
+        manager.delete(versionId)
+        if (versionCount <= 1) {
+            closeReader()
+        } else {
+            selectVersion(null)
+        }
+    }
+
+    /** 清除这条视频的全部版本（含原文），并退出阅读页。 */
+    fun deleteAllVersions(bvid: String, cid: Long) {
+        manager.deleteAll(bvid, cid)
+        closeReader()
+    }
+
     fun closeReader() {
         _reader.value = null
     }
 
     /** 阅读页读取 md 正文（IO）。 */
-    suspend fun readMarkdown(bvid: String, cid: Long): String? =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { manager.files(bvid, cid).readSummary() }
+    suspend fun readMarkdown(bvid: String, cid: Long, versionId: Long): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { manager.files(bvid, cid).readSummary(versionId) }
 
     /** 阅读页「查看原文」：原文按行拼成纯文本（IO）。 */
     suspend fun readTranscriptText(bvid: String, cid: Long): String? =

@@ -79,8 +79,11 @@ data class SummaryLive(
 
 /** 阅读页看到的一条总结。 */
 data class SummaryUiState(
+    /** 当前显示的版本。 */
     val entity: AiSummaryEntity,
     val live: SummaryLive?,
+    /** 这条视频的全部版本，新的在前（含 [entity]）。 */
+    val versions: List<AiSummaryEntity> = listOf(entity),
 )
 
 /**
@@ -146,28 +149,40 @@ class SummaryManager private constructor(private val app: Application) {
 
     fun files(bvid: String, cid: Long) = SummaryFiles(root, bvid, cid)
 
-    fun observe(bvid: String, cid: Long): Flow<SummaryUiState?> =
-        combine(dao.observe(bvid, cid), _live) { row, live -> row?.let { SummaryUiState(it, live[it.id]) } }
+    /** [versionId] 为 null 显示最新版本；指定的版本已被删除时也退回最新版本。 */
+    fun observe(bvid: String, cid: Long, versionId: Long?): Flow<SummaryUiState?> =
+        combine(dao.observeAll(bvid, cid), _live) { rows, live ->
+            val id = SummaryVersionPolicy.select(rows.map { it.id }, versionId) ?: return@combine null
+            val row = rows.first { it.id == id }
+            SummaryUiState(row, live[row.id], rows)
+        }
 
+    /** 这条视频最新的一个版本。 */
     suspend fun find(bvid: String, cid: Long): AiSummaryEntity? = dao.find(bvid, cid)
 
     // ── 入口 ──────────────────────────────────────────────
 
-    /** 入队一条总结。同一 (bvid, cid) 覆盖旧记录（重新生成）；已有原文时直接复用。 */
+    /**
+     * 入队一条总结，**总是新建一个版本**（旧版本原样保留，用户自己决定删哪个）。
+     * 视频共用的原文已有就直接复用；只有换了来源（例如之前用字幕、这次改本地识别）才作废重取。
+     */
     fun enqueue(video: SummaryVideo, style: StyleChoice, customPrompt: String, source: JobSource) {
         scope.launch {
-            val old = dao.find(video.bvid, video.cid)
+            val versions = dao.findAll(video.bvid, video.cid)
             val files = files(video.bvid, video.cid)
-            // 换来源（例如之前用字幕、这次改本地识别）时旧原文作废
             val sourceKind = when (source) {
                 is JobSource.Subtitle -> AiSummarySource.SUBTITLE
                 is JobSource.LocalAsr -> AiSummarySource.LOCAL_ASR
                 JobSource.Auto -> AiSummarySource.AUTO
             }
-            if (old != null && old.sourceKind != sourceKind && source != JobSource.Auto) files.transcript.delete()
+            val transcriptOwner = versions.firstOrNull { it.hasTranscript }
+            if (SummaryVersionPolicy.shouldDiscardTranscript(transcriptOwner?.sourceKind, sourceKind)) {
+                files.transcript.delete()
+                dao.setHasTranscript(video.bvid, video.cid, false)
+            }
             val now = System.currentTimeMillis()
             val row = AiSummaryEntity(
-                id = old?.id ?: 0,
+                id = 0,
                 bvid = video.bvid,
                 cid = video.cid,
                 title = video.title,
@@ -206,7 +221,10 @@ class SummaryManager private constructor(private val app: Application) {
     /** 用 B 站官方总结（AI-4b）：不调用大模型，直接写 md。 */
     fun saveOfficial(video: SummaryVideo, result: ConclusionModelResult) {
         scope.launch {
-            val old = dao.find(video.bvid, video.cid)
+            val versions = dao.findAll(video.bvid, video.cid)
+            // 官方总结的内容由 B 站决定，已有官方版本就原地更新，不重复堆版本
+            val old = SummaryVersionPolicy.officialVersionToReplace(versions.map { it.id to it.sourceKind })
+                ?.let { id -> versions.first { it.id == id } }
             val files = files(video.bvid, video.cid)
             val markdown = OfficialSummaryMarkdownPolicy.markdown(
                 title = displayTitle(video.title, video.pageTitle),
@@ -214,20 +232,21 @@ class SummaryManager private constructor(private val app: Application) {
                 result = result,
                 durationMs = video.durationMs.takeIf { it > 0 },
             )
-            files.writeSummary(markdown)
             val now = System.currentTimeMillis()
-            dao.upsert(
-                AiSummaryEntity(
-                    id = old?.id ?: 0,
-                    bvid = video.bvid, cid = video.cid, title = video.title, pageTitle = video.pageTitle,
-                    author = video.author, upMid = video.upMid, coverUrl = video.coverUrl,
-                    durationMs = video.durationMs, style = old?.style ?: StyleChoice.OUTLINE.name,
-                    customPrompt = old?.customPrompt.orEmpty(), sourceKind = AiSummarySource.OFFICIAL,
-                    subtitleUrl = "", subtitleLan = "", slot = EndpointSlot.PRIMARY.name, models = "",
-                    status = AiSummaryStatus.DONE, failureKind = "", hasTranscript = files.transcript.exists(),
-                    error = "", createdAt = old?.createdAt ?: now, updatedAt = now,
-                ),
+            val done = AiSummaryEntity(
+                id = old?.id ?: 0,
+                bvid = video.bvid, cid = video.cid, title = video.title, pageTitle = video.pageTitle,
+                author = video.author, upMid = video.upMid, coverUrl = video.coverUrl,
+                durationMs = video.durationMs, style = old?.style ?: StyleChoice.OUTLINE.name,
+                customPrompt = old?.customPrompt.orEmpty(), sourceKind = AiSummarySource.OFFICIAL,
+                subtitleUrl = "", subtitleLan = "", slot = EndpointSlot.PRIMARY.name, models = "",
+                status = AiSummaryStatus.DONE, failureKind = "", hasTranscript = files.transcript.exists(),
+                error = "", createdAt = old?.createdAt ?: now, updatedAt = now,
             )
+            // 先有 id 才能写文件；文件写好之后才把状态置为 DONE，阅读页不会读到还不存在的正文
+            val id = old?.id ?: dao.upsert(done.copy(status = AiSummaryStatus.PREPARING))
+            files.writeSummary(id, markdown)
+            dao.upsert(done.copy(id = id))
         }
     }
 
@@ -249,18 +268,46 @@ class SummaryManager private constructor(private val app: Application) {
         }
     }
 
+    /** 删除一个版本。这是最后一个版本时连原文、识别断点等共用文件一起清掉。 */
     fun delete(id: Long) {
         if (runningId == id) runningJob?.cancel(CancellationException("删除"))
         scope.launch {
-            dao.byId(id)?.let { row ->
-                files(row.bvid, row.cid).deleteAll()
-                dao.deleteById(id)
-            }
+            val row = dao.byId(id) ?: return@launch
+            dao.deleteById(id)
+            val files = files(row.bvid, row.cid)
+            files.deleteVersion(id)
+            if (dao.count(row.bvid, row.cid) == 0) files.deleteAll()
+        }
+    }
+
+    /** 清除这条视频的全部版本，包括原文与识别断点。 */
+    fun deleteAll(bvid: String, cid: Long) {
+        scope.launch {
+            val ids = dao.findAll(bvid, cid).map { it.id }
+            if (runningId in ids) runningJob?.cancel(CancellationException("删除"))
+            dao.deleteByVideo(bvid, cid)
+            files(bvid, cid).deleteAll()
+        }
+    }
+
+    /**
+     * 多版本之前 `summary.md` / `checkpoint.json` 直接放在视频目录里，现在归各版本自己的目录。
+     * 幂等，App 启动时跑一遍（已迁移的什么也不做）。
+     */
+    private fun migrateLegacyLayout() {
+        scope.launch {
+            runCatching {
+                dao.all().forEach { row ->
+                    val files = files(row.bvid, row.cid)
+                    SummaryLayoutMigration.moveLegacy(files.dir, files.versionDir(row.id))
+                }
+            }.onFailure { Log.w(TAG, "legacy layout migration failed: ${it.javaClass.simpleName}") }
         }
     }
 
     /** App 启动时调用：进程被杀前没做完的任务按断点重新入队。 */
     fun resumePending() {
+        migrateLegacyLayout()
         scope.launch {
             val pending = dao.byStatuses(AiSummaryStatus.RESUMABLE)
             if (pending.isEmpty()) return@launch
@@ -449,6 +496,7 @@ class SummaryManager private constructor(private val app: Application) {
             }
             files.writeTranscript(t)
             row = update(row) { it.copy(hasTranscript = true) }
+            dao.setHasTranscript(row.bvid, row.cid, true) // 原文是各版本共用的
             t
         }
 
@@ -463,7 +511,7 @@ class SummaryManager private constructor(private val app: Application) {
             transcript = transcript,
             chat = config ?: AiEndpointConfig("", "", "", ""),
             context = synchronized(contextById) { contextById[row.id] },
-            checkpointDir = files.dir,
+            checkpointDir = files.versionDir(row.id),
         )
         var outcome = Outcome.Failed
         summarizer.summarize(request).collect { progress ->
@@ -476,7 +524,7 @@ class SummaryManager private constructor(private val app: Application) {
                 )
                 is SummaryProgress.Streaming -> publish(row, SummaryLive("生成中", null, progress.markdownSoFar), service)
                 is SummaryProgress.Done -> {
-                    files.writeSummary(progress.result.markdown)
+                    files.writeSummary(row.id, progress.result.markdown)
                     row = update(row) {
                         it.copy(
                             status = AiSummaryStatus.DONE,

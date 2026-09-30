@@ -9,12 +9,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -24,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -35,9 +38,11 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.data.AiSummaryEntity
 import com.biliseek.app.data.AiSummaryStatus
 import com.biliseek.app.summary.FailureAction
 import com.biliseek.app.summary.SummaryDisplayPolicy
+import com.biliseek.app.summary.SummaryVersionPolicy
 import com.biliseek.app.summary.SummaryUiState
 import com.biliseek.app.summary.TimestampLinkPolicy
 import com.biliseek.designsystem.component.BsConfirmDialog
@@ -58,8 +63,13 @@ fun SummaryReaderScreen(
     onTimestamp: (Long) -> Unit,
     onShare: () -> Unit,
     onExport: () -> Unit,
+    /** 生成新版本：旧版本保留。 */
     onRegenerate: () -> Unit,
+    /** 删除当前显示的版本。 */
     onDelete: () -> Unit,
+    /** 清除这条视频的全部版本（含原文）。 */
+    onDeleteAll: () -> Unit,
+    onSelectVersion: (Long) -> Unit,
     onCancel: () -> Unit,
     onFailureAction: (FailureAction) -> Unit,
     onLoadTranscript: () -> Unit,
@@ -67,6 +77,8 @@ fun SummaryReaderScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var showTranscript by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    val versions = state?.versions.orEmpty()
     val entity = state?.entity
     val running = entity != null && entity.status != AiSummaryStatus.DONE && entity.status != AiSummaryStatus.FAILED
     val done = entity?.status == AiSummaryStatus.DONE
@@ -83,7 +95,9 @@ fun SummaryReaderScreen(
     }
 
     Surface(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
+        // 阅读页是盖在 Scaffold 之上的全屏层，没有 Scaffold 帮它让出系统栏：
+        // 自己让开状态栏（顶栏不被时间 / 信号图标盖住）和手势导航条（末尾的内容不被挡住）
+        Column(Modifier.fillMaxSize().systemBarsPadding()) {
             BsTopBar(
                 title = entity?.title ?: "AI 总结",
                 subtitle = entity?.pageTitle?.ifBlank { null },
@@ -111,9 +125,18 @@ fun SummaryReaderScreen(
                             if (running) {
                                 DropdownMenuItem(text = { Text("取消") }, onClick = { menuOpen = false; onCancel() })
                             } else {
-                                DropdownMenuItem(text = { Text("重新生成") }, onClick = { menuOpen = false; onRegenerate() })
+                                DropdownMenuItem(text = { Text("生成新版本") }, onClick = { menuOpen = false; onRegenerate() })
                             }
-                            DropdownMenuItem(text = { Text("删除") }, onClick = { menuOpen = false; confirmDelete = true })
+                            DropdownMenuItem(
+                                text = { Text(if (versions.size > 1) "删除此版本" else "删除") },
+                                onClick = { menuOpen = false; confirmDelete = true },
+                            )
+                            if (versions.size > 1) {
+                                DropdownMenuItem(
+                                    text = { Text("删除全部版本") },
+                                    onClick = { menuOpen = false; confirmDeleteAll = true },
+                                )
+                            }
                         }
                     }
                 },
@@ -130,6 +153,15 @@ fun SummaryReaderScreen(
                     Text("加载中…", style = MaterialTheme.typography.bodyMedium)
                     return@Column
                 }
+
+                VersionBar(
+                    versions = versions,
+                    current = entity,
+                    showActions = !running,
+                    onSelect = onSelectVersion,
+                    onNew = onRegenerate,
+                    onDelete = { confirmDelete = true },
+                )
 
                 if (running) {
                     val live = state?.live
@@ -176,10 +208,27 @@ fun SummaryReaderScreen(
         }
     }
 
+    if (confirmDeleteAll) {
+        BsConfirmDialog(
+            title = "清除全部 ${versions.size} 个版本？",
+            text = "所有版本的总结和保存的原文都会删除，之后需要重新生成。",
+            confirmLabel = "全部清除",
+            destructive = true,
+            onConfirm = {
+                confirmDeleteAll = false
+                onDeleteAll()
+            },
+            onDismiss = { confirmDeleteAll = false },
+        )
+    }
     if (confirmDelete) {
         BsConfirmDialog(
-            title = "删除这份总结？",
-            text = "总结与保存的原文都会删除，之后需要重新生成。",
+            title = if (versions.size > 1) "删除这个版本？" else "删除这份总结？",
+            text = if (versions.size > 1) {
+                "只删除当前这个版本，其他版本保留。"
+            } else {
+                "总结与保存的原文都会删除，之后需要重新生成。"
+            },
             confirmLabel = "删除",
             destructive = true,
             onConfirm = {
@@ -188,6 +237,64 @@ fun SummaryReaderScreen(
             },
             onDismiss = { confirmDelete = false },
         )
+    }
+}
+
+/**
+ * 版本条：有多个版本时显示「版本 2/3 ▾」切换；不在生成中时给出「生成新版本」和「删除」两个按钮，
+ * 让「保留这个、再生成一个」与「清掉」都不必去翻菜单。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun VersionBar(
+    versions: List<AiSummaryEntity>,
+    current: AiSummaryEntity,
+    showActions: Boolean,
+    onSelect: (Long) -> Unit,
+    onNew: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    if (versions.size <= 1 && !showActions) return
+    var open by remember { mutableStateOf(false) }
+    val ids = versions.map { it.id }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.testTag("summary_versions"),
+    ) {
+        if (versions.size > 1) {
+            Box {
+                AssistChip(
+                    onClick = { open = true },
+                    label = { Text("版本 ${SummaryVersionPolicy.ordinal(ids, current.id)}/${versions.size} ▾") },
+                )
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    versions.forEach { v ->
+                        val suffix = when (v.status) {
+                            AiSummaryStatus.DONE -> ""
+                            AiSummaryStatus.FAILED -> " · 失败"
+                            else -> " · 生成中"
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    (if (v.id == current.id) "✓ " else "") +
+                                        SummaryVersionPolicy.label(v.style, v.sourceKind, v.createdAt) + suffix,
+                                )
+                            },
+                            onClick = {
+                                open = false
+                                onSelect(v.id)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        if (showActions) {
+            OutlinedButton(onClick = onNew, modifier = Modifier.testTag("summary_new_version")) { Text("生成新版本") }
+            TextButton(onClick = onDelete) { Text(if (versions.size > 1) "删除此版本" else "删除") }
+        }
     }
 }
 

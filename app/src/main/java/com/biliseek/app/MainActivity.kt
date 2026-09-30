@@ -853,10 +853,11 @@ class MainActivity : ComponentActivity() {
                 summaryReader?.let { target ->
                     BackHandler(onBack = viewModel.summary::closeReader)
                     val entity = summaryReaderState?.entity
-                    var markdown by remember(target.bvid, target.cid) { mutableStateOf<String?>(null) }
+                    // 换版本时正文要跟着换：以版本 id 为键，不让上一个版本的正文残留在新版本的标题下
+                    var markdown by remember(target.bvid, target.cid, entity?.id) { mutableStateOf<String?>(null) }
                     var transcriptText by remember(target.bvid, target.cid) { mutableStateOf<String?>(null) }
-                    LaunchedEffect(target.bvid, target.cid, entity?.status, entity?.updatedAt) {
-                        markdown = viewModel.summary.readMarkdown(target.bvid, target.cid)
+                    LaunchedEffect(target.bvid, target.cid, entity?.id, entity?.status, entity?.updatedAt) {
+                        markdown = entity?.let { viewModel.summary.readMarkdown(target.bvid, target.cid, it.id) }
                     }
                     val failureActions = entity?.let { row ->
                         com.biliseek.app.summary.FailureActionPolicy.actions(
@@ -876,8 +877,10 @@ class MainActivity : ComponentActivity() {
                         onClose = viewModel.summary::closeReader,
                         onTimestamp = viewModel::openSummaryTimestamp,
                         onShare = {
-                            val file = viewModel.summaryManager.files(target.bvid, target.cid).summary
-                            com.biliseek.app.summary.SummaryShare.share(this@MainActivity, file, entity?.title.orEmpty())
+                            entity?.let {
+                                val file = viewModel.summaryManager.files(target.bvid, target.cid).summary(it.id)
+                                com.biliseek.app.summary.SummaryShare.share(this@MainActivity, file, it.title)
+                            }
                         },
                         onExport = {
                             markdown?.let { md ->
@@ -887,9 +890,12 @@ class MainActivity : ComponentActivity() {
                         },
                         onRegenerate = { entity?.let(viewModel::regenerateSummary) },
                         onDelete = {
-                            entity?.let { viewModel.summaryManager.delete(it.id) }
-                            viewModel.summary.closeReader()
+                            entity?.let {
+                                viewModel.summary.deleteVersion(it.id, summaryReaderState?.versions?.size ?: 1)
+                            }
                         },
+                        onDeleteAll = { viewModel.summary.deleteAllVersions(target.bvid, target.cid) },
+                        onSelectVersion = viewModel.summary::selectVersion,
                         onCancel = { entity?.let { viewModel.summaryManager.cancel(it.id) } },
                         onFailureAction = { action -> entity?.let { viewModel.onSummaryFailureAction(action, it) } },
                         onLoadTranscript = {

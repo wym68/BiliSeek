@@ -87,6 +87,14 @@ fun SummaryStyleSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            if (state.hasExisting) {
+                Text(
+                    "将保存为新版本，已有的版本不会被覆盖；不需要的版本可以在阅读页删除。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             if (!state.isBatch) {
                 ChoiceRow(
                     selected = useOfficial,

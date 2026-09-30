@@ -157,11 +157,29 @@ interface DownloadDao {
 @Dao
 interface AiSummaryDao {
 
-    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
-    fun observe(bvid: String, cid: Long): Flow<AiSummaryEntity?>
+    /** 某条视频（某一 P）的全部版本，新的在前。 */
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC")
+    fun observeAll(bvid: String, cid: Long): Flow<List<AiSummaryEntity>>
 
-    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC")
+    suspend fun findAll(bvid: String, cid: Long): List<AiSummaryEntity>
+
+    /** 最新的一个版本。 */
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC LIMIT 1")
     suspend fun find(bvid: String, cid: Long): AiSummaryEntity?
+
+    @Query("SELECT COUNT(*) FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    suspend fun count(bvid: String, cid: Long): Int
+
+    @Query("SELECT * FROM ai_summary")
+    suspend fun all(): List<AiSummaryEntity>
+
+    /** 原文是这条视频共用的：写入 / 作废时同步所有版本的标记。 */
+    @Query("UPDATE ai_summary SET hasTranscript = :value WHERE bvid = :bvid AND cid = :cid")
+    suspend fun setHasTranscript(bvid: String, cid: Long, value: Boolean)
+
+    @Query("DELETE FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    suspend fun deleteByVideo(bvid: String, cid: Long)
 
     @Query("SELECT * FROM ai_summary WHERE id = :id")
     suspend fun byId(id: Long): AiSummaryEntity?

@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,7 +88,11 @@ fun MultiPagePickerScreen(
                 }
             }
             HorizontalDivider()
-            LazyColumn(Modifier.fillMaxSize()) {
+            // 顶部已让开状态栏；列表末尾要让开手势导航条，否则最后几个 P 会被挡在下面
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = WindowInsets.navigationBars.asPaddingValues(),
+            ) {
                 items(state.pages, key = { it.cid }) { entry ->
                     val checked = entry.cid in selected
                     Row(

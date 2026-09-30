@@ -6,20 +6,29 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * 一条总结在私有目录里的文件（工单 AI-5）：
- * `filesDir/ai_summary/{bvid}_{cid}/` 下 `summary.md`、`transcript.json`、`checkpoint.json`（总结断点，
- * 由 `:core:ai` 写）、`asr_partial.jsonl`（识别断点）、`audio.m4a`（为识别临时下载，识别完即删）。
+ * 一条视频的总结在私有目录里的文件（工单 AI-5，多版本见 [SummaryVersionPolicy]）：
+ * - 视频共用（所有版本的原料）：`filesDir/ai_summary/{bvid}_{cid}/` 下 `transcript.json`、
+ *   `asr_partial.jsonl`（识别断点）、`audio.m4a`（为识别临时下载，识别完即删）；
+ * - 每个版本自己的：`v{id}/summary.md` 与 `v{id}/checkpoint.json`（总结断点，由 `:core:ai` 写）。
  */
 class SummaryFiles(root: File, bvid: String, cid: Long) {
     val dir: File = File(root, "${safe(bvid)}_$cid")
-    val summary: File get() = File(dir, "summary.md")
     val transcript: File get() = File(dir, "transcript.json")
     val asrPartial: File get() = File(dir, "asr_partial.jsonl")
     val audio: File get() = File(dir, "audio.m4a")
 
-    fun readSummary(): String? = summary.takeIf { it.exists() }?.readText()
+    /** 某个版本自己的目录（总结断点也写在这里）。 */
+    fun versionDir(id: Long): File = File(dir, "v$id")
 
-    fun writeSummary(markdown: String) = atomicWrite(summary, markdown)
+    fun summary(id: Long): File = File(versionDir(id), "summary.md")
+
+    fun readSummary(id: Long): String? = summary(id).takeIf { it.exists() }?.readText()
+
+    fun writeSummary(id: Long, markdown: String) = atomicWrite(summary(id), markdown)
+
+    fun deleteVersion(id: Long) {
+        versionDir(id).deleteRecursively()
+    }
 
     fun readTranscript(): Transcript? = transcript.takeIf { it.exists() }?.let { f ->
         runCatching { json.decodeFromString(Transcript.serializer(), f.readText()) }.getOrNull()
@@ -33,8 +42,9 @@ class SummaryFiles(root: File, bvid: String, cid: Long) {
     }
 
     private fun atomicWrite(target: File, text: String) {
-        dir.mkdirs()
-        val tmp = File(dir, target.name + ".tmp")
+        val parent = target.parentFile ?: dir
+        parent.mkdirs()
+        val tmp = File(parent, target.name + ".tmp")
         tmp.writeText(text)
         if (!tmp.renameTo(target)) {
             target.delete()
