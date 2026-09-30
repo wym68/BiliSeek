@@ -24,6 +24,8 @@
     <application
         android:name=".BiliSeekApp"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
@@ -70,6 +72,23 @@
         <!-- 下载前台服务。与播放服务分开：下载跟着任务队列走，播放跟着用户听 -->
         <service
             android:name=".download.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- AI 总结「分享 .md」：只暴露 filesDir/ai_summary/（工单 AI-6） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- AI 总结：取字幕 / 本地识别 / 调用大模型都是长任务，锁屏与切后台不中断（工单 AI-5） -->
+        <service
+            android:name=".summary.SummaryService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

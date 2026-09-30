@@ -107,6 +107,7 @@ fun SearchScreen(
     onCopyLink: (SearchVideo) -> Unit,
     onShowPages: (SearchVideo) -> Unit,
     onDownload: (SearchVideo) -> Unit = {},
+    onSummarize: (SearchVideo) -> Unit = {},
     /** 单条追加到播放队列末尾（三点菜单「加入队列」）。 */
     onAppendToQueue: (SearchVideo) -> Unit = {},
     /** 查看UP主主页。 */
@@ -130,6 +131,7 @@ fun SearchScreen(
     onPagePlayNext: (PageEntry) -> Unit = {},
     onPageCopyLink: (PageEntry) -> Unit = {},
     onPageDownload: (PageEntry) -> Unit = {},
+    onPageSummarize: (PageEntry) -> Unit = {},
     /** Ch3：复选模式回调 */
     isSelectionMode: Boolean = false,
     selectedBvids: Set<String> = emptySet(),
@@ -202,6 +204,7 @@ fun SearchScreen(
                 "查看UP主" to { actionsFor = null; onViewUpOwner(video) },
                 "复制链接" to { actionsFor = null; onCopyLink(video) },
                 "下载" to { actionsFor = null; onDownload(video) },
+                "AI 总结" to { actionsFor = null; onSummarize(video) },
             ),
             onDismiss = { actionsFor = null },
         )
@@ -464,6 +467,7 @@ fun SearchScreen(
                 onEntryPlayNext = onPagePlayNext,
                 onEntryCopyLink = onPageCopyLink,
                 onEntryDownload = onPageDownload,
+                onEntrySummarize = onPageSummarize,
             )
             return@Column
         }
@@ -891,6 +895,7 @@ private fun MultiPagePanel(
     onEntryPlayNext: (PageEntry) -> Unit,
     onEntryCopyLink: (PageEntry) -> Unit,
     onEntryDownload: (PageEntry) -> Unit,
+    onEntrySummarize: (PageEntry) -> Unit = {},
 ) {
     // 复选态系统返回先退复选，再退面板（外层 dismiss 的 BackHandler 在复选态被本Handler拦截）
     BackHandler(enabled = isSelection) { onExitSelection() }
@@ -905,6 +910,7 @@ private fun MultiPagePanel(
                 "下一首播放" to { actionsFor = null; onEntryPlayNext(entry) },
                 "复制链接" to { actionsFor = null; onEntryCopyLink(entry) },
                 "下载" to { actionsFor = null; onEntryDownload(entry) },
+                "AI 总结" to { actionsFor = null; onEntrySummarize(entry) },
             ),
             onDismiss = { actionsFor = null },
         )

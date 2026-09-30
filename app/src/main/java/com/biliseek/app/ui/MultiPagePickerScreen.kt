@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,9 +47,16 @@ fun MultiPagePickerScreen(
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onDismiss)
-    // 默认全选：进来通常就是想对整张多 P 执行
+    // 默认全选：进来通常就是想对整张多 P 执行。
+    // AI 总结例外（工单 AI-6）：默认不选，避免一口气给几十个 P 排上总结任务
     var selected by remember(state.bvid) {
-        mutableStateOf(state.pages.map { it.cid }.toSet())
+        mutableStateOf(
+            if (state.pendingAction == com.biliseek.app.PendingAction.Summarize) {
+                emptySet()
+            } else {
+                state.pages.map { it.cid }.toSet()
+            },
+        )
     }
     Surface(modifier = modifier.fillMaxSize().statusBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
@@ -78,7 +88,11 @@ fun MultiPagePickerScreen(
                 }
             }
             HorizontalDivider()
-            LazyColumn(Modifier.fillMaxSize()) {
+            // 顶部已让开状态栏；列表末尾要让开手势导航条，否则最后几个 P 会被挡在下面
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = WindowInsets.navigationBars.asPaddingValues(),
+            ) {
                 items(state.pages, key = { it.cid }) { entry ->
                     val checked = entry.cid in selected
                     Row(
@@ -117,4 +131,5 @@ private fun actionLabel(action: PendingAction): String = when (action) {
     PendingAction.AppendToQueue -> "加入播放列表"
     PendingAction.EnqueueNext -> "下一首播放"
     PendingAction.Download -> "下载"
+    PendingAction.Summarize -> "AI 总结"
 }

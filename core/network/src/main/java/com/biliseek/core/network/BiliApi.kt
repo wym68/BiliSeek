@@ -7,6 +7,9 @@ import com.biliseek.core.network.dto.ReplyData
 import com.biliseek.core.network.dto.PageItem
 import com.biliseek.core.network.dto.VideoViewInfo
 import com.biliseek.core.network.dto.PlayUrlData
+import com.biliseek.core.network.dto.PlayerV2Data
+import com.biliseek.core.network.dto.ConclusionData
+import com.biliseek.core.network.dto.SubtitleBody
 import com.biliseek.core.network.dto.SpiData
 import com.biliseek.core.network.dto.TicketData
 import com.biliseek.core.network.dto.CookieInfoData
@@ -120,6 +123,18 @@ interface BiliApi {
      */
     @GET("x/player/wbi/playurl")
     suspend fun getPlayUrl(@QueryMap params: Map<String, String>): BiliResponse<PlayUrlData>
+
+    /** 播放器信息：字幕列表 + UP 主章节（AI 总结用，工单 AI-4）。bvid、cid + WBI 签名，调用处签。 */
+    @GET("x/player/wbi/v2")
+    suspend fun playerV2(@QueryMap params: Map<String, String>): BiliResponse<PlayerV2Data>
+
+    /** 字幕文件本体。[url] 是 `subtitle_url`（服务端已签好 auth_key 的完整地址）。 */
+    @GET
+    suspend fun subtitleBody(@Url url: String): SubtitleBody
+
+    /** B 站官方 AI 总结（工单 AI-4b）。bvid、cid、up_mid（有则带）+ WBI 签名，调用处签。 */
+    @GET("x/web-interface/view/conclusion/get")
+    suspend fun viewConclusion(@QueryMap params: Map<String, String>): BiliResponse<ConclusionData>
 
     /**
      * 弹幕分段（protobuf，6 分钟一段，`segment_index` 从 1 起）。参数需 WBI 签名。

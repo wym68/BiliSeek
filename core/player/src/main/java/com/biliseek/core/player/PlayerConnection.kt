@@ -993,6 +993,19 @@ class PlayerConnection(private val context: Context) {
         pushState()
     }
 
+    /**
+     * 跳转到指定位置并确保在播放：暂停中或已播完时点击跳转（例如 AI 总结里的时间戳）也要接着播，
+     * 不能只挪进度条。播放器里没有已加载的媒体（冷恢复后只有恢复出的队列）时什么也不做并返回 false，
+     * 调用方应改走「从该位置开始播放」。
+     */
+    fun seekAndPlay(positionMs: Long): Boolean {
+        val c = controller ?: return false
+        if (c.mediaItemCount == 0) return false
+        seekTo(positionMs)
+        c.play()
+        return true
+    }
+
     /** 相对快进 / 快退。供进度条之外的入口（通知栏按钮、耳机键）复用。 */
     fun seekBy(deltaMs: Long) {
         val c = controller ?: return

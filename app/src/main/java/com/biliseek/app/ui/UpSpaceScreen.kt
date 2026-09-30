@@ -113,6 +113,7 @@ fun UpSpaceScreen(
     onPostPlayNext: (SpaceVideo) -> Unit = {},
     onPostCopyLink: (SpaceVideo) -> Unit = {},
     onPostDownload: (SpaceVideo) -> Unit = {},
+    onPostSummarize: (SpaceVideo) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val up = state.up
@@ -129,6 +130,7 @@ fun UpSpaceScreen(
                 "下一首播放" to { actionsFor = null; onPostPlayNext(video) },
                 "复制链接" to { actionsFor = null; onPostCopyLink(video) },
                 "下载" to { actionsFor = null; onPostDownload(video) },
+                "AI 总结" to { actionsFor = null; onPostSummarize(video) },
             ),
             onDismiss = { actionsFor = null },
         )

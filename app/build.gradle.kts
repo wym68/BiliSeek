@@ -62,6 +62,8 @@ android {
             // release 包必须整轮跑 Part A 回归（见 docs/验收记录/M10）。
             isMinifyEnabled = true
             isShrinkResources = true
+            // AI-7：离线识别原生库只发 arm64（debug 不加过滤，:core:asr 另带 x86_64 供模拟器）
+            ndk { abiFilters += "arm64-v8a" }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -129,6 +131,8 @@ ksp {
 dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:player"))
+    implementation(project(":core:ai"))
+    implementation(project(":core:asr"))
     implementation(project(":design-system"))
 
     implementation(libs.androidx.core.ktx)
@@ -150,6 +154,9 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.zoomimage.compose.coil3)
+
+    // AI 总结阅读页（工单 AI-6）
+    implementation(libs.markdown.renderer.m3)
 
     // 封面取色（M12-A）。官方小库，配合 design-system 的策略层
     implementation(libs.palette.ktx)

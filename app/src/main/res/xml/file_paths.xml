@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 可分享的目录：只有 AI 总结的 md（工单 AI-6）。其他私有文件不暴露。 -->
+<paths>
+    <files-path name="ai_summary" path="ai_summary/" />
+</paths>

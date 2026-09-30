@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  API ≤ 30 的备份规则（android:fullBackupContent）。
+  AI 设置里的 API Key 用 Android Keystore 加密；Keystore 密钥不随备份迁移，
+  恢复到新设备后必然解不开——所以整个 AI 设置文件不进备份（工单 AI-3）。
+  没列出的其余数据照常备份。
+-->
+<full-backup-content>
+    <exclude domain="file" path="datastore/biliseek_ai_settings.preferences_pb" />
+</full-backup-content>

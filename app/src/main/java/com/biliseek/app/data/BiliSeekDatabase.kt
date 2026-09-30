@@ -17,8 +17,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadEntity::class,
         FavoriteFolderEntity::class,
         UpVisitEntity::class,
+        AiSummaryEntity::class,
     ],
-    version = 5,
+    version = 7,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun favoriteFolderDao(): FavoriteFolderDao
     abstract fun upVisitDao(): UpVisitDao
+    abstract fun aiSummaryDao(): AiSummaryDao
 
     companion object {
         @Volatile
@@ -41,7 +43,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
 
         /**
@@ -137,6 +139,58 @@ abstract class BiliSeekDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        /**
+         * v5 → v6：新增 AI 总结索引表（工单 AI-5）。
+         *
+         * 正文与原文在私有目录的文件里，表里只存索引与任务状态；同一 (bvid, cid) 可有多个版本（v6→v7 起）。
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ai_summary` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `bvid` TEXT NOT NULL,
+                        `cid` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `pageTitle` TEXT NOT NULL,
+                        `author` TEXT NOT NULL,
+                        `upMid` INTEGER NOT NULL,
+                        `coverUrl` TEXT NOT NULL,
+                        `durationMs` INTEGER NOT NULL,
+                        `style` TEXT NOT NULL,
+                        `customPrompt` TEXT NOT NULL,
+                        `sourceKind` TEXT NOT NULL,
+                        `subtitleUrl` TEXT NOT NULL,
+                        `subtitleLan` TEXT NOT NULL,
+                        `slot` TEXT NOT NULL,
+                        `models` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `failureKind` TEXT NOT NULL,
+                        `hasTranscript` INTEGER NOT NULL,
+                        `error` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_ai_summary_bvid_cid` ON `ai_summary` (`bvid`, `cid`)",
+                )
+            }
+        }
+
+        /**
+         * v6 → v7：AI 总结支持同一视频保存多个版本，(bvid, cid) 的索引由唯一改为普通索引。
+         * 索引名不变（Room 按名字校验）；表结构与数据都不动。
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS `index_ai_summary_bvid_cid`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_summary_bvid_cid` ON `ai_summary` (`bvid`, `cid`)")
             }
         }
     }

@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">BiliSeek</string>
     <string name="download_channel_name">下载</string>
+    <string name="ai_summary_channel_name">AI 总结</string>
 </resources>

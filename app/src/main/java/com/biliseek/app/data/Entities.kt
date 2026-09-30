@@ -173,3 +173,67 @@ object DownloadLocation {
     const val PUBLIC = "PUBLIC"
     const val SAF = "SAF"
 }
+
+/**
+ * AI 总结索引（工单 AI-5）。正文与原文存在 `filesDir/ai_summary/{bvid}_{cid}/`，表里只存索引与任务状态。
+ *
+ * 同一 (bvid, cid) 可以有多个「版本」（多行）：重新生成不覆盖旧版本，用户自己决定保留哪几个、删掉哪几个。
+ * 每个版本自己的 summary.md 与总结断点在 `v{id}/` 子目录；原文（transcript.json）与识别断点、临时音频
+ * 是这条视频共用的原料，放在视频目录，所有版本删光时才整目录删除。
+ */
+@Entity(tableName = "ai_summary", indices = [Index(value = ["bvid", "cid"])])
+data class AiSummaryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bvid: String,
+    val cid: Long,
+    val title: String,
+    /** 分 P 标题（单 P 为空）。 */
+    val pageTitle: String,
+    val author: String,
+    val upMid: Long,
+    val coverUrl: String,
+    val durationMs: Long,
+    /** [com.biliseek.app.summary.StyleChoice] 的 name。 */
+    val style: String,
+    val customPrompt: String,
+    /** 原文来源：[AiSummarySource]。 */
+    val sourceKind: String,
+    /** 字幕来源时的字幕地址与语言（断点续做时重新取字幕用）。 */
+    val subtitleUrl: String,
+    val subtitleLan: String,
+    /** 用哪套模型配置：PRIMARY / BACKUP。 */
+    val slot: String,
+    /** 实际参与生成的模型，换行分隔。 */
+    val models: String,
+    /** 状态机：[AiSummaryStatus]。 */
+    val status: String,
+    /** 失败类别：[com.biliseek.app.summary.FailureKind] 的 name，未失败为空。 */
+    val failureKind: String,
+    /** 原文是否已落盘（「原文已就绪、总结失败」时可看原文、可生成原文笔记）。 */
+    val hasTranscript: Boolean,
+    /** 给用户看的失败说明（截断）。 */
+    val error: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+object AiSummaryStatus {
+    const val QUEUED = "QUEUED"
+    const val PREPARING = "PREPARING"
+    const val TRANSCRIBING = "TRANSCRIBING"
+    const val SUMMARIZING = "SUMMARIZING"
+    const val WAITING_NETWORK = "WAITING_NETWORK"
+    const val DONE = "DONE"
+    const val FAILED = "FAILED"
+
+    /** 进程被杀后需要重新入队续做的状态。 */
+    val RESUMABLE = listOf(QUEUED, PREPARING, TRANSCRIBING, SUMMARIZING, WAITING_NETWORK)
+}
+
+object AiSummarySource {
+    /** 执行时再决定（多 P 批量）：先查字幕，没有再本地识别。 */
+    const val AUTO = "AUTO"
+    const val OFFICIAL = "OFFICIAL"
+    const val SUBTITLE = "SUBTITLE"
+    const val LOCAL_ASR = "LOCAL_ASR"
+}

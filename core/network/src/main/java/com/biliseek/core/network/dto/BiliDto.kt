@@ -81,6 +81,13 @@ data class VideoViewInfo(
     val stat: VideoStat? = null,
     /** 1=自制 2=转载。转载视频每人最多投 1 枚币。 */
     val copyright: Int = 1,
+    /** 简介。AI 总结用作提示词参考信息（纠正同音错字），不作为视频内容。 */
+    val desc: String = "",
+    /** 分区名。AI 总结的参考信息（视频标签需另一个接口，暂不请求）。 */
+    val tname: String = "",
+    val title: String = "",
+    /** 时长（秒，全部分 P 合计）。 */
+    val duration: Long = 0,
 )
 
 /** `x/web-interface/view` 的 `data.stat`。 */

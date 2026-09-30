@@ -233,6 +233,68 @@ class MigrationTest {
             }
     }
 
+    @Test
+    fun migrate5To6_保留既有数据并新增AI总结表() {
+        helper.createDatabase(TEST_DB, 5).use { db ->
+            db.execSQL("INSERT INTO up_visit (mid, visitCount, lastVisitMs) VALUES (1, 2, 3)")
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            6,
+            true,
+            BiliSeekDatabase.MIGRATION_5_6,
+        )
+
+        db.query("SELECT visitCount FROM up_visit WHERE mid = 1").use { cursor ->
+            assertTrue("迁移后旧数据丢失", cursor.moveToFirst())
+            assertEquals(2L, cursor.getLong(0))
+        }
+
+        val insert = """
+            INSERT OR REPLACE INTO ai_summary (bvid, cid, title, pageTitle, author, upMid, coverUrl, durationMs,
+                style, customPrompt, sourceKind, subtitleUrl, subtitleLan, slot, models, status, failureKind,
+                hasTranscript, error, createdAt, updatedAt)
+            VALUES ('BV1x', 10, 't', '', 'a', 0, '', 60000, 'OUTLINE', '', 'SUBTITLE', '', '', 'PRIMARY', '',
+                'QUEUED', '', 0, '', 1, 1)
+        """.trimIndent()
+        db.execSQL(insert)
+        db.execSQL(insert)
+        db.query("SELECT COUNT(*) FROM ai_summary").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("(bvid, cid) 唯一索引未生效", 1L, cursor.getLong(0))
+        }
+    }
+
+    @Test
+    fun migrate6To7_保留AI总结并允许同一视频多个版本() {
+        val insert = """
+            INSERT INTO ai_summary (bvid, cid, title, pageTitle, author, upMid, coverUrl, durationMs,
+                style, customPrompt, sourceKind, subtitleUrl, subtitleLan, slot, models, status, failureKind,
+                hasTranscript, error, createdAt, updatedAt)
+            VALUES ('BV1x', 10, 't', '', 'a', 0, '', 60000, 'OUTLINE', '', 'SUBTITLE', '', '', 'PRIMARY', '',
+                'DONE', '', 1, '', 1, 1)
+        """.trimIndent()
+        helper.createDatabase(TEST_DB, 6).use { db -> db.execSQL(insert) }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            7,
+            true,
+            BiliSeekDatabase.MIGRATION_6_7,
+        )
+
+        db.query("SELECT COUNT(*) FROM ai_summary").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("迁移后旧总结丢失", 1L, cursor.getLong(0))
+        }
+        db.execSQL(insert)
+        db.query("SELECT COUNT(*) FROM ai_summary WHERE bvid = 'BV1x' AND cid = 10").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("(bvid, cid) 仍是唯一索引，多版本写不进去", 2L, cursor.getLong(0))
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

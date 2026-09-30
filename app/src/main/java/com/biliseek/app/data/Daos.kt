@@ -155,6 +155,58 @@ interface DownloadDao {
 }
 
 @Dao
+interface AiSummaryDao {
+
+    /** 某条视频（某一 P）的全部版本，新的在前。 */
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC")
+    fun observeAll(bvid: String, cid: Long): Flow<List<AiSummaryEntity>>
+
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC")
+    suspend fun findAll(bvid: String, cid: Long): List<AiSummaryEntity>
+
+    /** 最新的一个版本。 */
+    @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC LIMIT 1")
+    suspend fun find(bvid: String, cid: Long): AiSummaryEntity?
+
+    /** 这条视频（某一 P）是否已有生成完成的总结——播放页「总结」按钮据此显示为已激活。 */
+    @Query("SELECT EXISTS(SELECT 1 FROM ai_summary WHERE bvid = :bvid AND cid = :cid AND status = 'DONE')")
+    fun observeHasDone(bvid: String, cid: Long): Flow<Boolean>
+
+    @Query("SELECT COUNT(*) FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    suspend fun count(bvid: String, cid: Long): Int
+
+    @Query("SELECT * FROM ai_summary")
+    suspend fun all(): List<AiSummaryEntity>
+
+    /** 「AI 总结」本地列表用：全部版本，最近更新的在前。 */
+    @Query("SELECT * FROM ai_summary ORDER BY updatedAt DESC")
+    fun observeEvery(): Flow<List<AiSummaryEntity>>
+
+    /** 原文是这条视频共用的：写入 / 作废时同步所有版本的标记。 */
+    @Query("UPDATE ai_summary SET hasTranscript = :value WHERE bvid = :bvid AND cid = :cid")
+    suspend fun setHasTranscript(bvid: String, cid: Long, value: Boolean)
+
+    @Query("DELETE FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
+    suspend fun deleteByVideo(bvid: String, cid: Long)
+
+    @Query("SELECT * FROM ai_summary WHERE id = :id")
+    suspend fun byId(id: Long): AiSummaryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: AiSummaryEntity): Long
+
+    @Query("DELETE FROM ai_summary WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /** 队列里下一个要跑的（按入队先后）。 */
+    @Query("SELECT * FROM ai_summary WHERE status = 'QUEUED' ORDER BY createdAt ASC LIMIT 1")
+    suspend fun nextQueued(): AiSummaryEntity?
+
+    @Query("SELECT * FROM ai_summary WHERE status IN (:statuses)")
+    suspend fun byStatuses(statuses: List<String>): List<AiSummaryEntity>
+}
+
+@Dao
 interface SearchHistoryDao {
 
     @Query("SELECT * FROM search_history ORDER BY searchedAt DESC LIMIT :limit")
