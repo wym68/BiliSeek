@@ -155,6 +155,8 @@ fun AppShell(
     isInPip: Boolean = false,
     /** Ch5：minibar 风格（FLOAT/BOTTOM）。 */
     miniBarStyle: com.biliseek.app.data.MiniBarStyle = com.biliseek.app.data.MiniBarStyle.FLOAT,
+    /** 带「撤销」的队列提示（docs/10）。Scaffold 把它放在迷你播放条与底部导航之上。 */
+    snackbarHostState: androidx.compose.material3.SnackbarHostState? = null,
     /**
      * 「开始播放」信号。AppShell 订阅后 push PLAYER destination。
      * 传 SharedFlow 而不是 () -> Unit 回调：同一个源可被多个 LaunchedEffect 订阅，
@@ -303,6 +305,7 @@ fun AppShell(
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
+            snackbarHost = { snackbarHostState?.let { androidx.compose.material3.SnackbarHost(it) } },
             bottomBar = {
                 Column {
                     if (showMiniPlayer) {

@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -242,6 +243,26 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 可撤销的队列变动（docs/10）：清空、右滑删除、点击替换掉整张列表。
+                // 队列面板开着时显示在面板里（面板是独立窗口，会挡住主界面的 Snackbar）。
+                // collectLatest：新提示来了就取消旧的——撤销快照只对最近一次变动有效
+                val queueSnackbar = remember { androidx.compose.material3.SnackbarHostState() }
+                val queueSheetSnackbar = remember { androidx.compose.material3.SnackbarHostState() }
+                LaunchedEffect(Unit) {
+                    viewModel.queueUndo.collectLatest { msg ->
+                        val host = if (viewModel.queueSheetOpen.value) queueSheetSnackbar else queueSnackbar
+                        val result = host.showSnackbar(
+                            message = msg,
+                            actionLabel = "撤销",
+                            duration = androidx.compose.material3.SnackbarDuration.Long,
+                        )
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            viewModel.undoQueueChange()
+                        }
+                    }
+                }
+                val queueSwipeHintShown by viewModel.queueSwipeHintShown.collectAsState()
+
                 // Ch3：批量操作成功的瞬时提示。Android Toast——简单可靠、与现有 UI 解耦。
                 LaunchedEffect(Unit) {
                     viewModel.transientMessage.collect { msg ->
@@ -367,6 +388,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     miniBarStyle = settings.miniBarStyle,
+                    snackbarHostState = queueSnackbar,
                     dynamicContent = {
                         DynamicScreen(
                             state = dynamic,
@@ -852,7 +874,11 @@ class MainActivity : ComponentActivity() {
                         state = playback,
                         onSkipTo = viewModel::queueSkipTo,
                         onClearQueue = viewModel::clearQueue,
+                        onRemove = viewModel::removeFromQueue,
                         onDismiss = viewModel::closeQueueSheet,
+                        snackbarHostState = queueSheetSnackbar,
+                        showSwipeHint = !queueSwipeHintShown,
+                        onSwipeHintShown = viewModel::markQueueSwipeHintShown,
                     )
                 }
 
