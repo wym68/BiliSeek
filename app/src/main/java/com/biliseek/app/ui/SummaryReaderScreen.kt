@@ -37,11 +37,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.AiSummaryStatus
 import com.biliseek.app.summary.FailureAction
+import com.biliseek.app.summary.SummaryDisplayPolicy
 import com.biliseek.app.summary.SummaryUiState
 import com.biliseek.app.summary.TimestampLinkPolicy
 import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.component.BsTopBar
-import com.mikepenz.markdown.m3.Markdown
 
 /**
  * AI 总结阅读页（工单 AI-6）。进行中显示阶段与流式正文；完成后渲染 Markdown，时间戳点击跳播；
@@ -71,10 +71,13 @@ fun SummaryReaderScreen(
     val running = entity != null && entity.status != AiSummaryStatus.DONE && entity.status != AiSummaryStatus.FAILED
     val done = entity?.status == AiSummaryStatus.DONE
 
-    val timestampHandler = remember(onTimestamp) {
+    // 时间戳链接交给播放跳转；其余链接（头部的视频链接）仍走系统默认打开方式
+    val defaultUriHandler = LocalUriHandler.current
+    val timestampHandler = remember(onTimestamp, defaultUriHandler) {
         object : UriHandler {
             override fun openUri(uri: String) {
-                TimestampLinkPolicy.parse(uri)?.let(onTimestamp)
+                val ms = TimestampLinkPolicy.parse(uri)
+                if (ms != null) onTimestamp(ms) else runCatching { defaultUriHandler.openUri(uri) }
             }
         }
     }
@@ -159,14 +162,14 @@ fun SummaryReaderScreen(
                         modifier = Modifier.testTag("summary_transcript"),
                     )
                     done && markdown != null -> CompositionLocalProvider(LocalUriHandler provides timestampHandler) {
-                        Markdown(
-                            content = TimestampLinkPolicy.linkify(markdown),
-                            modifier = Modifier.fillMaxWidth().testTag("summary_markdown"),
+                        SummaryMarkdownView(
+                            content = TimestampLinkPolicy.linkify(SummaryDisplayPolicy.forReader(markdown)),
+                            modifier = Modifier.testTag("summary_markdown"),
                         )
                     }
-                    running && !state?.live?.streamingText.isNullOrBlank() -> Markdown(
+                    running && !state?.live?.streamingText.isNullOrBlank() -> SummaryMarkdownView(
                         content = state?.live?.streamingText.orEmpty(),
-                        modifier = Modifier.fillMaxWidth().testTag("summary_streaming"),
+                        modifier = Modifier.testTag("summary_streaming"),
                     )
                 }
             }
