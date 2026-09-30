@@ -52,6 +52,8 @@ Two cross-cutting invariants that shape everything:
 - **Public API surface is deliberate.** Ported code keeps Kotlin `internal` (module-scoped). Only types `:app` actually touches are `public`. Adding a public type counts as an API change — don't do it casually. Public in `:core:player`: `PlaybackService`, `PlayerConnection`, `PlaybackRequest`, `PlaybackState`, `PlaybackMode`, `PresentationMode`, `AudioQuality`, `VideoQualityOption` (+ `VIDEO_QUALITY_AUTO`). Public in `:core:network`: `AuthGate`, `BiliApi`, DTOs, `WbiSigner`.
 - **Don't persist remote data** (favorites, collections, search results) beyond in-memory cache. Only write to Room when the user explicitly saves something into a local list.
 - **The auth gate never blocks the UI.** Business requests wait on a `StateFlow<AuthState>` (`AuthGate`) until credentials are ready; the search box stays interactive. Gate failures retry silently with backoff and don't surface errors unless a user-initiated request ultimately fails.
+- **Tapping play never wipes what the user queued.** The queue is two-tier (`docs/10-播放队列工单.md`): items added via 加入队列 / 下一首播放 are *pinned*; items a tap brings in (one video, its parts, or a whole local playlist / collection / watch-later list) are *temporary* and are replaced as one block by the next tap. The rules are pure functions in `QueuePolicy.kt`; `QueueEntry` stays `internal` — the only public additions are `PlaybackState.queuePinned` and `PlayerConnection.playFromContext / removeFromQueue / undoQueueChange`.
+- **In-app transient messages use `AppToast` / `AppToastSnackbar`** (`app/ui/components/AppToast.kt`): white pill + app icon, single line, positioned via `AppToastDefaults` to match the system Toast. Don't use M3's default dark `Snackbar` or hand-roll message bars; plain messages without an action can stay system `Toast`s. Video-overlay HUDs (fullscreen gestures/errors) keep their dark style.
 - **WBI signing happens at the call site, not in an interceptor** — `WbiSigner.sign(params)` returns a `Map` passed via `@QueryMap`, so the signature covers the final parameter set.
 
 ## The `ref/` directory is not part of this project
@@ -60,4 +62,4 @@ Two cross-cutting invariants that shape everything:
 
 ## Documentation map
 
-Deep docs live in `docs/` (Chinese): architecture (`架构设计篇`), feature selection/rationale (`功能选型篇`), milestone planning + outstanding-work ledger (`功能优化篇 §10`), UI tokens / shared components / button rules (`09-UI规范与重构`), manual test guide (`手动测试指南`, includes known gaps), and acceptance records under `docs/验收记录/`.
+Deep docs live in `docs/` (Chinese): architecture (`架构设计篇`), feature selection/rationale (`功能选型篇`), milestone planning + outstanding-work ledger (`功能优化篇 §10`), UI tokens / shared components / button rules (`09-UI规范与重构`), play-queue rules and implementation (`10-播放队列工单`), manual test guide (`手动测试指南`, includes known gaps), and acceptance records under `docs/验收记录/`.
