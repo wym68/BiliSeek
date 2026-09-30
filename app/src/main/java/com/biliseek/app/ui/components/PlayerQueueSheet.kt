@@ -187,7 +187,7 @@ fun PlayerQueueSheet(
                     }
                 }
             }
-            SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
+            SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter)) { AppToastSnackbar(it) }
         }
     }
 }

@@ -305,7 +305,13 @@ fun AppShell(
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
-            snackbarHost = { snackbarHostState?.let { androidx.compose.material3.SnackbarHost(it) } },
+            snackbarHost = {
+                snackbarHostState?.let {
+                    androidx.compose.material3.SnackbarHost(it) { data ->
+                        com.biliseek.app.ui.components.AppToastSnackbar(data)
+                    }
+                }
+            },
             bottomBar = {
                 Column {
                     if (showMiniPlayer) {
