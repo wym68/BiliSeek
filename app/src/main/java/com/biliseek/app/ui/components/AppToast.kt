@@ -2,9 +2,11 @@ package com.biliseek.app.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -15,7 +17,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,13 +56,14 @@ fun AppToast(
         contentColor = scheme.onSurface,
         shadowElevation = 6.dp,
     ) {
+        // 固定高度，与系统 Toast 等高；不靠上下内边距撑，免得按钮的触控区把整条撑高
         Row(
-            Modifier.padding(
-                start = BsSpacing.md,
-                end = if (actionLabel != null) BsSpacing.xs else BsSpacing.lg,
-                top = BsSpacing.sm,
-                bottom = BsSpacing.sm,
-            ),
+            Modifier
+                .height(AppToastDefaults.Height)
+                .padding(
+                    start = BsSpacing.md,
+                    end = if (actionLabel != null) BsSpacing.xs else BsSpacing.lg,
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AppIcon()
@@ -70,28 +72,51 @@ fun AppToast(
                 message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (isError) scheme.error else scheme.onSurface,
-                maxLines = 2,
+                // 只占一行：长标题在按钮前截断，「撤销」始终完整
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
             if (actionLabel != null) {
-                TextButton(onClick = onAction) {
-                    Text(actionLabel, color = scheme.primary)
-                }
+                // 不用 TextButton：它 48dp 的最小触控区会把整条提示撑高。点击区为文字加一圈内边距
+                Text(
+                    actionLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.primary,
+                    modifier = Modifier
+                        .clip(BsShapes.pill)
+                        .clickable(onClick = onAction)
+                        .padding(horizontal = BsSpacing.md, vertical = BsSpacing.sm),
+                )
             }
         }
     }
 }
 
-/** [AppToast] 的 SnackbarHost 版本：给 `SnackbarHost(state) { AppToastSnackbar(it) }` 用。 */
+/**
+ * [AppToast] 的 SnackbarHost 版本：给 `SnackbarHost(state) { AppToastSnackbar(it) }` 用。
+ * 摆放位置由调用方决定，统一放在导航栏上方 [AppToastDefaults.BottomOffset] 处。
+ */
 @Composable
 fun AppToastSnackbar(data: SnackbarData) {
     AppToast(
         message = data.visuals.message,
         actionLabel = data.visuals.actionLabel,
         onAction = data::performAction,
-        modifier = Modifier.padding(horizontal = BsSpacing.lg, vertical = BsSpacing.sm),
+        modifier = Modifier.padding(horizontal = BsSpacing.lg),
     )
+}
+
+/** 尺寸与位置。按真机截图对齐系统 Toast。 */
+object AppToastDefaults {
+    /** 胶囊高度，与系统 Toast 等高。 */
+    val Height = 52.dp
+
+    /**
+     * 提示下沿到导航栏上沿的距离：底部导航栏正上方、压在迷你播放条上，与系统 Toast 同一位置。
+     * 用法：`Modifier.align(BottomCenter).navigationBarsPadding().padding(bottom = BottomOffset)`。
+     */
+    val BottomOffset = 86.dp
 }
 
 /**
@@ -118,6 +143,6 @@ private fun AppIcon() {
     }
 }
 
-private val ICON_SIZE = 24.dp
+private val ICON_SIZE = 20.dp
 private const val ADAPTIVE_ICON_SCALE = 1.5f
 private val MAX_WIDTH = 480.dp

@@ -19,6 +19,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -30,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -305,13 +307,6 @@ fun AppShell(
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
-            snackbarHost = {
-                snackbarHostState?.let {
-                    androidx.compose.material3.SnackbarHost(it) { data ->
-                        com.biliseek.app.ui.components.AppToastSnackbar(data)
-                    }
-                }
-            },
             bottomBar = {
                 Column {
                     if (showMiniPlayer) {
@@ -459,6 +454,19 @@ fun AppShell(
                     ) { navController.popBackStack() }
                 }
             }
+        }
+
+        // 带「撤销」的提示。不放 Scaffold 的 snackbarHost 槽：那里会被顶到迷你播放条上方，
+        // 高度还随播放条有无而变。统一放在导航栏上方固定距离，与系统 Toast 同一位置（docs/09）。
+        // 放在全屏层之前：全屏时被视频盖住，本来也没有能触发撤销的操作
+        snackbarHostState?.let { host ->
+            androidx.compose.material3.SnackbarHost(
+                host,
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = com.biliseek.app.ui.components.AppToastDefaults.BottomOffset),
+            ) { data -> com.biliseek.app.ui.components.AppToastSnackbar(data) }
         }
 
         // 全屏提升到 Scaffold 之上（《架构设计篇》§7.2）。Scaffold 原样不动，
