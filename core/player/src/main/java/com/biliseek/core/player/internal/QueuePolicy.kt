@@ -144,11 +144,26 @@ internal fun shouldLoadMoreContext(
 internal const val CONTEXT_PREFETCH_THRESHOLD = 2
 
 /**
- * 点击替换掉的临时条目够多才给「撤销」。
+ * 点击替换时真正「丢掉」的临时条目数：被替换掉的条目里，新块中找不到同一视频的有几条。
  *
- * 只替换掉上一次点的那一个视频不值得打扰；替换掉一整张列表（或多 P 的分 P）才可能是误触。
+ * 按视频（bvid）比对而不是按整条请求：在同一张列表里换一条播放时，旧块可能已经展开过分 P、
+ * 续过页，逐条比对会误判成「换掉了一整张列表」，弹出一个毫无必要的撤销提示。
+ *
+ * @param removed 被替换掉的临时条目的视频键
+ * @param incoming 新临时块的视频键
  */
-internal fun shouldOfferUndo(removedTemporary: Int): Boolean = removedTemporary >= 2
+internal fun countLostOnTap(removed: List<String>, incoming: List<String>): Int {
+    val kept = incoming.toSet()
+    return removed.count { it !in kept }
+}
+
+/**
+ * 点击真正丢掉的临时条目够多才给「撤销」（见 [countLostOnTap]）。
+ *
+ * 只替换掉上一次点的那一个视频不值得打扰；在同一张列表里换一条播放什么也没丢，也不提示。
+ * 从一整张列表跳到别处播放才可能是误触。
+ */
+internal fun shouldOfferUndo(lost: Int): Boolean = lost >= 2
 
 /**
  * 删除单条后的当前下标。

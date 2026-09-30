@@ -205,6 +205,37 @@ class QueuePolicyTest {
     }
 
     @Test
+    fun `同一列表里换一条播放什么也没丢`() {
+        val list = listOf("BV1", "BV2", "BV3", "BV4")
+        assertEquals(0, countLostOnTap(removed = list, incoming = list))
+    }
+
+    @Test
+    fun `旧块分 P 已展开也算同一列表`() {
+        // BV2 展开成了三个分 P，同一视频的三项都能在新块里找到
+        val removed = listOf("BV1", "BV2", "BV2", "BV2", "BV3")
+        assertEquals(0, countLostOnTap(removed, incoming = listOf("BV1", "BV2", "BV3")))
+    }
+
+    @Test
+    fun `列表换成单个视频，丢掉的是列表里其余条目`() {
+        assertEquals(3, countLostOnTap(listOf("BV1", "BV2", "BV3"), incoming = listOf("BVx")))
+        // 点的正好是列表里的一条：只丢其余两条
+        assertEquals(2, countLostOnTap(listOf("BV1", "BV2", "BV3"), incoming = listOf("BV2")))
+    }
+
+    @Test
+    fun `续过页的条目在新块里没有时算丢失`() {
+        val removed = listOf("BV1", "BV2", "BV3", "BV4")   // 后两条是续页拿回来的
+        assertEquals(2, countLostOnTap(removed, incoming = listOf("BV1", "BV2")))
+    }
+
+    @Test
+    fun `没有临时条目时什么也不丢`() {
+        assertEquals(0, countLostOnTap(emptyList(), incoming = listOf("BV1")))
+    }
+
+    @Test
     fun `只替换掉一个临时条目不弹撤销，整张列表才弹`() {
         assertFalse(shouldOfferUndo(0))
         assertFalse(shouldOfferUndo(1))

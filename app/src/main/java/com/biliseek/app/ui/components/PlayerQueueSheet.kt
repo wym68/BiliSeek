@@ -12,14 +12,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,6 +35,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +56,7 @@ import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.formatDuration
 import com.biliseek.designsystem.theme.BsSize
+import com.biliseek.designsystem.theme.BsSpacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -56,8 +64,11 @@ import kotlin.math.roundToInt
 /**
  * 播放列表 sheet（Ch5 §5.1.3，docs/10-播放队列工单.md）。
  *
- * - 标题行：「播放队列 · N 首」+「清空队列」+ 关闭；下面一行常驻提示「右滑删除单条」
- * - 每行：序号（01/02…）、标题（单行省略）、时长
+ * - 固定占屏高 70%、一打开就是完整高度、没有拖动条（标题行有「关闭」，下拉照样能关）；
+ *   打开时列表定位到正在播的那一项
+ * - 标题行：「播放队列 · N 首」+「清空队列」+ 关闭；下面一行常驻提示（图钉含义 + 右滑删除）
+ * - 每行：固定标志（图钉）、序号（01/02…）、标题（单行省略）、时长。
+ *   图钉 = 用户用「加入队列」「下一首播放」加的，点击播放不会替换；没有图钉的是点击带进来的临时条目
  * - 当前播放高亮（主色 + 波形图标）
  * - 点击条目：onSkipTo(index)；点当前条目仅关闭 sheet
  * - 向右滑动删除单条；正在播的那一行滑不动
@@ -83,13 +94,27 @@ fun PlayerQueueSheet(
     val currentIndex = state.queueIndex
     // 清空保留正在播的那一项：只剩它时没东西可清
     val canClear = queue.size > 1 || (queue.isNotEmpty() && currentIndex !in queue.indices)
-    // 演示放在第一条能删的行上（不是当前播放那一行）
-    val hintIndex = if (showSwipeHint) queue.indices.firstOrNull { it != currentIndex } else null
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Box(Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth()) {
+    // 打开时把正在播的那一项滚进视野，上方留两行上下文。只定位这一次，之后不跟着播放跳
+    val firstVisible = (currentIndex - 2).coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = firstVisible)
+    // 演示放在第一条看得见、能删的行上（不是当前播放那一行）
+    val hintIndex = if (showSwipeHint) {
+        queue.indices.firstOrNull { it >= firstVisible && it != currentIndex }
+    } else {
+        null
+    }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        // 一打开就是完整高度：半展开状态只露出屏幕最下面一截，手指够起来别扭
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        // 不要拖动条：它连同上下留白占掉一大块，关闭有标题行的按钮，下拉关闭照样可用
+        dragHandle = null,
+    ) {
+        // 固定高度：标题行永远在同一个位置，不随队列长短忽高忽低
+        Box(Modifier.fillMaxWidth().fillMaxHeight(SHEET_HEIGHT_FRACTION)) {
+            Column(Modifier.fillMaxSize()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 8.dp),
+                    Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = BsSpacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -101,16 +126,26 @@ fun PlayerQueueSheet(
                     TextButton(onClick = onDismiss) { Text("关闭") }
                 }
                 if (queue.isNotEmpty()) {
-                    Text(
-                        "右滑删除单条",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
-                    )
+                    Row(
+                        Modifier.padding(start = 24.dp, end = 16.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.PushPin,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(PIN_SIZE),
+                        )
+                        Text(
+                            " 手动加入，点击播放不会替换 · 右滑删除单条",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 HorizontalDivider()
                 if (queue.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().weight(1f).padding(32.dp), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("队列为空", style = MaterialTheme.typography.bodyMedium)
                             Text(
@@ -122,8 +157,8 @@ fun PlayerQueueSheet(
                         }
                     }
                 } else {
-                    // weight(fill = false)：列表只占自身高度、最多占满剩余空间，不会把别的东西挤出屏幕
-                    LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+                    // 列表占满面板剩余高度、在内部滚动，不会把标题行挤出屏幕
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f), state = listState) {
                         itemsIndexed(
                             queue,
                             // 同一视频可能在队列里出现多次，key 带上下标才唯一；
@@ -141,6 +176,7 @@ fun PlayerQueueSheet(
                                     index = idx,
                                     request = item,
                                     isCurrent = isCurrent,
+                                    pinned = state.queuePinned.getOrNull(idx) == true,
                                     onClick = {
                                         if (!isCurrent) onSkipTo(idx) else onDismiss()
                                     },
@@ -249,6 +285,8 @@ private fun SwipeToRemoveRow(
     }
 }
 
+private const val SHEET_HEIGHT_FRACTION = 0.7f
+private val PIN_SIZE = 14.dp
 private val SWIPE_HINT_NUDGE = 72.dp
 private const val SWIPE_HINT_DELAY_MS = 500L
 private const val SWIPE_HINT_MOVE_MS = 250
@@ -261,6 +299,7 @@ private fun QueueRow(
     index: Int,
     request: PlaybackRequest,
     isCurrent: Boolean,
+    pinned: Boolean,
     onClick: () -> Unit,
 ) {
     val title = when (request) {
@@ -279,11 +318,25 @@ private fun QueueRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "%02d".format(index + 1),
-            style = MaterialTheme.typography.labelMedium,
-            color = tint,
-        )
+        // 图钉紧贴编号；没有图钉的行留同样宽的空位，编号才对得齐
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (pinned) {
+                Icon(
+                    Icons.Filled.PushPin,
+                    contentDescription = "固定",
+                    tint = tint,
+                    modifier = Modifier.size(PIN_SIZE),
+                )
+            } else {
+                Spacer(Modifier.width(PIN_SIZE))
+            }
+            Spacer(Modifier.width(BsSpacing.xs))
+            Text(
+                "%02d".format(index + 1),
+                style = MaterialTheme.typography.labelMedium,
+                color = tint,
+            )
+        }
         if (isCurrent) {
             Icon(
                 Icons.Filled.GraphicEq,

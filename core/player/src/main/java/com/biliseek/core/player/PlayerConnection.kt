@@ -25,6 +25,7 @@ import com.biliseek.core.player.internal.shouldRequestLossless
 import com.biliseek.core.player.internal.resolveEnqueueNextIndex
 import com.biliseek.core.player.internal.resolveIndexAfterInsert
 import com.biliseek.core.player.internal.resolveClearedQueue
+import com.biliseek.core.player.internal.countLostOnTap
 import com.biliseek.core.player.internal.resolveIndexAfterExpand
 import com.biliseek.core.player.internal.resolveQueueOnTap
 import com.biliseek.core.player.internal.resolveRemoveAt
@@ -707,17 +708,22 @@ class PlayerConnection(private val context: Context) {
 
     /**
      * 点击播放对队列的改写：临时条目整块换成 [block]，固定条目原样保留（见 [resolveQueueOnTap]）。
-     * 替换掉的临时条目够多时先留撤销快照，再通知 UI 弹「撤销」。
+     * 真正丢掉的临时条目够多时（同一列表里换一条不算，见 [countLostOnTap]）先留撤销快照，
+     * 再通知 UI 弹「撤销」。
      */
     private fun applyTap(block: List<QueueEntry>, startIndex: Int, source: ContextSource?) {
         val plan = resolveQueueOnTap(entries.map { it.pinned }, queueIndex, block.size, startIndex)
-        val offerUndo = shouldOfferUndo(plan.removedTemporary)
+        val lost = countLostOnTap(
+            removed = entries.filterNot { it.pinned }.map { it.request.identityKey() },
+            incoming = block.map { it.request.identityKey() },
+        )
+        val offerUndo = shouldOfferUndo(lost)
         undoSnapshot = if (offerUndo) snapshot() else null
         val kept = plan.kept.map { entries[it] }
         entries = kept.subList(0, plan.insertAt) + block + kept.subList(plan.insertAt, kept.size)
         queueIndex = plan.newIndex
         queueSource = source
-        if (offerUndo) onQueueReplaced?.invoke(plan.removedTemporary)
+        if (offerUndo) onQueueReplaced?.invoke(lost)
     }
 
     /**
@@ -1252,6 +1258,7 @@ class PlayerConnection(private val context: Context) {
             resolvedCid = resolvedCid,
             coverUrl = currentTrack?.coverUrl.orEmpty(),
             queue = queue,
+            queuePinned = entries.map { it.pinned },
             queueIndex = queueIndex,
             playMode = playMode,
             sleepTimerRemainingMs = sleepTimerRemaining(sleepTimer, now),
@@ -1311,6 +1318,12 @@ class PlayerConnection(private val context: Context) {
         /** 列表来源里的视频，轮到播放时才取分 P 展开。 */
         val expandParts: Boolean = false,
     )
+
+    /** 按视频比对用的键：同一视频的不同分 P 算同一个（见 [countLostOnTap]）。 */
+    private fun PlaybackRequest.identityKey(): String = when (this) {
+        is PlaybackRequest.Bili -> bvid
+        is PlaybackRequest.Direct -> uri
+    }
 
     /** 临时块的续页来源。可变字段只在主线程上读写。 */
     private class ContextSource(

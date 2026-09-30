@@ -176,6 +176,11 @@ data class PlaybackState(
     val error: String? = null,
     /** 播放队列与当前位置 */
     val queue: List<PlaybackRequest> = emptyList(),
+    /**
+     * 与 [queue] 一一对应：该条是否为用户显式加入的固定条目（docs/10-播放队列工单.md）。
+     * 队列面板据此给固定条目加图钉标志。
+     */
+    val queuePinned: List<Boolean> = emptyList(),
     val queueIndex: Int = -1,
     val playMode: PlayMode = PlayMode.SEQUENTIAL,
     /** 睡眠定时器剩余毫秒。null 表示没设倒计时（可能设了「播完当前」）。 */
