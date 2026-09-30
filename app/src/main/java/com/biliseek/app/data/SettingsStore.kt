@@ -214,6 +214,7 @@ class SettingsStore(private val context: Context) {
         val KEY_DM_SHOW_BOTTOM = booleanPreferencesKey("danmaku_show_bottom")
         val KEY_DM_SHOW_COLORED = booleanPreferencesKey("danmaku_show_colored")
         const val KEY_LAST_SESSION = "last_playback_session"
+        const val KEY_QUEUE_SWIPE_HINT = "queue_swipe_hint_shown"
 
         val json = Json { ignoreUnknownKeys = true }
     }
@@ -256,5 +257,24 @@ class SettingsStore(private val context: Context) {
     /** 清除已保存的播放会话（挂起封装）。 */
     suspend fun clearLastSession() {
         clearLastSessionSync()
+    }
+
+    // ── 一次性操作引导（SharedPreferences：同步读，界面首帧就要知道放不放演示） ──
+
+    private val hintPrefs by lazy {
+        context.getSharedPreferences("biliseek_hints", Context.MODE_PRIVATE)
+    }
+
+    private val _queueSwipeHintShown by lazy {
+        MutableStateFlow(hintPrefs.getBoolean(KEY_QUEUE_SWIPE_HINT, false))
+    }
+
+    /** 队列面板的右滑删除演示是否已经放过（docs/10：只在第一次打开时演示一次）。 */
+    val queueSwipeHintShown: StateFlow<Boolean> by lazy { _queueSwipeHintShown.asStateFlow() }
+
+    fun setQueueSwipeHintShown() {
+        if (_queueSwipeHintShown.value) return
+        _queueSwipeHintShown.value = true
+        hintPrefs.edit().putBoolean(KEY_QUEUE_SWIPE_HINT, true).apply()
     }
 }

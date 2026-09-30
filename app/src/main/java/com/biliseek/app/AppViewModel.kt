@@ -368,10 +368,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun openQueueSheet() { _queueSheetOpen.value = true }
     fun closeQueueSheet() { _queueSheetOpen.value = false }
 
+    /**
+     * 可撤销的队列变动提示（清空、右滑删除、点击替换掉整张列表）。UI 弹带「撤销」的 Snackbar，
+     * 点了调 [undoQueueChange]。与 [transientMessage] 分开：那条管道是 Toast，没有按钮。
+     */
+    private val _queueUndo = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val queueUndo: SharedFlow<String> = _queueUndo.asSharedFlow()
+
+    /** 一键清空：保留正在播放的那一项，其余全清。只剩一项时是 no-op，不弹提示。 */
     fun clearQueue() {
-        connection.clearQueue()
-        emitMessage("队列已清空")
+        if (connection.clearQueue()) _queueUndo.tryEmit("队列已清空")
     }
+
+    /** 队列面板右滑删除单条。正在播的那一项删不掉（面板里那一行本来就滑不动）。 */
+    fun removeFromQueue(index: Int) {
+        val title = connection.state.value.queue.getOrNull(index)?.title.orEmpty()
+        if (connection.removeFromQueue(index)) {
+            _queueUndo.tryEmit(if (title.isBlank()) "已移除 1 项" else "已移除「$title」")
+        }
+    }
+
+    fun undoQueueChange() {
+        connection.undoQueueChange()
+    }
+
+    /** 队列面板的右滑演示是否已经放过（只在第一次打开时演示一次）。 */
+    val queueSwipeHintShown: StateFlow<Boolean> = settingsStore.queueSwipeHintShown
+
+    fun markQueueSwipeHintShown() = settingsStore.setQueueSwipeHintShown()
 
     /** 设置页改 minibar 风格：直接落库，UI 订阅 settings.miniBarStyle 即时切换。 */
     fun setMiniBarStyle(style: com.biliseek.app.data.MiniBarStyle) = viewModelScope.launch {
@@ -456,6 +480,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         playBvid = { bvid, title, coverUrl, author, durationSec ->
             playBvid(bvid, title, coverUrl, author, durationSec)
         },
+        playList = { items, startIndex, loadMore ->
+            viewModelScope.launch {
+                connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
+                _playbackStarted.tryEmit(Unit)
+            }
+        },
     )
 
     // ── 日历史页（M12）────────────────────────────────────
@@ -483,6 +513,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun playDayHistoryEntry(entry: PlayHistoryEntity) = playHistoryEntry(entry)
 
     /**
+     * 取分 P，换算成可直接播的请求。单 P 只补上 cid、保留视频标题；多 P 每 P 用分 P 标题。
+     * 失败返回 null，播放内核按单 P 播。
+     */
+    private suspend fun expandParts(
+        request: PlaybackRequest.Bili,
+    ): List<PlaybackRequest.Bili>? {
+        val pages = network.repository.pages(request.bvid).getOrNull() ?: return null
+        if (pages.size <= 1) {
+            val cid = pages.firstOrNull()?.cid?.takeIf { it > 0 } ?: return null
+            return listOf(request.copy(cid = cid))
+        }
+        return pages.map {
+            request.copy(
+                cid = it.cid,
+                title = it.part.ifBlank { request.title },
+                durationSec = it.duration,
+            )
+        }
+    }
+
+    /**
      * 按 bvid 起播：单 P 直接播，多 P 整张作队列从头播。
      * 收藏夹内容 / 动态视频共用同一条路径（先取分 P 再起播）。
      */
@@ -508,7 +559,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             ),
                         )
                     } else {
-                        connection.playQueue(
+                        connection.playFromContext(
                             pages.map {
                                 PlaybackRequest.Bili(
                                     bvid,
@@ -1105,6 +1156,10 @@ return pages.map { p ->
         connection.coverArtProvider = { url -> fetchCoverArtBytes(url) }
         // 播放会话持久化：跨进程重启恢复 minibar
         connection.sessionSaver = { session -> settingsStore.saveLastSessionSync(session) }
+        // 列表来源里的视频轮到播放时才取分 P（docs/10）：一次只为真正要播的那一条发请求
+        connection.partsExpander = { request -> expandParts(request) }
+        // 点击替换掉了整张列表：给一次撤销的机会
+        connection.onQueueReplaced = { count -> _queueUndo.tryEmit("已替换队列中的 $count 项") }
         connection.sessionRestorer = { settingsStore.getLastSessionSync() }
         viewModelScope.launch {
             settingsStore.load()
@@ -1314,7 +1369,7 @@ return pages.map { p ->
         val author = panel.author
         val index = all.indexOfFirst { it.cid == entry.cid }.coerceAtLeast(0)
         viewModelScope.launch {
-            connection.playQueue(
+            connection.playFromContext(
                 all.map {
                     PlaybackRequest.Bili(
                         bvid,
@@ -1331,11 +1386,14 @@ return pages.map { p ->
         }
     }
 
-    /** 播放整个本地歌单。 */
+    /**
+     * 播放整个本地歌单：整张作为临时块进队列，用户手动加的固定条目排在它之后（docs/10）。
+     * 本地条目带着 cid，不需要播到时再展开分 P。
+     */
     fun playPlaylist(items: List<PlaylistTrack>, startIndex: Int) {
         if (items.isEmpty()) return
         viewModelScope.launch {
-            connection.playQueue(
+            connection.playFromContext(
                 items.map {
                     PlaybackRequest.Bili(
                         it.track.bvid,

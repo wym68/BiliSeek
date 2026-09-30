@@ -10,11 +10,13 @@ import com.biliseek.app.data.TrackListId
 import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.dto.CollectedItem
+import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.network.stripHighlight
+import com.biliseek.core.player.PlaybackRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +28,14 @@ import kotlinx.coroutines.launch
 /** 按 bvid 起播（单 P 直接播，多 P 整张作队列）。宿主实现；fun interface 以便调用处用具名参数。 */
 fun interface BvidPlayer {
     fun play(bvid: String, title: String, coverUrl: String, author: String, durationSec: Long)
+}
+
+/**
+ * 把一整张列表作为临时块起播（docs/10-播放队列工单.md）。宿主实现。
+ * 条目轮到播放时才取分 P；[loadMore] 为分页来源的续页，整张已在手里时为 null。
+ */
+fun interface ListPlayer {
+    fun play(items: List<PlaybackRequest>, startIndex: Int, loadMore: (suspend () -> List<PlaybackRequest>?)?)
 }
 
 /**
@@ -41,6 +51,7 @@ class RemoteLibraryController(
     private val library: LibraryRepository,
     private val session: StateFlow<BiliSession>,
     private val playBvid: BvidPlayer,
+    private val playList: ListPlayer,
 ) {
 
     // ── 收藏夹目录快照（M11-B）──
@@ -171,8 +182,17 @@ class RemoteLibraryController(
         }
     }
 
-    /** 点稍后再看条目：走与收藏夹相同的 playBvid 路径。 */
+    /**
+     * 点稍后再看条目：整张稍后再看作为来源，从这一条开始播（docs/10）。
+     * 接口本来就一次取回全部，不需要续页。
+     */
     fun playWatchLaterItem(item: WatchLaterItem) {
+        val items = _watchLater.value?.items.orEmpty()
+        val index = items.indexOf(item)
+        if (index >= 0) {
+            playList.play(items.map { it.toRequest() }, index, loadMore = null)
+            return
+        }
         playBvid.play(
             bvid = item.bvid,
             title = item.title,
@@ -258,16 +278,7 @@ class RemoteLibraryController(
             repository.collectionSeasonList(seriesId, page)
                 .onSuccess { result ->
                     val base = _openedSeries.value ?: return@onSuccess
-                    val archives = result.items.map { item ->
-                        SeriesArchive(
-                            bvid = item.bvid,
-                            cid = item.id,
-                            title = item.title,
-                            cover = item.cover,
-                            duration = item.duration.toLong(),
-                            author = item.upper.name,
-                        )
-                    }
+                    val archives = result.items.map { it.toArchive() }
                     _openedSeries.value = base.copy(
                         items = if (loadingMore) base.items + archives else archives,
                         page = result.page,
@@ -287,8 +298,23 @@ class RemoteLibraryController(
         }
     }
 
-    /** 点合集条目：走与收藏夹相同的 playBvid 路径。 */
+    /**
+     * 点合集条目：已加载的合集内容作为来源，从这一条开始播；播到末尾附近自动续下一页（docs/10）。
+     * 续页用自己的页码，不动界面上的列表状态。
+     */
     fun playSeriesArchive(archive: SeriesArchive) {
+        val state = _openedSeries.value
+        val seriesId = (state?.id as? TrackListId.Series)?.seriesId
+        val index = state?.items?.indexOf(archive) ?: -1
+        if (state != null && seriesId != null && index >= 0) {
+            val source = PagedQueueSource(nextPage = state.page + 1, hasMore = state.hasMore) { page ->
+                repository.collectionSeasonList(seriesId, page).map { result ->
+                    QueuePage(result.items.map { it.toArchive().toRequest() }, result.hasMore)
+                }
+            }
+            playList.play(state.items.map { it.toRequest() }, index, loadMore = source::next)
+            return
+        }
         playBvid.play(
             bvid = archive.bvid,
             title = archive.title,
@@ -347,4 +373,30 @@ class RemoteLibraryController(
             durationSec = item.durationSec,
         )
     }
+
+    private fun CollectionMediaItem.toArchive() = SeriesArchive(
+        bvid = bvid,
+        cid = id,
+        title = title,
+        cover = cover,
+        duration = duration.toLong(),
+        author = upper.name,
+    )
+
+    // 列表条目 → 播放请求。cid 一律留空：轮到播放时取分 P，多 P 原地展开（docs/10）
+    private fun WatchLaterItem.toRequest() = PlaybackRequest.Bili(
+        bvid = bvid,
+        title = title,
+        coverUrl = normalizeCoverUrl(pic),
+        author = owner?.name.orEmpty(),
+        durationSec = duration,
+    )
+
+    private fun SeriesArchive.toRequest() = PlaybackRequest.Bili(
+        bvid = bvid,
+        title = title,
+        coverUrl = normalizeCoverUrl(cover),
+        author = author,
+        durationSec = duration,
+    )
 }
