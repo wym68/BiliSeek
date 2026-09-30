@@ -25,6 +25,13 @@ import com.biliseek.core.player.internal.shouldRequestLossless
 import com.biliseek.core.player.internal.resolveEnqueueNextIndex
 import com.biliseek.core.player.internal.resolveIndexAfterInsert
 import com.biliseek.core.player.internal.resolveClearedQueue
+import com.biliseek.core.player.internal.countLostOnTap
+import com.biliseek.core.player.internal.resolveIndexAfterExpand
+import com.biliseek.core.player.internal.resolveQueueOnTap
+import com.biliseek.core.player.internal.resolveRemoveAt
+import com.biliseek.core.player.internal.resolveTemporaryBlockEnd
+import com.biliseek.core.player.internal.shouldLoadMoreContext
+import com.biliseek.core.player.internal.shouldOfferUndo
 import com.biliseek.core.player.internal.resolveManualNextIndex
 import com.biliseek.core.player.internal.resolveStartPosition
 import com.biliseek.core.player.internal.resolveNextIndex
@@ -79,7 +86,17 @@ class PlayerConnection(private val context: Context) {
 
     private var presentation: PresentationMode = PresentationMode.NONE
 
-    /** 队列。B 站来源需逐条取流，因此不用 ExoPlayer 原生播放列表。 */
+    /**
+     * 队列。B 站来源需逐条取流，因此不用 ExoPlayer 原生播放列表。
+     *
+     * 两层队列（docs/10-播放队列工单.md）：每条带「固定 / 临时」标记。
+     * 只写 [entries]；[queue] 是它的请求视图，由 setter 同步，读的地方（状态推送 250ms 一次）不必每次重映射。
+     */
+    private var entries: List<QueueEntry> = emptyList()
+        set(value) {
+            field = value
+            queue = value.map { it.request }
+        }
     private var queue: List<PlaybackRequest> = emptyList()
     private var queueIndex: Int = -1
     private var playMode: PlayMode = PlayMode.SEQUENTIAL
@@ -159,6 +176,24 @@ class PlayerConnection(private val context: Context) {
 
     /** 播放会话恢复回调：`() -> PersistedSession?`。由 AppViewModel 注入。同步调用。 */
     var sessionRestorer: (() -> PersistedSession?)? = null
+
+    /**
+     * 取分 P：`(请求) -> 全部分 P`。列表来源里的条目进队列时只占一项，轮到播放才调它展开。
+     * 返回 null 或只有一个分 P 时按单 P 播。由 AppViewModel 注入——播放内核不认识 B 站接口。
+     */
+    var partsExpander: (suspend (PlaybackRequest.Bili) -> List<PlaybackRequest.Bili>?)? = null
+
+    /**
+     * 一次点击播放替换掉了多个临时条目（整张列表 / 多 P 分 P），已留好撤销快照。
+     * 参数是被替换掉的条目数。由 AppViewModel 注入，用来弹「撤销」。
+     */
+    var onQueueReplaced: ((Int) -> Unit)? = null
+
+    /** 当前临时块的续页来源（合集这类分页列表）。新的点击、清空队列都会换掉它。 */
+    private var queueSource: ContextSource? = null
+
+    /** 最近一次替换 / 清空 / 删除前的队列，供 [undoQueueChange] 恢复。用户的下一次队列操作即作废。 */
+    private var undoSnapshot: UndoSnapshot? = null
 
     /** 睡眠定时器。归本类持有：用户设完就会锁屏走开，状态不能绑 UI 生命周期。 */
     private var sleepTimer: SleepTimerSpec? = null
@@ -321,8 +356,10 @@ class PlayerConnection(private val context: Context) {
         val saver = sessionSaver ?: return
         if (queue.isEmpty() || queueIndex < 0) return
         val c = controller ?: return
-        val tracks = queue.filterIsInstance<PlaybackRequest.Bili>().map {
-            PersistedTrack.fromBiliRequest(it)
+        val tracks = entries.mapNotNull { entry ->
+            (entry.request as? PlaybackRequest.Bili)?.let {
+                PersistedTrack.fromBiliRequest(it, pinned = entry.pinned, expandParts = entry.expandParts)
+            }
         }
         if (tracks.isEmpty()) return
         val session = PersistedSession(
@@ -348,7 +385,18 @@ class PlayerConnection(private val context: Context) {
         val session = restorer() ?: return false
         if (session.queue.isEmpty()) return false
 
-        queue = session.queue.map { it.toBiliRequest() }
+        entries = session.queue.map { track ->
+            val request = track.toBiliRequest()
+            QueueEntry(
+                // 待展开的条目 cid 本来就没定：落成 0 会让取流跳过「补第一个分 P」
+                request = if (track.expandParts && track.cid <= 0L) request.copy(cid = null) else request,
+                pinned = track.pinned,
+                expandParts = track.expandParts,
+            )
+        }
+        // 续页来源是内存里的闭包，不落盘（远程数据不持久化）：重启后临时块不再自动续页
+        queueSource = null
+        undoSnapshot = null
         queueIndex = session.queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
         playMode = session.playMode
         presentation = session.presentationMode
@@ -408,7 +456,7 @@ class PlayerConnection(private val context: Context) {
     }
 
     private suspend fun load(
-        request: PlaybackRequest,
+        requested: PlaybackRequest,
         fromQueue: Boolean,
         startPositionOverride: Long?,
         reload: Boolean,
@@ -423,8 +471,7 @@ class PlayerConnection(private val context: Context) {
             return
         }
         if (!fromQueue) {
-            queue = listOf(request)
-            queueIndex = 0
+            applyTap(listOf(QueueEntry(requested, pinned = false)), startIndex = 0, source = null)
         }
         // 新内容开始加载，跟之前解出的 videoSize 划清界限（见 trackGeneration 说明）。
         trackGeneration++
@@ -440,8 +487,13 @@ class PlayerConnection(private val context: Context) {
         hasRestoredQueue = false
         _state.value = _state.value.copy(isResolving = true, error = null)
 
+        // 列表来源的条目：轮到它才取分 P，多 P 就原地展开、改播 P1
+        val request = if (reload) requested else expandCurrentIfNeeded(requested, generation) ?: return
+
         // 先落库再取流，顺序不能反（见 trackStartRecorder 的说明）
         if (!reload) (request as? PlaybackRequest.Bili)?.let { trackStartRecorder?.invoke(it) }
+        // 播到临时块末尾附近：给列表来源续一页
+        if (!reload) maybeExtendContext()
 
         val prefs = preferenceProvider?.invoke() ?: PlaybackPreferences()
         val uri: String
@@ -629,12 +681,116 @@ class PlayerConnection(private val context: Context) {
 
     private fun currentSpeed(): Float = controller?.playbackParameters?.speed ?: 1.0f
 
-    /** 播放一个队列。[startIndex] 指定从哪一首开始。 */
-    suspend fun playQueue(items: List<PlaybackRequest>, startIndex: Int = 0) {
-        queue = items
-        queueIndex = startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
-        items.getOrNull(queueIndex)?.let { play(it, fromQueue = true) }
+    /**
+     * 从一个来源播放：整张列表 / 多 P 的全部分 P 作为一块**临时**条目进队列，从 [startIndex] 开始播。
+     *
+     * 两层队列（docs/10-播放队列工单.md）：原有的临时条目整块换掉，用户显式加入的固定条目保留，
+     * 排在这一块之后。
+     *
+     * @param expandParts 条目是否要在轮到播放时取分 P 展开（远程列表里的视频）
+     * @param loadMore 分页来源的续页：返回下一页条目，没有更多或失败时返回 null。
+     *   播到这一块末尾附近才调用，一次一页；返回 null 后本来源不再续页。
+     */
+    suspend fun playFromContext(
+        items: List<PlaybackRequest>,
+        startIndex: Int = 0,
+        expandParts: Boolean = false,
+        loadMore: (suspend () -> List<PlaybackRequest>?)? = null,
+    ) {
+        if (items.isEmpty()) return
+        applyTap(
+            block = items.map { QueueEntry(it, pinned = false, expandParts = expandParts) },
+            startIndex = startIndex,
+            source = loadMore?.let { ContextSource(it, expandParts) },
+        )
+        entries.getOrNull(queueIndex)?.let { play(it.request, fromQueue = true) }
     }
+
+    /**
+     * 点击播放对队列的改写：临时条目整块换成 [block]，固定条目原样保留（见 [resolveQueueOnTap]）。
+     * 真正丢掉的临时条目够多时（同一列表里换一条不算，见 [countLostOnTap]）先留撤销快照，
+     * 再通知 UI 弹「撤销」。
+     */
+    private fun applyTap(block: List<QueueEntry>, startIndex: Int, source: ContextSource?) {
+        val plan = resolveQueueOnTap(entries.map { it.pinned }, queueIndex, block.size, startIndex)
+        val lost = countLostOnTap(
+            removed = entries.filterNot { it.pinned }.map { it.request.identityKey() },
+            incoming = block.map { it.request.identityKey() },
+        )
+        val offerUndo = shouldOfferUndo(lost)
+        undoSnapshot = if (offerUndo) snapshot() else null
+        val kept = plan.kept.map { entries[it] }
+        entries = kept.subList(0, plan.insertAt) + block + kept.subList(plan.insertAt, kept.size)
+        queueIndex = plan.newIndex
+        queueSource = source
+        if (offerUndo) onQueueReplaced?.invoke(lost)
+    }
+
+    /**
+     * 当前条目是列表来源里还没展开的视频：取分 P，多 P 就原地展开成一串、改播 P1。
+     *
+     * 标记先摘掉——无论成不成都只处理一次，失败按单 P 播（取流层会补第一个分 P）。
+     * 挂起回来先核对 [generation]：用户这期间点了别的，这次加载作废（返回 null）。
+     * 条目按身份找回而不是用旧下标：等待期间用户可能加过「下一首播放」，下标已经挪了。
+     */
+    private suspend fun expandCurrentIfNeeded(request: PlaybackRequest, generation: Int): PlaybackRequest? {
+        val entry = entries.getOrNull(queueIndex)
+        if (entry == null || !entry.expandParts || entry.request != request) return request
+        val bili = request as? PlaybackRequest.Bili ?: return request
+        val settled = entry.copy(expandParts = false)
+        entries = entries.toMutableList().also { it[queueIndex] = settled }
+        val parts = partsExpander?.let { expander -> runCatching { expander(bili) }.getOrNull() }
+        if (generation != trackGeneration) return null
+        val at = entries.indexOfFirst { it === settled }
+        if (parts.isNullOrEmpty() || at < 0) return request
+        val expanded = parts.map { QueueEntry(it, pinned = settled.pinned) }
+        entries = entries.toMutableList().apply {
+            removeAt(at)
+            addAll(at, expanded)
+        }
+        queueIndex = resolveIndexAfterExpand(queueIndex, at, expanded.size)
+        pushState()
+        return expanded.first().request
+    }
+
+    /**
+     * 播到临时块末尾附近时给分页来源续一页，接在块尾、固定条目之前。
+     *
+     * 一个来源同时只有一个请求在路上；来源返回空就不再续。回来时来源已被换掉（用户又点了别的、
+     * 清空了队列）就丢弃结果。失败不重试——风控（-352）下重试只会把封禁拉长。
+     */
+    private fun maybeExtendContext() {
+        val source = queueSource ?: return
+        if (source.loading || source.exhausted) return
+        if (!shouldLoadMoreContext(entries.map { it.pinned }, queueIndex)) return
+        val s = scope ?: return
+        source.loading = true
+        s.launch {
+            val more = runCatching { source.loadMore() }.getOrNull()
+            source.loading = false
+            if (queueSource !== source) return@launch
+            if (more.isNullOrEmpty()) {
+                source.exhausted = true
+                return@launch
+            }
+            val at = resolveTemporaryBlockEnd(entries.map { it.pinned }) ?: return@launch
+            entries = entries.toMutableList().apply {
+                addAll(at, more.map { QueueEntry(it, pinned = false, expandParts = source.expandParts) })
+            }
+            queueIndex = resolveIndexAfterInsert(queueIndex, at)
+            pushState()
+        }
+    }
+
+    private fun snapshot() = UndoSnapshot(
+        entries = entries,
+        queueIndex = queueIndex,
+        // 播放器里装的就是当前条目才记进度；否则（恢复后还没起播等）交给续播位置
+        positionMs = controller
+            ?.takeIf { entries.getOrNull(queueIndex)?.request == loadedRequest && it.mediaItemCount > 0 }
+            ?.currentPosition?.coerceAtLeast(0L),
+        source = queueSource,
+    )
 
     /**
      * 重放当前条目。取流失败、播放中断后的「重试」入口。
@@ -661,48 +817,93 @@ class PlayerConnection(private val context: Context) {
         pushState()
     }
 
-    /** 「下一首播放」。插在当前项之后，不打断正在播的这首。 */
+    /**
+     * 「下一首播放」。插在当前项之后，不打断正在播的这首。条目是**固定**的，点击播放不会冲掉它。
+     *
+     * 还没有当前项（空队列 / 只追加过、没起播）时直接放到队首起播。
+     */
     fun enqueueNext(request: PlaybackRequest) {
-        if (queue.isEmpty() || queueIndex < 0) {
-            scope?.launch { play(request) }
+        undoSnapshot = null
+        val entry = QueueEntry(request, pinned = true)
+        if (queueIndex !in entries.indices) {
+            entries = listOf(entry) + entries
+            queueIndex = 0
+            scope?.launch { play(request, fromQueue = true) }
             return
         }
-        val at = resolveEnqueueNextIndex(queueIndex, queue.size)
-        queue = queue.toMutableList().apply { add(at, request) }
+        val at = resolveEnqueueNextIndex(queueIndex, entries.size)
+        entries = entries.toMutableList().apply { add(at, entry) }
         queueIndex = resolveIndexAfterInsert(queueIndex, at)
         pushState()
     }
 
     /**
-     * 追加到队列末尾。「加入播放列表」用：不打断当前播放、不重排 [queueIndex]、不自动起播。
+     * 追加到队列末尾。「加入队列」用：不打断当前播放、不重排 [queueIndex]、不自动起播。条目是**固定**的。
      *
      * 末尾插入永远在当前项之后，故 [queueIndex] 天然不变（见 [resolveIndexAfterInsert]）。
      * 空队列时仅把它放进队列（[queueIndex] 保持 -1），待用户从队列面板点选才起播。
      */
     fun appendToQueue(request: PlaybackRequest) {
         if (request !is PlaybackRequest.Bili) return
-        queue = queue + request
+        undoSnapshot = null
+        entries = entries + QueueEntry(request, pinned = true)
         pushState()
     }
 
     /**
-     * 清空队列：保留当前播放、清掉其余。
+     * 清空队列：保留当前播放、清掉其余（固定和临时都清），列表来源也不再续页。
      *
-     * 不打断当前播放（主流音乐 App 的"清空列表"行为）。queueIndex 归 0；
-     * 空队列 / 无当前下标时为 no-op。
-     * 实现只动队列结构，不调用 persistQueue——空队列结构简单，会话保存路径
-     * 自动跳过（[saveSession] 在 queue 为空时直接 return）。
+     * 不打断当前播放（主流音乐 App 的"清空列表"行为）。queueIndex 归 0。
+     * 返回是否真的清掉了东西——只剩当前一项 / 空队列时为 no-op，不留撤销快照。
      */
-    fun clearQueue() {
-        val (newSize, newIndex) = resolveClearedQueue(queueIndex, queue.size)
-        if (newSize == queue.size && newIndex == queueIndex) return
-        queue = if (newIndex >= 0 && queueIndex >= 0 && queueIndex < queue.size) {
-            listOf(queue[queueIndex])
+    fun clearQueue(): Boolean {
+        val (newSize, newIndex) = resolveClearedQueue(queueIndex, entries.size)
+        if (newSize == entries.size && newIndex == queueIndex) return false
+        undoSnapshot = snapshot()
+        entries = if (newIndex >= 0 && queueIndex in entries.indices) {
+            listOf(entries[queueIndex])
         } else {
             emptyList()
         }
         queueIndex = newIndex
+        queueSource = null
         pushState()
+        return true
+    }
+
+    /**
+     * 删除单条（队列面板右滑）。正在播的那一项拒绝删除，返回 false。
+     * 删除前留撤销快照。
+     */
+    fun removeFromQueue(index: Int): Boolean {
+        val newIndex = resolveRemoveAt(queueIndex, entries.size, index) ?: return false
+        undoSnapshot = snapshot()
+        entries = entries.toMutableList().apply { removeAt(index) }
+        queueIndex = newIndex
+        pushState()
+        return true
+    }
+
+    /**
+     * 撤销最近一次清空 / 删除 / 替换，没有可撤销的返回 false。
+     *
+     * 当前条目没变（清空、删除）只恢复队列结构，播放不受影响；
+     * 变了（点击替换了正在播的）就把原来那首按原进度重新起播。
+     */
+    fun undoQueueChange(): Boolean {
+        val snap = undoSnapshot ?: return false
+        undoSnapshot = null
+        val currentBefore = entries.getOrNull(queueIndex)?.request
+        entries = snap.entries
+        queueIndex = snap.queueIndex
+        queueSource = snap.source
+        val restored = entries.getOrNull(queueIndex)?.request
+        if (restored != null && restored != currentBefore) {
+            scope?.launch { play(restored, fromQueue = true, startPositionOverride = snap.positionMs) }
+        } else {
+            pushState()
+        }
+        return true
     }
 
     /** 队列面板里点某一项直接跳过去。 */
@@ -1057,6 +1258,7 @@ class PlayerConnection(private val context: Context) {
             resolvedCid = resolvedCid,
             coverUrl = currentTrack?.coverUrl.orEmpty(),
             queue = queue,
+            queuePinned = entries.map { it.pinned },
             queueIndex = queueIndex,
             playMode = playMode,
             sleepTimerRemainingMs = sleepTimerRemaining(sleepTimer, now),
@@ -1107,6 +1309,37 @@ class PlayerConnection(private val context: Context) {
             recorder(request.bvid, request.cid ?: 0L, positionMs.coerceAtLeast(0L))
         }
     }
+
+    /** 队列条目：请求 + 两层队列标记（见 docs/10-播放队列工单.md）。 */
+    private data class QueueEntry(
+        val request: PlaybackRequest,
+        /** 用户显式加入（「加入队列」「下一首播放」）。点击播放永远不删。 */
+        val pinned: Boolean,
+        /** 列表来源里的视频，轮到播放时才取分 P 展开。 */
+        val expandParts: Boolean = false,
+    )
+
+    /** 按视频比对用的键：同一视频的不同分 P 算同一个（见 [countLostOnTap]）。 */
+    private fun PlaybackRequest.identityKey(): String = when (this) {
+        is PlaybackRequest.Bili -> bvid
+        is PlaybackRequest.Direct -> uri
+    }
+
+    /** 临时块的续页来源。可变字段只在主线程上读写。 */
+    private class ContextSource(
+        val loadMore: suspend () -> List<PlaybackRequest>?,
+        val expandParts: Boolean,
+    ) {
+        var loading = false
+        var exhausted = false
+    }
+
+    private class UndoSnapshot(
+        val entries: List<QueueEntry>,
+        val queueIndex: Int,
+        val positionMs: Long?,
+        val source: ContextSource?,
+    )
 
     private companion object {
         const val POSITION_POLL_MS = 250L

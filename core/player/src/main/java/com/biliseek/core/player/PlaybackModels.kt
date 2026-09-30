@@ -176,6 +176,11 @@ data class PlaybackState(
     val error: String? = null,
     /** 播放队列与当前位置 */
     val queue: List<PlaybackRequest> = emptyList(),
+    /**
+     * 与 [queue] 一一对应：该条是否为用户显式加入的固定条目（docs/10-播放队列工单.md）。
+     * 队列面板据此给固定条目加图钉标志。
+     */
+    val queuePinned: List<Boolean> = emptyList(),
     val queueIndex: Int = -1,
     val playMode: PlayMode = PlayMode.SEQUENTIAL,
     /** 睡眠定时器剩余毫秒。null 表示没设倒计时（可能设了「播完当前」）。 */
@@ -302,16 +307,29 @@ data class PersistedTrack(
     val author: String,
     val coverUrl: String,
     val durationSec: Long,
+    /**
+     * 用户显式加入的固定条目（见 docs/10-播放队列工单.md）。
+     * 默认 true：旧版本存下的队列没有这个字段，恢复后一律当固定，点击播放不会把它们冲掉。
+     */
+    val pinned: Boolean = true,
+    /** 轮到播放时还要取分 P 展开（列表来源里的条目）。 */
+    val expandParts: Boolean = false,
 ) {
     companion object {
         /** 从 [PlaybackRequest.Bili] 转换 */
-        fun fromBiliRequest(request: PlaybackRequest.Bili) = PersistedTrack(
+        fun fromBiliRequest(
+            request: PlaybackRequest.Bili,
+            pinned: Boolean = true,
+            expandParts: Boolean = false,
+        ) = PersistedTrack(
             bvid = request.bvid,
             cid = request.cid ?: 0L,
             title = request.title,
             author = request.author,
             coverUrl = request.coverUrl,
             durationSec = request.durationSec,
+            pinned = pinned,
+            expandParts = expandParts,
         )
     }
 

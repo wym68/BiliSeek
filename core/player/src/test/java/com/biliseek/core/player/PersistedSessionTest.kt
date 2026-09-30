@@ -70,4 +70,32 @@ class PersistedSessionTest {
         assert(encoded.contains("SHUFFLE"))
         assert(encoded.contains("PIP"))
     }
+
+    @Test
+    fun `两层队列标记随会话往返`() {
+        val session = PersistedSession(
+            queue = listOf(
+                PersistedTrack.fromBiliRequest(sampleRequest(), pinned = true),
+                PersistedTrack.fromBiliRequest(sampleRequest().copy(bvid = "BV2"), pinned = false, expandParts = true),
+            ),
+            queueIndex = 0,
+            positionMs = 0L,
+            playMode = PlayMode.SEQUENTIAL,
+            presentationMode = PresentationMode.NONE,
+        )
+        val decoded = json.decodeFromString<PersistedSession>(json.encodeToString(session))
+        assertEquals(session, decoded)
+    }
+
+    /** 旧版本存下的队列没有两层标记：恢复后一律当固定，点击播放不能把它们冲掉。 */
+    @Test
+    fun `旧版本会话没有标记时默认固定、不展开`() {
+        val legacy = """
+            {"queue":[{"bvid":"BV1","cid":42,"title":"t","author":"a","coverUrl":"","durationSec":10}],
+             "queueIndex":0,"positionMs":0,"playMode":"SEQUENTIAL","presentationMode":"NONE"}
+        """.trimIndent()
+        val track = json.decodeFromString<PersistedSession>(legacy).queue.single()
+        assertEquals(true, track.pinned)
+        assertEquals(false, track.expandParts)
+    }
 }
