@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.DownloadDone
 import androidx.compose.material3.Icon
 import androidx.compose.material3.FilledTonalButton
@@ -100,6 +101,10 @@ fun LibraryScreen(
     /** 已下载任务列表。非空时显示入口——下载中/失败也要能进得去（可见可重试）。 */
     downloads: List<DownloadTask> = emptyList(),
     onOpenDownloads: () -> Unit = {},
+    /** 本机 AI 总结：视频数与占用字节。视频数大于 0 时显示入口。 */
+    summaryCount: Int = 0,
+    summaryBytes: Long = 0,
+    onOpenSummaries: () -> Unit = {},
     // ── 收藏夹（M11-B）──────────────────────────────
     favoriteFolders: List<FavoriteFolderEntity> = emptyList(),
     favoriteSync: SyncState = SyncState.Idle,
@@ -297,6 +302,25 @@ fun LibraryScreen(
                                 trailing = {
                                     Text(
                                         "${downloads.count { it.isDone }} 个",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+
+                    if (summaryCount > 0) {
+                        item(key = "summaries-entry") {
+                            BsListRow(
+                                title = "AI 总结",
+                                subtitle = "存在本机，可查看与清理",
+                                leadingIcon = Icons.Outlined.AutoAwesome,
+                                onClick = onOpenSummaries,
+                                trailing = {
+                                    Text(
+                                        "$summaryCount 个 · ${com.biliseek.app.summary.SummaryLibraryPolicy.formatSize(summaryBytes)}",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.primary,
                                     )

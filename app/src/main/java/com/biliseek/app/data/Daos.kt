@@ -178,6 +178,10 @@ interface AiSummaryDao {
     @Query("SELECT * FROM ai_summary")
     suspend fun all(): List<AiSummaryEntity>
 
+    /** 「AI 总结」本地列表用：全部版本，最近更新的在前。 */
+    @Query("SELECT * FROM ai_summary ORDER BY updatedAt DESC")
+    fun observeEvery(): Flow<List<AiSummaryEntity>>
+
     /** 原文是这条视频共用的：写入 / 作废时同步所有版本的标记。 */
     @Query("UPDATE ai_summary SET hasTranscript = :value WHERE bvid = :bvid AND cid = :cid")
     suspend fun setHasTranscript(bvid: String, cid: Long, value: Boolean)

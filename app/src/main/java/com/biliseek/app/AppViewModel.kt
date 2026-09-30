@@ -315,6 +315,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         emitMessage = ::emitMessage,
     )
 
+    /** 「AI 总结」本地列表：播放列表页里，和「已下载」并列，看得见有哪些、占多少空间、能删。 */
+    val summaryLibrary = com.biliseek.app.summary.SummaryLibrary(viewModelScope, summaryManager)
+
     /** 设置 → AI 总结（工单 AI-3）。 */
     val aiSettings = com.biliseek.app.summary.AiSettingsController(
         scope = viewModelScope,

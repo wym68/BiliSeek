@@ -206,6 +206,8 @@ class MainActivity : ComponentActivity() {
                 }
                 // 「已下载」分区展开态
                 var downloadsOpen by remember { mutableStateOf(false) }
+                var summariesOpen by remember { mutableStateOf(false) }
+                val summaryLibraryState by viewModel.summaryLibrary.state.collectAsState()
                 var aiSettingsOpen by remember { mutableStateOf(false) }
                 // 「去设置」：切到设置 tab 并打开 AI 总结设置页
                 LaunchedEffect(Unit) {
@@ -565,7 +567,16 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     libraryContent = { tab, onTab ->
-                        if (downloadsOpen) {
+                        if (summariesOpen) {
+                            BackHandler(onBack = { summariesOpen = false })
+                            com.biliseek.app.ui.SummaryListScreen(
+                                state = summaryLibraryState,
+                                onClose = { summariesOpen = false },
+                                onOpen = { viewModel.summary.openReader(it.bvid, it.cid) },
+                                onDelete = { viewModel.summaryLibrary.delete(it.bvid, it.cid) },
+                                onClearAll = viewModel.summaryLibrary::clearAll,
+                            )
+                        } else if (downloadsOpen) {
                             // 系统返回手势应收起下载页，而不是弹走导航栈（tab 内状态）
                             BackHandler(onBack = { downloadsOpen = false })
                             DownloadsScreen(
@@ -590,6 +601,9 @@ class MainActivity : ComponentActivity() {
                                 onTrackReorder = viewModel::reorderTrack,
                                 downloads = downloadTasks,
                                 onOpenDownloads = { downloadsOpen = true },
+                                summaryCount = summaryLibraryState.groups.size,
+                                summaryBytes = summaryLibraryState.totalBytes,
+                                onOpenSummaries = { summariesOpen = true },
                                 favoriteFolders = favoriteFolders,
                                 favoriteSync = favoriteSync,
                                 favoriteContent = openedFavorite,

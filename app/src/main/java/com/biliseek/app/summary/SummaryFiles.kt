@@ -41,6 +41,9 @@ class SummaryFiles(root: File, bvid: String, cid: Long) {
         dir.deleteRecursively()
     }
 
+    /** 这条视频的总结在磁盘上占的空间（所有版本 + 原文 + 识别断点等）。 */
+    fun sizeBytes(): Long = if (dir.exists()) dir.walkTopDown().filter { it.isFile }.sumOf { it.length() } else 0L
+
     private fun atomicWrite(target: File, text: String) {
         val parent = target.parentFile ?: dir
         parent.mkdirs()

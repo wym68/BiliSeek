@@ -157,6 +157,9 @@ class SummaryManager private constructor(private val app: Application) {
             SummaryUiState(row, live[row.id], rows)
         }
 
+    /** 全部总结版本（「AI 总结」本地列表用），最近更新的在前。 */
+    fun observeEvery(): Flow<List<AiSummaryEntity>> = dao.observeEvery()
+
     /** 是否已有生成完成的总结（任一版本）。 */
     fun hasSummary(bvid: String, cid: Long): Flow<Boolean> = dao.observeHasDone(bvid, cid)
 
