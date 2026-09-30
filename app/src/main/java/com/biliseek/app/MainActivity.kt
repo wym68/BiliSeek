@@ -867,10 +867,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 summaryReader?.let { target ->
-                    // 默认是底部弹窗（和播放列表一样）；全屏按钮切到全屏页。弹窗自己处理返回键，
-                    // 全屏页需要这里接返回键。状态随阅读页的关闭一起销毁，下次打开又是弹窗
-                    var summaryFullscreen by remember(target.bvid, target.cid) { mutableStateOf(false) }
-                    BackHandler(enabled = summaryFullscreen, onBack = viewModel.summary::closeReader)
                     val entity = summaryReaderState?.entity
                     // 换版本时正文要跟着换：以版本 id 为键，不让上一个版本的正文残留在新版本的标题下
                     var markdown by remember(target.bvid, target.cid, entity?.id) { mutableStateOf<String?>(null) }
@@ -893,8 +889,6 @@ class MainActivity : ComponentActivity() {
                         markdown = markdown,
                         transcript = transcriptText,
                         failureActions = failureActions,
-                        fullscreen = summaryFullscreen,
-                        onToggleFullscreen = { summaryFullscreen = !summaryFullscreen },
                         onClose = viewModel.summary::closeReader,
                         onTimestamp = viewModel::openSummaryTimestamp,
                         onShare = {

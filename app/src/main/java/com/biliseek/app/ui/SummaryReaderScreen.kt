@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -22,26 +20,22 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
@@ -61,16 +55,13 @@ import com.biliseek.designsystem.component.BsTopBar
  * AI 总结阅读页（工单 AI-6）。进行中显示阶段与流式正文；完成后渲染 Markdown，时间戳点击跳播；
  * 失败时顶部横幅给出全部出路。
  */
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SummaryReaderScreen(
     state: SummaryUiState?,
     markdown: String?,
     transcript: String?,
     failureActions: List<FailureAction>,
-    /** true = 全屏页；false = 底部弹窗（默认，和播放列表一样，能同时看到上面的播放器）。 */
-    fullscreen: Boolean,
-    onToggleFullscreen: () -> Unit,
     onClose: () -> Unit,
     onTimestamp: (Long) -> Unit,
     onShare: () -> Unit,
@@ -94,6 +85,9 @@ fun SummaryReaderScreen(
     val entity = state?.entity
     val running = entity != null && entity.status != AiSummaryStatus.DONE && entity.status != AiSummaryStatus.FAILED
     val done = entity?.status == AiSummaryStatus.DONE
+    // 底部面板：默认 60% 高度，上拉（或点右上角按钮）撑满
+    val panel = rememberExpandablePanelState(collapsed = 0.6f)
+    val scope = rememberCoroutineScope()
 
     // 时间戳链接交给播放跳转；其余链接（头部的视频链接）仍走系统默认打开方式
     val defaultUriHandler = LocalUriHandler.current
@@ -106,18 +100,17 @@ fun SummaryReaderScreen(
         }
     }
 
-    // 阅读页的内容：全屏页与底部弹窗共用同一份
     val body: @Composable ColumnScope.() -> Unit = {
             BsTopBar(
                 title = entity?.title ?: "AI 总结",
                 subtitle = entity?.pageTitle?.ifBlank { null },
                 onNavigate = onClose,
-                navIcon = if (fullscreen) BsNavIcon.Back else BsNavIcon.Close,
+                navIcon = BsNavIcon.Close,
                 actions = {
-                    IconButton(onClick = onToggleFullscreen) {
+                    IconButton(onClick = { panel.toggle(scope) }) {
                         Icon(
-                            if (fullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                            contentDescription = if (fullscreen) "退出全屏" else "全屏显示",
+                            if (panel.isExpanded) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                            contentDescription = if (panel.isExpanded) "退出全屏" else "全屏显示",
                         )
                     }
                     if (done) {
@@ -225,24 +218,7 @@ fun SummaryReaderScreen(
             }
     }
 
-    if (fullscreen) {
-        // 全屏页是盖在 Scaffold 之上的全屏层，没有 Scaffold 帮它让出系统栏：
-        // 自己让开状态栏（顶栏不被时间 / 信号图标盖住）和手势导航条（末尾的内容不被挡住）
-        Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().systemBarsPadding(), content = body)
-        }
-    } else {
-        // 底部弹窗：固定为屏幕高度的 60%，上面还能看到播放器；内容在里面滚动，
-        // 需要更大的阅读面积时点右上角的全屏按钮
-        val sheetHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
-        ModalBottomSheet(
-            onDismissRequest = onClose,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            dragHandle = { CompactDragHandle() },
-        ) {
-            Column(Modifier.fillMaxWidth().height(sheetHeight), content = body)
-        }
-    }
+    ExpandableBottomPanel(onDismiss = onClose, state = panel) { body() }
 
     if (confirmDeleteAll) {
         BsConfirmDialog(
