@@ -168,6 +168,10 @@ interface AiSummaryDao {
     @Query("SELECT * FROM ai_summary WHERE bvid = :bvid AND cid = :cid ORDER BY createdAt DESC, id DESC LIMIT 1")
     suspend fun find(bvid: String, cid: Long): AiSummaryEntity?
 
+    /** 这条视频（某一 P）是否已有生成完成的总结——播放页「总结」按钮据此显示为已激活。 */
+    @Query("SELECT EXISTS(SELECT 1 FROM ai_summary WHERE bvid = :bvid AND cid = :cid AND status = 'DONE')")
+    fun observeHasDone(bvid: String, cid: Long): Flow<Boolean>
+
     @Query("SELECT COUNT(*) FROM ai_summary WHERE bvid = :bvid AND cid = :cid")
     suspend fun count(bvid: String, cid: Long): Int
 

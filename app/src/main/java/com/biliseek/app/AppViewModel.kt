@@ -296,6 +296,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     val summaryManager = com.biliseek.app.summary.SummaryManager.get(app)
 
+    /** 当前播放的视频（这一 P）是否已有总结：播放页「总结」按钮据此显示为已激活。 */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val currentHasSummary: StateFlow<Boolean> = connection.state
+        .map { s -> s.bvid to (s.resolvedCid.takeIf { it > 0 } ?: s.cid) }
+        .distinctUntilChanged()
+        .flatMapLatest { (bvid, cid) ->
+            if (bvid.isBlank() || cid <= 0) flowOf(false) else summaryManager.hasSummary(bvid, cid)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** AI 总结的界面编排：入口 → 风格弹窗 → 阅读页（工单 AI-6）。 */
     val summary = com.biliseek.app.summary.SummaryController(
         scope = viewModelScope,

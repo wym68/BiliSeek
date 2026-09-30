@@ -149,6 +149,7 @@ class MainActivity : ComponentActivity() {
                 val selectionMode by viewModel.selectionMode.collectAsState()
                 val selectedBvids by viewModel.selectedBvids.collectAsState()
                 val multiPagePicker by viewModel.multiPagePicker.collectAsState()
+                val currentHasSummary by viewModel.currentHasSummary.collectAsState()
                 val summarySheet by viewModel.summary.sheet.collectAsState()
                 val summaryReader by viewModel.summary.reader.collectAsState()
                 val summaryReaderState by viewModel.summary.readerState.collectAsState(initial = null)
@@ -359,6 +360,7 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     onSummary = viewModel::summarizeCurrent,
+                    hasSummary = currentHasSummary,
                     onShare = {
                         viewModel.currentVideoUrl()?.let { url ->
                             copyToClipboard(url)

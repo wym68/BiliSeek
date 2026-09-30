@@ -96,6 +96,8 @@ fun PlayerScreen(
     interaction: com.biliseek.app.interaction.VideoInteractionState? = null,
     interactionHandlers: VideoActionHandlers = VideoActionHandlers(),
     onSummary: () -> Unit = {},
+    /** 当前视频已有总结：「总结」按钮显示为已激活。 */
+    hasSummary: Boolean = false,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
@@ -161,6 +163,7 @@ fun PlayerScreen(
                 onShare = onShare,
                 activeColor = accent.accent ?: MaterialTheme.colorScheme.primary,
                 onSummary = onSummary,
+                hasSummary = hasSummary,
             )
 
             ProgressBar(state, onSeek)

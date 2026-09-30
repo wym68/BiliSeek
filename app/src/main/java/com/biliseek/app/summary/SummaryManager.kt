@@ -157,6 +157,9 @@ class SummaryManager private constructor(private val app: Application) {
             SummaryUiState(row, live[row.id], rows)
         }
 
+    /** 是否已有生成完成的总结（任一版本）。 */
+    fun hasSummary(bvid: String, cid: Long): Flow<Boolean> = dao.observeHasDone(bvid, cid)
+
     /** 这条视频最新的一个版本。 */
     suspend fun find(bvid: String, cid: Long): AiSummaryEntity? = dao.find(bvid, cid)
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
@@ -79,6 +80,8 @@ fun VideoActionBar(
     modifier: Modifier = Modifier,
     /** AI 总结（工单 AI-6）。 */
     onSummary: () -> Unit = {},
+    /** 这条视频已有总结：图标实心 + 主题色，和点赞 / 投币后的形式一致。 */
+    hasSummary: Boolean = false,
     activeColor: Color = MaterialTheme.colorScheme.primary,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -148,7 +151,9 @@ fun VideoActionBar(
         )
         BsIconAction(
             icon = Icons.Outlined.AutoAwesome,
+            activeIcon = Icons.Filled.AutoAwesome,
             label = "总结",
+            active = hasSummary,
             onClick = onSummary,
             layout = BsIconActionLayout.Vertical,
             activeColor = activeColor,
