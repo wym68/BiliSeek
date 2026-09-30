@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -222,8 +221,8 @@ private fun SwipeToRemoveRow(
         Box(
             Modifier
                 .offset { IntOffset(offset.value.roundToInt(), 0) }
-                // 前景要不透明，才能把后面的删除底色盖住
-                .background(BottomSheetDefaults.ContainerColor)
+                // 前景要不透明，才能把后面的删除底色盖住（surfaceContainerLow 即底部弹层的默认底色）
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .draggable(
                     enabled = enabled,
                     orientation = Orientation.Horizontal,
