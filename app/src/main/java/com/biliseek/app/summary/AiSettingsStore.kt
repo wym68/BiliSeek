@@ -67,7 +67,14 @@ class AiSettingsStore(
     suspend fun savedKey(slot: EndpointSlot): String? =
         context.aiSettingsDataStore.data.first()[keys(slot).secret]?.let(cipher::decrypt)
 
-    suspend fun setLastStyle(value: StyleChoice) = edit { it[KEY_LAST_STYLE] = value.name }
+    /**
+     * 设置里的「默认选择」：[official] 为 true = B 站总结（[style] 保留为它不可用时的退路）；
+     * 否则就是这个风格。这是用户明确设的默认值，生成时不再自动改写它。
+     */
+    suspend fun setDefaultPick(official: Boolean, style: StyleChoice) = edit {
+        it[KEY_DEFAULT_OFFICIAL] = official
+        it[KEY_LAST_STYLE] = style.name
+    }
 
     suspend fun setCustomPrompt(value: String) = edit { it[KEY_CUSTOM_PROMPT] = value }
 
@@ -102,6 +109,7 @@ class AiSettingsStore(
         backup = view(p, EndpointSlot.BACKUP),
         lastStyle = p[KEY_LAST_STYLE]?.let { name -> StyleChoice.entries.firstOrNull { it.name == name } }
             ?: StyleChoice.OUTLINE,
+        defaultOfficial = p[KEY_DEFAULT_OFFICIAL] ?: false,
         customPrompt = p[KEY_CUSTOM_PROMPT].orEmpty(),
         privacyAccepted = p[KEY_PRIVACY] ?: false,
         asrRtf = p[KEY_ASR_RTF],
@@ -143,6 +151,7 @@ class AiSettingsStore(
         private fun keys(slot: EndpointSlot) = if (slot == EndpointSlot.PRIMARY) PRIMARY_KEYS else BACKUP_KEYS
 
         private val KEY_LAST_STYLE = stringPreferencesKey("last_style")
+        private val KEY_DEFAULT_OFFICIAL = booleanPreferencesKey("default_official")
         private val KEY_CUSTOM_PROMPT = stringPreferencesKey("custom_prompt")
         private val KEY_PRIVACY = booleanPreferencesKey("privacy_accepted")
         private val KEY_ASR_RTF = floatPreferencesKey("asr_rtf")

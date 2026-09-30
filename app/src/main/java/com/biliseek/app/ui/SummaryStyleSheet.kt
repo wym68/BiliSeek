@@ -34,6 +34,7 @@ import com.biliseek.app.summary.LocalAsrPolicy
 import com.biliseek.app.summary.NetworkDecision
 import com.biliseek.app.summary.OfficialSummary
 import com.biliseek.app.summary.SheetChoice
+import com.biliseek.app.summary.SummaryDefaultPolicy
 import com.biliseek.app.summary.StyleChoice
 import com.biliseek.app.summary.StyleSheetState
 import com.biliseek.app.summary.SummaryNetworkPolicy
@@ -52,7 +53,9 @@ fun SummaryStyleSheet(
     onLogin: () -> Unit,
 ) {
     val officialAvailable = state.official is OfficialSummary.Available
-    var useOfficial by remember(state.official) { mutableStateOf(officialAvailable) }
+    // 默认跟设置里的「默认选择」；用户手动点过（manualOfficial 非 null）就不再被查询结果改动
+    var manualOfficial by remember { mutableStateOf<Boolean?>(null) }
+    val useOfficial = SummaryDefaultPolicy.useOfficial(state.defaultOfficial, officialAvailable, manualOfficial)
     var style by remember { mutableStateOf(state.selected) }
     var prompt by remember { mutableStateOf(state.customPrompt) }
     var forceLocalAsr by remember { mutableStateOf(false) }
@@ -105,7 +108,7 @@ fun SummaryStyleSheet(
                         is OfficialSummary.Available -> o.result.summary.lines().take(2).joinToString(" ").ifBlank { "有分段大纲" }
                         is OfficialSummary.Unavailable -> o.reason.text
                     },
-                    onSelect = { useOfficial = true },
+                    onSelect = { manualOfficial = true },
                     tag = "summary_official",
                 )
                 HorizontalDivider()
@@ -130,7 +133,7 @@ fun SummaryStyleSheet(
                     label = choice.label,
                     description = null,
                     onSelect = {
-                        useOfficial = false
+                        manualOfficial = false
                         style = choice
                     },
                     tag = "summary_style_${choice.name.lowercase()}",

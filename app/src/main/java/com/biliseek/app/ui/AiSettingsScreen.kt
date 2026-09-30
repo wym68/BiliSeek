@@ -53,7 +53,8 @@ fun AiSettingsScreen(
     onSave: (EndpointSlot, EndpointDraft, (String?) -> Unit) -> Unit,
     onClear: (EndpointSlot) -> Unit,
     onTest: (EndpointSlot, EndpointDraft) -> Unit,
-    onStyleChange: (StyleChoice) -> Unit,
+    /** 默认选择：(是否 B 站总结, 风格)。 */
+    onDefaultChange: (Boolean, StyleChoice) -> Unit,
     onCustomPromptSave: (String) -> Unit,
     onAcceptPrivacy: () -> Unit,
     onClose: () -> Unit,
@@ -117,7 +118,7 @@ fun AiSettingsScreen(
             }
 
             HorizontalDivider()
-            StyleSection(settings, onStyleChange, onCustomPromptSave)
+            StyleSection(settings, onDefaultChange, onCustomPromptSave)
 
             HorizontalDivider()
             asrContent()
@@ -252,18 +253,27 @@ private fun EndpointEditor(
 @Composable
 private fun StyleSection(
     settings: AiSettings,
-    onStyleChange: (StyleChoice) -> Unit,
+    onDefaultChange: (Boolean, StyleChoice) -> Unit,
     onCustomPromptSave: (String) -> Unit,
 ) {
     var prompt by remember(settings.customPrompt) { mutableStateOf(settings.customPrompt) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("默认风格", style = MaterialTheme.typography.titleSmall)
-        Text("生成时弹窗里默认选中；每次生成后记住你选的风格", style = MaterialTheme.typography.bodySmall)
+        Text("默认选择", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "点视频做 AI 总结时，弹窗里默认选中这一项（查完字幕和 B 站总结后生效，你仍可在弹窗里改）。" +
+                "选「B 站总结」时，视频没有官方总结就改用下面最近选的风格。",
+            style = MaterialTheme.typography.bodySmall,
+        )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = settings.defaultOfficial,
+                onClick = { onDefaultChange(true, settings.lastStyle) },
+                label = { Text("B 站总结（免费）") },
+            )
             StyleChoice.entries.forEach { choice ->
                 FilterChip(
-                    selected = settings.lastStyle == choice,
-                    onClick = { onStyleChange(choice) },
+                    selected = !settings.defaultOfficial && settings.lastStyle == choice,
+                    onClick = { onDefaultChange(false, choice) },
                     label = { Text(choice.label) },
                 )
             }

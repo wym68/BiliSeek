@@ -219,7 +219,6 @@ class SummaryManager private constructor(private val app: Application) {
             }
             synchronized(chaptersById) { chaptersById[id] = chapters }
             video.context?.let { synchronized(contextById) { contextById[id] = it } }
-            settings.setLastStyle(style)
             startService()
         }
     }

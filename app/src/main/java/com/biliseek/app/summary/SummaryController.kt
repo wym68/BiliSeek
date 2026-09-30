@@ -25,6 +25,8 @@ data class StyleSheetState(
     val source: SummarySource? = null,
     val chapters: List<Chapter> = emptyList(),
     val selected: StyleChoice = StyleChoice.OUTLINE,
+    /** 设置里的默认选择是「B 站总结」。 */
+    val defaultOfficial: Boolean = false,
     val customPrompt: String = "",
     val llmReady: Boolean = false,
     val loggedIn: Boolean = false,
@@ -86,6 +88,7 @@ class SummaryController(
             val base = StyleSheetState(
                 videos = videos,
                 selected = settings.lastStyle,
+                defaultOfficial = settings.defaultOfficial,
                 customPrompt = settings.customPrompt,
                 llmReady = settings.primaryReady,
                 loggedIn = session.value.isLoggedIn,
@@ -114,6 +117,7 @@ class SummaryController(
                 StyleSheetState(
                     videos = listOf(video),
                     selected = settings.lastStyle,
+                    defaultOfficial = settings.defaultOfficial,
                     customPrompt = settings.customPrompt,
                     llmReady = settings.primaryReady,
                     loggedIn = session.value.isLoggedIn,

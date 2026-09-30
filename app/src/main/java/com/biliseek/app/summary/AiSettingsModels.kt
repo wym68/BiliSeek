@@ -51,7 +51,10 @@ enum class StyleChoice(val label: String) {
 data class AiSettings(
     val primary: EndpointView? = null,
     val backup: EndpointView? = null,
+    /** 默认选择里的风格；[defaultOfficial] 为 true 但视频没有官方总结时也用它。 */
     val lastStyle: StyleChoice = StyleChoice.OUTLINE,
+    /** 默认选择是「B 站总结」：弹窗里官方总结可用时默认选它，不可用时退回 [lastStyle]。 */
+    val defaultOfficial: Boolean = false,
     val customPrompt: String = "",
     val privacyAccepted: Boolean = false,
     /** 最近几次本地识别实测 RTF 的滑动平均（AI-8）。 */

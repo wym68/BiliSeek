@@ -43,6 +43,17 @@ object TimestampLinkPolicy {
         }
 }
 
+/** 风格弹窗里默认选哪一项（设置里的「默认选择」）。 */
+object SummaryDefaultPolicy {
+    /**
+     * 是否选中「B 站总结」。用户在弹窗里手动点过（[manual] 非 null）就以用户为准；
+     * 否则跟设置：默认选择是 B 站总结且官方总结可用时选它，不可用（没有 / 查询中 / 未登录）时选风格。
+     * 查询是异步的：官方总结晚到时，只要用户还没动过就自动跟上默认，不会改掉用户的手动选择。
+     */
+    fun useOfficial(defaultOfficial: Boolean, officialAvailable: Boolean, manual: Boolean?): Boolean =
+        manual ?: (defaultOfficial && officialAvailable)
+}
+
 object SummaryFileNamePolicy {
     /** 另存为的默认文件名：去掉文件系统不允许的字符，限制长度。 */
     fun fileName(title: String): String {

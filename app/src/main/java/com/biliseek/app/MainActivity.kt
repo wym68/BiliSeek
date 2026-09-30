@@ -646,7 +646,7 @@ class MainActivity : ComponentActivity() {
                                 onSave = viewModel.aiSettings::save,
                                 onClear = viewModel.aiSettings::clear,
                                 onTest = viewModel.aiSettings::test,
-                                onStyleChange = viewModel.aiSettings::setLastStyle,
+                                onDefaultChange = viewModel.aiSettings::setDefaultPick,
                                 onCustomPromptSave = viewModel.aiSettings::setCustomPrompt,
                                 onAcceptPrivacy = viewModel.aiSettings::acceptPrivacy,
                                 onClose = { aiSettingsOpen = false },

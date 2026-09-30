@@ -74,8 +74,8 @@ class AiSettingsController(
         }
     }
 
-    fun setLastStyle(value: StyleChoice) {
-        scope.launch { store.setLastStyle(value) }
+    fun setDefaultPick(official: Boolean, style: StyleChoice) {
+        scope.launch { store.setDefaultPick(official, style) }
     }
 
     fun setCustomPrompt(value: String) {
