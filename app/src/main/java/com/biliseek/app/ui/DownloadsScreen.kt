@@ -46,7 +46,7 @@ import com.biliseek.core.player.formatDuration
  * 有重试按钮，不是下了没反应。
  *
  * 行样式与 AI 总结列表一致：已完成的条目整行点击即播放；操作只放右侧图标
- * （已完成：删除；失败：重试 + 删除；排队中：取消）。
+ * （已完成：删除；失败：重试 + 删除；排队中 / 下载中：取消）。
  */
 @Composable
 fun DownloadsScreen(
@@ -174,7 +174,8 @@ private fun DownloadRow(
                     Icon(Icons.Outlined.Delete, contentDescription = "删除")
                 }
             }
-            task.status == DownloadStatus.QUEUED -> IconButton(onClick = { onDelete(task.id, false) }) {
+            // 排队中 / 下载中都可取消；下载中的会立刻中断传输并清掉半成品
+            task.isActive -> IconButton(onClick = { onDelete(task.id, false) }) {
                 Icon(Icons.Outlined.Close, contentDescription = "取消下载")
             }
         }

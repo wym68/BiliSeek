@@ -31,6 +31,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -101,6 +102,8 @@ class DownloadManager private constructor(private val app: Application) {
     private val queueMutex = Mutex()
     /** 下载取流的节流：同一时刻只取一条，两次之间至少隔 [DOWNLOAD_RESOLVE_MIN_INTERVAL_MS]。 */
     private val resolveMutex = Mutex()
+    /** 正在执行的任务（id → 子协程），取消下载用。 */
+    private val runningJobs = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Job>()
     private var lastResolveAt: Long? = null
     private val processingRef = AtomicReference(false)
 
@@ -188,6 +191,8 @@ class DownloadManager private constructor(private val app: Application) {
      *   （MediaStore 条目 / SAF 文档一并移除）
      */
     fun delete(id: Long, deleteFile: Boolean = false) {
+        // 正在下载：先中断传输（子协程收到取消后自己清半成品）
+        runningJobs[id]?.cancel()
         scope.launch {
             queueMutex.withLock {
                 val row = dao.all().firstOrNull { it.id == id } ?: return@withLock
@@ -227,7 +232,7 @@ class DownloadManager private constructor(private val app: Application) {
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 while (true) {
                     val next = dao.byStatus(DownloadStatus.QUEUED).firstOrNull() ?: break
-                    processOne(next, service)
+                    runCancellable(next, service)
                 }
             }
         } finally {
@@ -237,6 +242,22 @@ class DownloadManager private constructor(private val app: Application) {
             // 收尾前再确认一次队列：处理期间可能又有人入队，
             // 若服务在任务还有剩余时停掉，新任务会卡在 QUEUED 等不到下次启动
             if (dao.byStatus(DownloadStatus.QUEUED).isEmpty()) service.finish()
+        }
+    }
+
+    /**
+     * 每条任务跑在自己的子协程里，登记到 [runningJobs]，[delete] 取消下载中的任务时据此中断传输。
+     * 子协程被取消不会连带取消队列循环（join 正常返回），队列接着处理下一条。
+     */
+    private suspend fun runCancellable(row: DownloadEntity, service: DownloadService) {
+        kotlinx.coroutines.coroutineScope {
+            val job = launch { processOne(row, service) }
+            runningJobs[row.id] = job
+            try {
+                job.join()
+            } finally {
+                runningJobs.remove(row.id)
+            }
         }
     }
 
@@ -301,6 +322,10 @@ class DownloadManager private constructor(private val app: Application) {
             activeRef.set(done)
             refreshTasks()
             service.showNotification(done)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // 用户取消：表行已由 delete() 删掉，这里只清半成品，不标失败
+            stagingRoot(row.bvid, row.cid).deleteRecursively()
+            throw e
         } catch (e: Exception) {
             android.util.Log.w(TAG, "下载失败：${e.message}", e)
             // 不留半成品：mux 失败 / 下载中断都清掉 staging 目录
@@ -386,6 +411,8 @@ class DownloadManager private constructor(private val app: Application) {
                 body.byteStream().use { input ->
                     val buf = ByteArray(BUFFER_SIZE)
                     while (true) {
+                        // 取消下载：每读一块检查一次，数据在流动时几毫秒内就能停下
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         val n = input.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
