@@ -17,7 +17,7 @@ fun MeteredVideoDialog(onConfirmOnce: () -> Unit, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("当前是移动网络") },
         text = {
-            Text("设置里关闭了「移动网络下允许看视频」。视频流量大约是音频的一百倍以上。")
+            Text("设置里关闭了「移动网络下默认允许看视频」。视频流量大约是音频的一百倍以上。")
         },
         confirmButton = { TextButton(onClick = onConfirmOnce) { Text("这次就看") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("继续只听") } },

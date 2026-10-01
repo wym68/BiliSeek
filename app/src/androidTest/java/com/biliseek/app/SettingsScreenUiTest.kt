@@ -15,7 +15,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * 设置页四组渲染与回调测试。
+ * 设置页各组渲染、单选弹层与回调测试（分组卡片版式）。
  *
  * 覆盖《M12 计划》B-3 的 SettingsScreen 部分。
  */
@@ -46,43 +46,52 @@ class SettingsScreenUiTest {
     }
 
     @Test
-    fun 四组均渲染() {
+    fun 各组均渲染() {
         setSettings()
 
+        // 账号卡片（未登录）
+        compose.onNodeWithText("登录 B 站账号").assertIsDisplayed()
         // 播放
-        compose.onNodeWithText("默认只听").assertIsDisplayed()
-        compose.onNodeWithText("记住上次").assertIsDisplayed()
-        // 网络
-        compose.onNodeWithText("移动网络下允许看视频").performScrollTo().assertIsDisplayed()
-        // 音质
-        compose.onNodeWithText("自动").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("无损优先").performScrollTo().assertIsDisplayed()
-        // 账号
-        compose.onNodeWithText("账号占位").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("起播模式").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("列表播放模式").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("弹幕").performScrollTo().assertIsDisplayed()
+        // 视频与流量
+        compose.onNodeWithText("移动网络下默认允许看视频").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("音质").performScrollTo().assertIsDisplayed()
     }
 
     @Test
-    fun 出厂默认_默认只听被选中() {
+    fun 出厂默认_起播模式显示默认只听() {
         setSettings()
 
         compose.onNodeWithText("默认只听").assertIsDisplayed()
     }
 
     @Test
-    fun 点击记住上次_触发回调() {
+    fun 起播模式弹层选记住上次_触发回调() {
         var selected: DefaultPresentation? = null
         setSettings(onDefaultChange = { selected = it })
 
+        compose.onNodeWithText("起播模式").performClick()
         compose.onNodeWithText("记住上次").performClick()
-        check(selected == DefaultPresentation.REMEMBER_LAST) { "点击「记住上次」未触发回调" }
+        check(selected == DefaultPresentation.REMEMBER_LAST) { "选「记住上次」未触发回调" }
     }
 
     @Test
-    fun 点击无损_触发回调() {
+    fun 音质弹层选无损_触发回调() {
         var quality: AudioQuality? = null
         setSettings(onQualityChange = { quality = it })
 
-        compose.onNodeWithText("无损优先").performScrollTo().performClick()
-        check(quality == AudioQuality.LOSSLESS) { "点击「无损优先」未触发回调" }
+        compose.onNodeWithText("音质").performScrollTo().performClick()
+        compose.onNodeWithText("无损优先").performClick()
+        check(quality == AudioQuality.LOSSLESS) { "选「无损优先」未触发回调" }
+    }
+
+    @Test
+    fun 未登录点账号卡片_弹出登录面板() {
+        setSettings()
+
+        compose.onNodeWithText("登录 B 站账号").performClick()
+        compose.onNodeWithText("账号占位").assertIsDisplayed()
     }
 }

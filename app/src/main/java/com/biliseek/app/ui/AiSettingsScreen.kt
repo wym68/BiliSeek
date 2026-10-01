@@ -13,7 +13,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +40,14 @@ import com.biliseek.app.summary.StyleChoice
 import com.biliseek.core.ai.provider.ProviderCatalog
 import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.component.BsTopBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Tune
+import com.biliseek.app.ui.components.SettingsChoice
+import com.biliseek.app.ui.components.SettingsChoiceSheet
+import com.biliseek.app.ui.components.SettingsDivider
+import com.biliseek.app.ui.components.SettingsGroup
+import com.biliseek.app.ui.components.SettingsRow
+import com.biliseek.designsystem.theme.BsSpacing
 
 /**
  * 设置 → AI 总结（工单 AI-3）。总结模型、可选的备用模型、默认风格与自定义提示词；
@@ -75,60 +82,67 @@ fun AiSettingsScreen(
 
     Column(Modifier.fillMaxSize()) {
         BsTopBar(title = "AI 总结", onNavigate = onClose)
+        // 与设置主页同一套外观：组名 + 圆角卡片（ui/components/SettingsComponents.kt）
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = BsSpacing.lg)
+                .padding(bottom = BsSpacing.xl),
+            verticalArrangement = Arrangement.spacedBy(BsSpacing.lg),
         ) {
-            Text("总结模型", style = MaterialTheme.typography.titleSmall)
-            EndpointEditor(
-                slot = EndpointSlot.PRIMARY,
-                saved = settings.primary,
-                test = tests[EndpointSlot.PRIMARY] ?: ConnectionTestState.Idle,
-                onSave = ::requestSave,
-                onClear = onClear,
-                onTest = onTest,
-            )
-
-            HorizontalDivider()
-            var backupExpanded by remember { mutableStateOf(settings.backup != null) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("备用模型（可选）", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "额度用尽或服务故障时，可以在确认后改用它继续；不会自动切换",
-                        style = MaterialTheme.typography.bodySmall,
+            SettingsGroup("总结模型") {
+                Column(Modifier.padding(CARD_PADDING)) {
+                    EndpointEditor(
+                        slot = EndpointSlot.PRIMARY,
+                        saved = settings.primary,
+                        test = tests[EndpointSlot.PRIMARY] ?: ConnectionTestState.Idle,
+                        onSave = ::requestSave,
+                        onClear = onClear,
+                        onTest = onTest,
                     )
                 }
-                TextButton(onClick = { backupExpanded = !backupExpanded }) {
-                    Text(if (backupExpanded) "收起" else "展开")
+            }
+
+            var backupExpanded by remember { mutableStateOf(settings.backup != null) }
+            SettingsGroup("备用模型（可选）") {
+                Column(Modifier.padding(CARD_PADDING), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "额度用尽或服务故障时，可以在确认后改用它继续；不会自动切换",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { backupExpanded = !backupExpanded }) {
+                            Text(if (backupExpanded) "收起" else "展开")
+                        }
+                    }
+                    if (backupExpanded) {
+                        EndpointEditor(
+                            slot = EndpointSlot.BACKUP,
+                            saved = settings.backup,
+                            test = tests[EndpointSlot.BACKUP] ?: ConnectionTestState.Idle,
+                            onSave = ::requestSave,
+                            onClear = onClear,
+                            onTest = onTest,
+                        )
+                    }
                 }
             }
-            if (backupExpanded) {
-                EndpointEditor(
-                    slot = EndpointSlot.BACKUP,
-                    saved = settings.backup,
-                    test = tests[EndpointSlot.BACKUP] ?: ConnectionTestState.Idle,
-                    onSave = ::requestSave,
-                    onClear = onClear,
-                    onTest = onTest,
-                )
-            }
 
-            HorizontalDivider()
             StyleSection(settings, onDefaultChange, onCustomPromptSave)
 
-            HorizontalDivider()
-            asrContent()
+            SettingsGroup("本地语音识别") {
+                Column(Modifier.padding(CARD_PADDING)) { asrContent() }
+            }
 
-            HorizontalDivider()
             Text(
                 "隐私：视频的字幕或本地识别出的文字会发送到你配置的 AI 服务；音频本身不会上传。" +
                     "API Key 只加密保存在本机，不参与备份。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = BsSpacing.sm),
             )
         }
     }
@@ -249,7 +263,9 @@ private fun EndpointEditor(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** 默认总结方式：「B 站总结」或某个风格。[SettingsChoiceSheet] 的选项值。 */
+private const val OFFICIAL_KEY = "official"
+
 @Composable
 private fun StyleSection(
     settings: AiSettings,
@@ -257,38 +273,51 @@ private fun StyleSection(
     onCustomPromptSave: (String) -> Unit,
 ) {
     var prompt by remember(settings.customPrompt) { mutableStateOf(settings.customPrompt) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("默认选择", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "点视频做 AI 总结时，弹窗里默认选中这一项（查完字幕和 B 站总结后生效，你仍可在弹窗里改）。" +
-                "选「B 站总结」时，视频没有官方总结就改用下面最近选的风格。",
-            style = MaterialTheme.typography.bodySmall,
+    var showChoices by remember { mutableStateOf(false) }
+    val selectedKey = if (settings.defaultOfficial) OFFICIAL_KEY else settings.lastStyle.name
+    val choices = remember {
+        listOf(SettingsChoice(OFFICIAL_KEY, "B 站总结（免费）", "视频没有官方总结时，改用最近选的风格")) +
+            StyleChoice.entries.map { SettingsChoice(it.name, it.label) }
+    }
+
+    SettingsGroup("总结风格") {
+        SettingsRow(
+            title = "默认选择",
+            subtitle = "做 AI 总结时弹窗里默认选中这一项，弹窗里仍可改",
+            icon = Icons.Outlined.Tune,
+            value = choices.first { it.value == selectedKey }.label,
+            onClick = { showChoices = true },
         )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = settings.defaultOfficial,
-                onClick = { onDefaultChange(true, settings.lastStyle) },
-                label = { Text("B 站总结（免费）") },
+        SettingsDivider()
+        Column(Modifier.padding(CARD_PADDING), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = prompt,
+                onValueChange = { prompt = it },
+                label = { Text("自定义提示词") },
+                placeholder = { Text("例如：按「问题—结论」的形式整理，每条不超过 30 字") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
             )
-            StyleChoice.entries.forEach { choice ->
-                FilterChip(
-                    selected = !settings.defaultOfficial && settings.lastStyle == choice,
-                    onClick = { onDefaultChange(false, choice) },
-                    label = { Text(choice.label) },
-                )
-            }
+            TextButton(
+                onClick = { onCustomPromptSave(prompt) },
+                enabled = prompt != settings.customPrompt,
+            ) { Text("保存提示词") }
         }
-        OutlinedTextField(
-            value = prompt,
-            onValueChange = { prompt = it },
-            label = { Text("自定义提示词") },
-            placeholder = { Text("例如：按「问题—结论」的形式整理，每条不超过 30 字") },
-            minLines = 3,
-            modifier = Modifier.fillMaxWidth(),
+    }
+
+    if (showChoices) {
+        SettingsChoiceSheet(
+            title = "默认选择",
+            note = "查完字幕和 B 站总结后生效。选「B 站总结」时，视频没有官方总结就改用最近选的风格",
+            choices = choices,
+            selected = selectedKey,
+            onSelect = { key ->
+                if (key == OFFICIAL_KEY) onDefaultChange(true, settings.lastStyle)
+                else onDefaultChange(false, StyleChoice.valueOf(key))
+            },
+            onDismiss = { showChoices = false },
         )
-        TextButton(
-            onClick = { onCustomPromptSave(prompt) },
-            enabled = prompt != settings.customPrompt,
-        ) { Text("保存提示词") }
     }
 }
+
+private val CARD_PADDING = androidx.compose.foundation.layout.PaddingValues(14.dp)

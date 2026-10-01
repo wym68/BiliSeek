@@ -1427,6 +1427,9 @@ return pages.map { p ->
         else -> connection.setSleepTimer(durationMs)
     }
 
+    /** 设置页直接选列表播放模式（与播放页按钮是同一个值）。 */
+    fun setPlayMode(mode: com.biliseek.core.player.PlayMode) = connection.setPlayMode(mode)
+
     fun cyclePlayMode() {
         val modes = com.biliseek.core.player.PlayMode.entries
         val next = modes[(modes.indexOf(connection.state.value.playMode) + 1) % modes.size]

@@ -193,6 +193,17 @@ class MainActivity : ComponentActivity() {
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // UP 空间页导航信号：AppShell 收到后 push UP_SPACE destination。
                 val openUpSpaceRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+                // 打开自己的 UP 空间：搜索页头像、设置页账号卡片共用
+                val openOwnSpace: () -> Unit = {
+                    viewModel.openUpSpace(
+                        SearchUser(
+                            mid = session.dedeUserId.toLongOrNull() ?: 0L,
+                            uname = session.uname,
+                            upic = session.face,
+                        )
+                    )
+                    openUpSpaceRequests.tryEmit(Unit)
+                }
                 // 关注列表页导航信号：AppShell 收到后 push FOLLOWING_LIST destination。
                 val openFollowingListRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
                 // 启动 / 从后台返回时刷新未读小红点。
@@ -563,16 +574,7 @@ class MainActivity : ComponentActivity() {
                             onHistoryClick = viewModel.search::searchKeyword,
                             onDeleteHistory = viewModel.search::deleteSearchKeyword,
                             onClearHistory = viewModel.search::clearSearchHistory,
-                            onAvatarClick = {
-                                viewModel.openUpSpace(
-                                    SearchUser(
-                                        mid = session.dedeUserId.toLongOrNull() ?: 0L,
-                                        uname = session.uname,
-                                        upic = session.face,
-                                    )
-                                )
-                                openUpSpaceRequests.tryEmit(Unit)
-                            },
+                            onAvatarClick = openOwnSpace,
                             session = session,
                             emptyContent = {
                                 if (showEmptyState) {
@@ -718,6 +720,13 @@ class MainActivity : ComponentActivity() {
                                     onLogout = viewModel::logout,
                                 )
                             },
+                            session = session,
+                            loginFailureReason = (loginState as? com.biliseek.core.network.LoginState.Failed)?.reason,
+                            onOpenOwnSpace = openOwnSpace,
+                            onLogout = viewModel::logout,
+                            playMode = playback.playMode,
+                            onPlayModeChange = viewModel::setPlayMode,
+                            onDanmakuSettingsChange = viewModel::updateDanmakuSettings,
                         )
                     },
                     upSpaceContent = { onBack ->
