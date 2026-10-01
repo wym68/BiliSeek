@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   自适应图标前景。path 与 docs/assets/logo.svg 完全一致（1024 坐标系），
-  外层 group 缩放到 108dp 画布。水平方向按图形外接框居中（可见区 72dp 内左右各留白约 7.85dp），
-  竖直方向保持原位；图形离中心最远点约 33.5dp，与 66dp 安全区基本贴合。
-  translateX/Y 改动时 ic_launcher_monochrome 同步改。
+  外层 group 缩放到 108dp 画布，并让电视机身框（外沿 x 55..926、y 204..858）落在画布正中，
+  天线、机脚、镜柄外挂在机身四周。缩放取到图形离中心最远点（镜柄末端）约 33.5dp，
+  与 66dp 安全区基本贴合，圆形遮罩下镜柄不贴边。
+  scale / translate 改动时 ic_launcher_monochrome 同步改。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,10 +12,10 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <group
-        android:scaleX="0.05937"
-        android:scaleY="0.05937"
-        android:translateX="22.595"
-        android:translateY="21.940">
+        android:scaleX="0.05572"
+        android:scaleY="0.05572"
+        android:translateX="26.672"
+        android:translateY="24.415">
         <group>
             <!-- 机身边框在镜柄处断开：外框顺时针 + 镜柄周围胶囊逆时针，挖出一个洞 -->
             <clip-path android:pathData="M-200,-200 H1224 V1224 H-200 Z M780.9,741.5 L899.4,883.6 A78,78 0 0 0 1019.2,783.6 L900.7,641.5 A78,78 0 0 0 780.9,741.5 Z" />
