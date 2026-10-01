@@ -64,8 +64,8 @@ class UpSpaceController(
     }
 
     /**
-     * 进空间页时拉一次关注状态。`relation()` 未登录会 -101，
-     * 由 interceptor 链提前抛成 SearchException；runCatching 兜成 null = 未知。
+     * 进空间页时拉一次关注状态。`relation()` 未登录会 -101（本地未登录不会触发续期），
+     * 失败只记日志，关注状态保持未知。
      */
     private fun loadFollowingState(mid: Long) = scope.launch {
         android.util.Log.d("BiliSeekRelation", "loadFollowingState: mid=$mid")

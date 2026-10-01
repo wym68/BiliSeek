@@ -106,6 +106,18 @@ class LoginManager(
     }
 
     /**
+     * passport 确认登录态已失效（[RefreshOutcome.Expired]）时由 [BiliRepository] 回调：自动登出。
+     *
+     * 与 [logout] 一样只清账号、保留 buvid / ticket。状态不能停在 [LoginState.Success]——
+     * 那样登录面板只显示「登录成功」、没有任何按钮；置为 Failed，面板说明原因并给「重试」（重新扫码）。
+     */
+    internal suspend fun expire() {
+        sessionStore.clear()
+        _state.value = LoginState.Failed("登录已过期，请重新扫码")
+        Log.w(TAG, "passport 确认登录态已失效，已自动登出")
+    }
+
+    /**
      * 用 nav 接口补全用户名与头像。登录成功时与启动补拉共用。
      * 失败/未登录时原样返回（不阻塞登录流程）。
      */

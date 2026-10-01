@@ -1,10 +1,17 @@
 package com.biliseek.core.network
 
 import android.util.Log
-import com.biliseek.core.network.internal.RetryAction
+import com.biliseek.core.network.internal.RefreshDecision
+import com.biliseek.core.network.internal.RefreshMemo
 import com.biliseek.core.network.internal.correspondPath
 import com.biliseek.core.network.internal.extractRefreshCsrf
-import com.biliseek.core.network.internal.resolveRetryAction
+import com.biliseek.core.network.internal.resolvePassportException
+import com.biliseek.core.network.internal.resolvePassportFailure
+import com.biliseek.core.network.internal.resolvePassportHttpFailure
+import com.biliseek.core.network.internal.resolveRefreshDecision
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 
 /** 一次刷新尝试的结果。全部是终态，调用方不必再判断。 */
@@ -26,6 +33,12 @@ sealed interface RefreshOutcome {
      * 拿着可能已经半失效的凭据反复打刷新接口，是最容易被判定为异常的行为之一。
      */
     data object Blocked : RefreshOutcome
+
+    /**
+     * passport 自己也回 -101（`cookie/info` 或 `cookie/refresh`）：这份登录态在服务端已经失效，
+     * 续期无从谈起，只能重新扫码。调用方据此自动登出。
+     */
+    data object Expired : RefreshOutcome
 
     /** 公钥未配置，功能未启用。见 [CookieRefresher.CORRESPOND_PUBLIC_KEY]。 */
     data object NotConfigured : RefreshOutcome
@@ -52,21 +65,52 @@ class CookieRefresher(
     private val sessionStore: SessionStore,
 ) {
 
-    suspend fun refreshIfNeeded(): RefreshOutcome {
-        val session = sessionStore.current
-        if (!session.isLoggedIn) return RefreshOutcome.NotLoggedIn
+    /** 单飞：启动检查、-111、-101 三个入口共用，同一时刻只有一次刷新在跑。 */
+    private val mutex = Mutex()
 
+    /** 上一次真去问 passport 的结果，只在 [mutex] 内读写。见 [resolveRefreshDecision]。 */
+    private var memo: RefreshMemo? = null
+
+    /** 启动检查：登录态是否需要续期，需要就续。 */
+    suspend fun refreshIfNeeded(): RefreshOutcome = refreshGuarded(rejected = null)
+
+    /**
+     * 请求被 -101 / -111 拒掉后调用。[rejected] 是那次请求所用的登录态：等锁期间别的请求
+     * 已经续上的话直接返回 [RefreshOutcome.Refreshed]（调用方重打），不再问 passport。
+     */
+    internal suspend fun refreshAfterRejection(rejected: BiliSession): RefreshOutcome =
+        refreshGuarded(rejected)
+
+    private suspend fun refreshGuarded(rejected: BiliSession?): RefreshOutcome = mutex.withLock {
+        val session = sessionStore.current
+        val now = System.currentTimeMillis()
+        when (val decision = resolveRefreshDecision(rejected?.sessData, session.sessData, memo, now)) {
+            is RefreshDecision.Reuse -> decision.outcome
+            RefreshDecision.Ask -> {
+                // 异常也折成结果：记进记忆，下一个 -101 才不会再去打 passport
+                val outcome = try {
+                    refresh(session)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    resolvePassportException(e)
+                }
+                memo = RefreshMemo(session.sessData, outcome, now)
+                outcome
+            }
+        }
+    }
+
+    private suspend fun refresh(session: BiliSession): RefreshOutcome {
         val info = try {
             api.cookieInfo(csrf = session.biliJct)
         } catch (e: IOException) {
             return RefreshOutcome.Failed(e.message ?: "cookie/info 网络失败")
         }
-        if (resolveRetryAction(info.code) == RetryAction.BACKOFF_NO_RETRY) {
-            Log.w(TAG, "cookie/info 触发风控，放弃刷新并保持现有登录态")
-            return RefreshOutcome.Blocked
-        }
         if (info.code != 0) {
-            return RefreshOutcome.Failed("cookie/info code=${info.code} ${info.message}")
+            val outcome = resolvePassportFailure("cookie/info", info.code, info.message)
+            if (outcome == RefreshOutcome.Blocked) Log.w(TAG, "cookie/info 触发风控，放弃刷新并保持现有登录态")
+            return outcome
         }
         val data = info.data ?: return RefreshOutcome.Failed("cookie/info 无 data")
         if (!data.refresh) return RefreshOutcome.NotNeeded
@@ -87,7 +131,7 @@ class CookieRefresher(
         val html = try {
             val response = api.correspond(CORRESPOND_BASE + path)
             if (!response.isSuccessful) {
-                return RefreshOutcome.Failed("correspond HTTP ${response.code()}")
+                return resolvePassportHttpFailure("correspond", response.code())
             }
             response.body()?.string().orEmpty()
         } catch (e: IOException) {
@@ -105,13 +149,9 @@ class CookieRefresher(
         } catch (e: IOException) {
             return RefreshOutcome.Failed(e.message ?: "cookie/refresh 网络失败")
         }
-        val body = refreshed.body()
-        if (body == null || body.code != 0) {
-            if (body != null && resolveRetryAction(body.code) == RetryAction.BACKOFF_NO_RETRY) {
-                return RefreshOutcome.Blocked
-            }
-            return RefreshOutcome.Failed("cookie/refresh code=${body?.code}")
-        }
+        if (!refreshed.isSuccessful) return resolvePassportHttpFailure("cookie/refresh", refreshed.code())
+        val body = refreshed.body() ?: return RefreshOutcome.Failed("cookie/refresh 无响应体")
+        if (body.code != 0) return resolvePassportFailure("cookie/refresh", body.code, body.message)
 
         // 新 Cookie 在响应头里，不在 body——与扫码登录同一处坑，复用同一个解析器
         val newSession = parseSessionFromCookies(

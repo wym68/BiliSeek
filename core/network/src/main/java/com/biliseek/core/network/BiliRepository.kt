@@ -34,6 +34,7 @@ import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.RiskCooldown
 import com.biliseek.core.network.internal.ThrottleBucket
 import com.biliseek.core.network.internal.resolveRetryAction
+import com.biliseek.core.network.internal.runWithLoginRefresh
 import com.biliseek.core.network.internal.runWriteRequest
 import kotlinx.serialization.json.put
 import java.io.IOException
@@ -83,9 +84,11 @@ class BiliRepository internal constructor(
     private val api: BiliApi,
     private val authGate: AuthGate,
     private val sessionStore: SessionStore,
-    private val cookieRefresher: CookieRefresher,   // -111 后刷新重试
+    private val cookieRefresher: CookieRefresher,   // -111 / -101 后续期重打
     private val riskCooldown: RiskCooldown = RiskCooldown(),          // B3：撞 -352 后全局冷却
     private val requestThrottle: RequestThrottle = RequestThrottle(), // B3：连发限速降噪
+    /** passport 确认登录态已失效（[RefreshOutcome.Expired]）时自动登出，接 [LoginManager.expire]。 */
+    private val onSessionExpired: suspend () -> Unit,
 ) {
 
     /**
@@ -118,8 +121,10 @@ class BiliRepository internal constructor(
         )
         ensureNotCoolingRead()
         val response = try {
-            requestThrottle.gate(ThrottleBucket.SEARCH, SEARCH_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-                api.searchType(params)
+            refreshingOn101 {
+                requestThrottle.gate(ThrottleBucket.SEARCH, SEARCH_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                    api.searchType(params)
+                }
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
@@ -229,12 +234,8 @@ class BiliRepository internal constructor(
     /** 合集列表。必须登录。 */
     suspend fun seriesList(mid: Long): Result<List<SeriesItem>> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.seriesList(mid)
-        require(response.code == 0) {
-            "合集列表失败：code=${response.code} ${response.message}"
-        }
-        response.data?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
+        accountRead("合集列表") { api.seriesList(mid) }
+            ?.list.orEmpty().filter { it.id > 0 && it.title.isNotBlank() }
     }
 
     /** 订阅合集列表（分页）。必须登录。 */
@@ -261,12 +262,8 @@ class BiliRepository internal constructor(
         pageSize: Int = 20,
     ): Result<SeriesArchivesPage> = runCatching {
         requireLoggedInMid()
-        authGate.awaitReady()
-        val response = api.seriesArchives(seriesId, pn = page, ps = pageSize)
-        require(response.code == 0) {
-            "合集内容失败：code=${response.code} ${response.message}"
-        }
-        val data = response.data ?: throw IllegalStateException("合集内容为空")
+        val data = accountRead("合集内容") { api.seriesArchives(seriesId, pn = page, ps = pageSize) }
+            ?: throw IllegalStateException("合集内容为空")
         SeriesArchivesPage(
             items = data.list.filter { it.bvid.isNotBlank() },
             page = page,
@@ -427,7 +424,7 @@ class BiliRepository internal constructor(
     // ── 稍后再看 ────────────────────────────────────────
 
     /**
-     * 稍后再看列表。必须登录（未登录 -101，不重试）。
+     * 稍后再看列表。必须登录（-101 由 [accountRead] 续期后重打一次）。
      *
      * 只取视频型条目（bvid 非空）；进度字段保留，UI 可展示「播到哪了」。
      */
@@ -543,8 +540,10 @@ class BiliRepository internal constructor(
         )
         ensureNotCoolingRead()
         val response = try {
-            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-                block(signed)
+            refreshingOn101 {
+                requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                    block(signed)
+                }
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
@@ -622,8 +621,9 @@ class BiliRepository internal constructor(
                     loggedIn = session.isLoggedIn,
                     initialJct = session.biliJct,
                     awaitReady = { authGate.awaitReady() },
-                    refresh = { cookieRefresher.refreshIfNeeded() },
+                    refresh = { cookieRefresher.refreshAfterRejection(session) },
                     invalidate = { authGate.invalidate() },
+                    logOut = onSessionExpired,
                     currentJct = { sessionStore.current.biliJct },
                     log = { msg -> Log.d("BiliSeekWriteDebug", msg) },
                     block = block,
@@ -641,7 +641,7 @@ class BiliRepository internal constructor(
      * 消息中心读请求的统一响应检查，风控分流与搜索 / 评论读路径一致：
      * -352 → 记入全局冷却并抛 [SearchError.Blocked]（绝不重试）；-412 → 作废设备凭据并抛
      * [SearchError.CredentialsInvalid]；其余非 0 → 抛 [SearchError.Unknown]；成功 → 清冷却。
-     * （-101 已由拦截器链处理。）
+     * （-101 的续期重打在发请求处，见 [refreshingOn101]。）
      */
     private suspend fun <T> checkMessageRead(response: BiliResponse<T>, what: String): T? {
         when (resolveRetryAction(response.code)) {
@@ -678,8 +678,22 @@ class BiliRepository internal constructor(
     }
 
     /**
+     * -101：登录态可能刚过期 → 续期一次，续上了把这个请求重打一次（[runWithLoginRefresh]，绝不循环）。
+     * **包在限速闸门外面**：重打同样排队、吃最小间隔；刷新期间也不占着该桶的锁。
+     */
+    private suspend fun <T> refreshingOn101(fire: suspend () -> BiliResponse<T>): BiliResponse<T> =
+        runWithLoginRefresh(
+            currentSession = { sessionStore.current },
+            refresh = { rejected -> cookieRefresher.refreshAfterRejection(rejected) },
+            logOut = onSessionExpired,
+            coolDown = { riskCooldown.onRiskControl() },
+            fire = fire,
+        )
+
+    /**
      * 账号页读请求（收藏夹、合集、动态、关注、稍后再看）的统一出口，风控分流与消息中心读路径同口径
-     * （见 [checkMessageRead]）：冷却期内本地快速失败，-352 记入全局冷却、**绝不重试**，-412 重置设备凭据。
+     * （见 [checkMessageRead]）：冷却期内本地快速失败，-352 记入全局冷却、**绝不重试**，-412 重置设备凭据，
+     * -101 续期后重打一次（[refreshingOn101]）。
      *
      * 这些页面都能下拉刷新。早期它们各自 `require(code == 0)`：撞了 -352 不进冷却，
      * 用户每拉一次就真打一次服务端——正是《架构设计篇》§3.2 说的「越被拦越猛打」。
@@ -687,7 +701,7 @@ class BiliRepository internal constructor(
     private suspend fun <T> accountRead(what: String, request: suspend () -> BiliResponse<T>): T? {
         authGate.awaitReady()
         ensureNotCoolingRead()
-        return checkMessageRead(request(), what)
+        return checkMessageRead(refreshingOn101(request), what)
     }
 
     // ── AI 总结：字幕与章节（工单 AI-4）─────────────────────
@@ -706,8 +720,10 @@ class BiliRepository internal constructor(
             subKey = credentials.wbiSubKey,
         )
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-            api.playerV2(signed)
+        val response = refreshingOn101 {
+            requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                api.playerV2(signed)
+            }
         }
         checkMessageRead(response, "字幕列表") ?: PlayerV2Data()
     }
@@ -738,8 +754,10 @@ class BiliRepository internal constructor(
         val signed = WbiSigner.sign(params, credentials.wbiImgKey, credentials.wbiSubKey)
         ensureNotCoolingRead()
         val response = try {
-            requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-                api.viewConclusion(signed)
+            refreshingOn101 {
+                requestThrottle.gate(ThrottleBucket.SUMMARY, SUMMARY_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                    api.viewConclusion(signed)
+                }
             }
         } catch (e: retrofit2.HttpException) {
             // HTTP 412 同样是风控拦截：进冷却，不重试
@@ -847,15 +865,17 @@ class BiliRepository internal constructor(
         )
         ensureNotCoolingRead()
         val response = try {
-            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-                runCommentRead(
-                    primary = {
-                        api.replyMainWbi(
-                            WbiSigner.sign(baseParams, credentials.wbiImgKey, credentials.wbiSubKey),
-                        )
-                    },
-                    compat = { api.replyMain(baseParams) },
-                )
+            refreshingOn101 {
+                requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                    runCommentRead(
+                        primary = {
+                            api.replyMainWbi(
+                                WbiSigner.sign(baseParams, credentials.wbiImgKey, credentials.wbiSubKey),
+                            )
+                        },
+                        compat = { api.replyMain(baseParams) },
+                    )
+                }
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
@@ -901,8 +921,10 @@ class BiliRepository internal constructor(
         )
         ensureNotCoolingRead()
         val response = try {
-            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
-                api.replyReply(params)
+            refreshingOn101 {
+                requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                    api.replyReply(params)
+                }
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
@@ -1124,15 +1146,11 @@ class BiliRepository internal constructor(
         ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
 
     /**
-     * 拉取 `fid` 的关注状态。仅登录后有效；未登录会 -101 由调用方按现有错误分支处理。
+     * 拉取 `fid` 的关注状态。仅登录后有效；未登录会 -101，由调用方按现有错误分支处理。
+     * 走 [accountRead]：-352 进冷却、-412 重置凭据、-101 续期后重打一次。
      */
     suspend fun relation(fid: Long): Result<RelationData> = runCatching {
-        ensureNotCoolingRead()
-        val response = api.relation(fid)
-        // -101 / -352 由 interceptor 链提前抛成 SearchException；
-        // 这里只负责把 code != 0 折成 Result 失败
-        if (response.code != 0) error("relation 接口失败：code=${response.code} ${response.message}")
-        response.data ?: RelationData()
+        accountRead("关注状态") { api.relation(fid) } ?: RelationData()
     }
 
     // ── 视频互动状态 / 表情面板（UI 重构）───────────────────
@@ -1145,7 +1163,7 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         ensureNotCoolingRead()
         authGate.awaitReady()
-        checkMessageRead(api.archiveRelation(bvid), "互动状态")
+        checkMessageRead(refreshingOn101 { api.archiveRelation(bvid) }, "互动状态")
             ?: com.biliseek.core.network.dto.ArchiveRelation()
     }
 
@@ -1161,7 +1179,7 @@ class BiliRepository internal constructor(
         emotePanelCache?.let { return@runCatching it }
         ensureNotCoolingRead()
         authGate.awaitReady()
-        val packages = checkMessageRead(api.emotePanel(), "表情面板")?.packages.orEmpty()
+        val packages = checkMessageRead(refreshingOn101 { api.emotePanel() }, "表情面板")?.packages.orEmpty()
             .filter { !it.emote.isNullOrEmpty() }
         emotePanelCache = packages
         packages
@@ -1174,11 +1192,13 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(
-            ThrottleBucket.MESSAGE,
-            MESSAGE_MIN_INTERVAL_MS,
-            THROTTLE_JITTER_MS,
-        ) { api.getSessions() }
+        val response = refreshingOn101 {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.getSessions() }
+        }
         val data = checkMessageRead(response, "私信会话") ?: com.biliseek.core.network.dto.SessionListData()
         data.copy(sessionList = fillSessionPeers(data.sessionList))
     }
@@ -1218,11 +1238,13 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(
-            ThrottleBucket.MESSAGE,
-            MESSAGE_MIN_INTERVAL_MS,
-            THROTTLE_JITTER_MS,
-        ) { api.getMsgfeedReply() }
+        val response = refreshingOn101 {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.getMsgfeedReply() }
+        }
         checkMessageRead(response, "回复与@") ?: com.biliseek.core.network.dto.ReplyFeedData()
     }
 
@@ -1231,11 +1253,13 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(
-            ThrottleBucket.MESSAGE,
-            MESSAGE_MIN_INTERVAL_MS,
-            THROTTLE_JITTER_MS,
-        ) { api.getMsgfeedAt() }
+        val response = refreshingOn101 {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.getMsgfeedAt() }
+        }
         checkMessageRead(response, "@我的") ?: com.biliseek.core.network.dto.AtFeedData()
     }
 
@@ -1244,11 +1268,13 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(
-            ThrottleBucket.MESSAGE,
-            MESSAGE_MIN_INTERVAL_MS,
-            THROTTLE_JITTER_MS,
-        ) { api.getMsgfeedLike() }
+        val response = refreshingOn101 {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.getMsgfeedLike() }
+        }
         checkMessageRead(response, "收到喜欢") ?: com.biliseek.core.network.dto.LikeFeedData()
     }
 
@@ -1257,11 +1283,13 @@ class BiliRepository internal constructor(
         val mid = requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(
-            ThrottleBucket.MESSAGE,
-            MESSAGE_MIN_INTERVAL_MS,
-            THROTTLE_JITTER_MS,
-        ) { api.getFollowers(vmid = mid) }
+        val response = refreshingOn101 {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.getFollowers(vmid = mid) }
+        }
         checkMessageRead(response, "新增粉丝") ?: com.biliseek.core.network.dto.FollowersData()
     }
 
@@ -1273,11 +1301,13 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(
-            ThrottleBucket.MESSAGE,
-            MESSAGE_MIN_INTERVAL_MS,
-            THROTTLE_JITTER_MS,
-        ) { api.fetchSessionMsgs(talkerId = talkerId, beginSeqno = beginSeqno) }
+        val response = refreshingOn101 {
+            requestThrottle.gate(
+                ThrottleBucket.MESSAGE,
+                MESSAGE_MIN_INTERVAL_MS,
+                THROTTLE_JITTER_MS,
+            ) { api.fetchSessionMsgs(talkerId = talkerId, beginSeqno = beginSeqno) }
+        }
         checkMessageRead(response, "私信消息") ?: throw IllegalStateException("私信消息 data 为空")
     }
 

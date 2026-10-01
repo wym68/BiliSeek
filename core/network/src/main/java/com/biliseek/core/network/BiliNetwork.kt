@@ -83,10 +83,12 @@ class BiliNetwork private constructor(context: Context) {
     private val riskCooldown = com.biliseek.core.network.internal.RiskCooldown()
     private val requestThrottle = com.biliseek.core.network.internal.RequestThrottle()
 
-    val repository: BiliRepository =
-        BiliRepository(api, authGate, sessionStore, cookieRefresher, riskCooldown, requestThrottle)
-
     val loginManager: LoginManager = LoginManager(api, sessionStore, authGate)
+
+    val repository: BiliRepository = BiliRepository(
+        api, authGate, sessionStore, cookieRefresher, riskCooldown, requestThrottle,
+        onSessionExpired = { loginManager.expire() },
+    )
 
     /**
      * 播放器取流时要用的请求头。

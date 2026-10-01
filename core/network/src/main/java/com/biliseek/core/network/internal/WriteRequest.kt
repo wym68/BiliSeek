@@ -7,7 +7,7 @@ import com.biliseek.core.network.dto.BiliResponse
 import java.io.IOException
 
 /**
- * 写操作统一编排：注入 csrf(=bili_jct) 到 body、就绪风控凭据、统一错误分流、-111 刷新重试一次。
+ * 写操作统一编排：注入 csrf(=bili_jct) 到 body、就绪风控凭据、统一错误分流、-111 / -101 续期后重试一次。
  *
  * **协作者全部以函数入参注入**（session/awaitReady/refresh/invalidate/currentJct），使本函数无 Android
  * 依赖、可在纯 JVM 单测里离线覆盖工单 §5.1 的每条判据（无需 Context / MockWebServer）。
@@ -26,6 +26,8 @@ internal suspend fun <T> runWriteRequest(
     awaitReady: suspend () -> Unit,
     refresh: suspend () -> RefreshOutcome,
     invalidate: suspend () -> Unit,
+    /** passport 确认登录态已失效（[RefreshOutcome.Expired]）时自动登出。 */
+    logOut: suspend () -> Unit,
     currentJct: () -> String,
     /** -111 调试日志的注入点，默认空实现保持本函数无 Android 依赖、可在纯 JVM 单测里离线跑。 */
     log: (String) -> Unit = {},
@@ -57,10 +59,19 @@ internal suspend fun <T> runWriteRequest(
 
     var response = fire(initialJct)
 
-    // -111：登录态可能 jct 轮换 → 刷新一次后再打一次（仅一次，绝不循环）
-    if (resolveWriteOutcome(response.code, idempotentCodes) is WriteOutcome.CsrfInvalid) {
-        if (refresh() is RefreshOutcome.Refreshed) {
-            response = fire(currentJct())
+    // -111（jct 轮换）/ -101（登录态过期）：续期一次，续上了再打一次——两者共用这一次，绝不循环
+    val first = resolveWriteOutcome(response.code, idempotentCodes)
+    if (first is WriteOutcome.CsrfInvalid || first is WriteOutcome.NeedLogin) {
+        when (resolveRefreshFollowUp(refresh())) {
+            RefreshFollowUp.RETRY_ONCE -> response = fire(currentJct())
+            RefreshFollowUp.LOG_OUT -> {
+                logOut()
+                throw WriteException(WriteError.NeedLogin, "登录已失效，请重新登录")
+            }
+            // 刷新撞了风控：按 -352 处理，writeRequest 据此记入全局冷却
+            RefreshFollowUp.COOL_DOWN ->
+                throw WriteException(WriteError.Blocked, "触发风控(-352)，已进入退避")
+            RefreshFollowUp.GIVE_UP -> Unit
         }
     }
 

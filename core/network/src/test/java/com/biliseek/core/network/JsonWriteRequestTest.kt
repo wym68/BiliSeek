@@ -33,6 +33,7 @@ class JsonWriteRequestTest {
             awaitReady = {},
             refresh = { RefreshOutcome.NotNeeded },
             invalidate = {},
+            logOut = {},
             currentJct = { "JCT777" },
             block = { fields, _ ->
                 // jsonWriteRequest 的 block 正是这样：拿注入 csrf 后的 query 去 WBI 签名
