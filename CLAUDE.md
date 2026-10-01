@@ -32,7 +32,7 @@ Environment (see `docs/01-开发环境搭建.md` for a clean-machine setup): min
 
 - **AGP 9 has built-in Kotlin support** — do **not** declare the `org.jetbrains.kotlin.android` plugin; it errors. Modules use `kotlin.compose` / `kotlin.serialization` / `ksp` plugins as needed.
 - **Release builds run R8 + resource shrink.** Over-stripping does not fail compilation — it crashes at runtime or silently breaks API parsing. A release build must pass a full regression pass. **No `mapping.txt` = not a valid release** (crash stacks can't be de-obfuscated).
-- Room schemas are exported to `app/schemas/` (KSP arg) and must be committed with every DB version bump; `MigrationTest` (instrumented) reads them. **Known gap:** the DB is at version 7 but only `1.json`–`5.json` are committed.
+- Room schemas are exported to `app/schemas/` (KSP arg) and must be committed with every DB version bump; `MigrationTest` (instrumented) reads them.
 
 ## Module architecture
 
