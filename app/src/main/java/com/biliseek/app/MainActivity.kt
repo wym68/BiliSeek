@@ -727,6 +727,7 @@ class MainActivity : ComponentActivity() {
                             playMode = playback.playMode,
                             onPlayModeChange = viewModel::setPlayMode,
                             onDanmakuSettingsChange = viewModel::updateDanmakuSettings,
+                            onDownloadConcurrencyChange = viewModel::setDownloadConcurrency,
                         )
                     },
                     upSpaceContent = { onBack ->

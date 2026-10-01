@@ -69,4 +69,16 @@ class DownloadQueuePolicyTest {
         assertEquals(0L, downloadResolveDelayMs(lastAtMs = 10_000, nowMs = 12_000, minIntervalMs = 2_000))
         assertEquals(0L, downloadResolveDelayMs(lastAtMs = 10_000, nowMs = 9_000, minIntervalMs = 2_000))
     }
+
+    // ── 同时下载数 ──
+
+    @Test
+    fun `同时下载数收进 1 到 3`() {
+        assertEquals(1, clampDownloadConcurrency(0))
+        assertEquals(1, clampDownloadConcurrency(-5))
+        assertEquals(2, clampDownloadConcurrency(2))
+        assertEquals(3, clampDownloadConcurrency(3))
+        assertEquals(3, clampDownloadConcurrency(10))
+        assertEquals(listOf(1, 2, 3), DOWNLOAD_CONCURRENCY_CHOICES)
+    }
 }

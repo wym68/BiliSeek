@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Headphones
@@ -57,6 +58,8 @@ import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DefaultPresentation
 import com.biliseek.app.data.MiniBarStyle
 import com.biliseek.app.data.VideoQualityDefaults
+import com.biliseek.app.data.DOWNLOAD_CONCURRENCY_CHOICES
+import com.biliseek.app.data.MAX_DOWNLOAD_CONCURRENCY
 import com.biliseek.app.ui.components.SettingsChoice
 import com.biliseek.app.ui.components.SettingsChoiceSheet
 import com.biliseek.app.ui.components.SettingsDivider
@@ -76,13 +79,14 @@ import com.biliseek.designsystem.theme.BsSpacing
 /** 设置页当前打开的弹层。 */
 private enum class SettingsSheetKind {
     LOGIN, PRESENTATION, PLAY_MODE, DANMAKU, AUDIO_QUALITY, VIDEO_QUALITY_WIFI, VIDEO_QUALITY_METERED, MINI_BAR, LICENSE,
+    DOWNLOAD_CONCURRENCY,
 }
 
 /**
  * 设置页。
  *
  * 版式（统一外观见 `ui/components/SettingsComponents.kt`）：顶部账号卡片，其余按用途分组成圆角卡片——
- * 播放 → 视频与流量 → 界面 → AI 总结 → 关于，已登录时最下面单独一张「退出登录」。
+ * 播放 → 视频与流量 → 下载 → 界面 → AI 总结 → 关于，已登录时最下面单独一张「退出登录」。
  * 多选一的设置行上只显示当前值，点开从底部弹出单选；开关型整行可点。
  *
  * 账号卡片放顶部但**登录非强制**：未登录时副标题写明「可选」，点开才弹扫码登录面板。
@@ -113,6 +117,7 @@ fun SettingsScreen(
     playMode: PlayMode = PlayMode.SEQUENTIAL,
     onPlayModeChange: (PlayMode) -> Unit = {},
     onDanmakuSettingsChange: ((DanmakuSettings) -> DanmakuSettings) -> Unit = {},
+    onDownloadConcurrencyChange: (Int) -> Unit = {},
 ) {
     var sheet by remember { mutableStateOf<SettingsSheetKind?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
@@ -199,6 +204,15 @@ fun SettingsScreen(
                     icon = Icons.Outlined.NetworkCell,
                     value = videoQualityLabel(settings.videoQualityMetered),
                     onClick = { sheet = SettingsSheetKind.VIDEO_QUALITY_METERED },
+                )
+            }
+
+            SettingsGroup("下载") {
+                SettingsRow(
+                    title = "同时下载数",
+                    icon = Icons.Outlined.Download,
+                    value = "${settings.downloadConcurrency} 个",
+                    onClick = { sheet = SettingsSheetKind.DOWNLOAD_CONCURRENCY },
                 )
             }
 
@@ -309,6 +323,14 @@ fun SettingsScreen(
             onSelect = onMiniBarStyleChange,
             onDismiss = dismiss,
         )
+        SettingsSheetKind.DOWNLOAD_CONCURRENCY -> SettingsChoiceSheet(
+            title = "同时下载数",
+            note = "下载走 B 站视频服务器，不经过业务接口；同时下得越多越占带宽，边下边听时可能卡顿",
+            choices = downloadConcurrencyChoices,
+            selected = settings.downloadConcurrency,
+            onSelect = onDownloadConcurrencyChange,
+            onDismiss = dismiss,
+        )
         SettingsSheetKind.LICENSE -> LicenseSheet(onDismiss = dismiss)
         null -> Unit
     }
@@ -356,6 +378,18 @@ private val videoQualityChoices = VideoQualityDefaults.CHOICES.map { (qn, label)
 
 private fun videoQualityLabel(qn: Int): String =
     videoQualityChoices.firstOrNull { it.value == qn }?.label ?: qn.toString()
+
+private val downloadConcurrencyChoices = DOWNLOAD_CONCURRENCY_CHOICES.map { n ->
+    SettingsChoice(
+        n,
+        "$n 个",
+        when (n) {
+            1 -> "一条下完再下下一条（默认）"
+            MAX_DOWNLOAD_CONCURRENCY -> "最多同时下 $n 条，最占带宽"
+            else -> "同时下 $n 条"
+        },
+    )
+}
 
 private val miniBarChoices = listOf(
     SettingsChoice(MiniBarStyle.FLOAT, "浮在底部", "圆角 + 阴影，悬浮在底栏上方"),

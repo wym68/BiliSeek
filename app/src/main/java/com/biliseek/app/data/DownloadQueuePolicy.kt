@@ -48,3 +48,12 @@ fun downloadResolveDelayMs(lastAtMs: Long?, nowMs: Long, minIntervalMs: Long = D
     val elapsed = nowMs - lastAtMs
     return if (elapsed in 0 until minIntervalMs) minIntervalMs - elapsed else 0L
 }
+
+/** 同时下载数的上限。下载走 B 站视频 CDN，不是业务接口；再多收益不大，还会抢占播放带宽。 */
+const val MAX_DOWNLOAD_CONCURRENCY = 3
+
+/** 设置页可选的同时下载数。 */
+val DOWNLOAD_CONCURRENCY_CHOICES: List<Int> = (1..MAX_DOWNLOAD_CONCURRENCY).toList()
+
+/** 存储里读出的同时下载数（可能是旧值 / 被改过）收进 1..[MAX_DOWNLOAD_CONCURRENCY]。 */
+fun clampDownloadConcurrency(value: Int): Int = value.coerceIn(1, MAX_DOWNLOAD_CONCURRENCY)

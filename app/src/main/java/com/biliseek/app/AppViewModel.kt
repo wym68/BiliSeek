@@ -1136,6 +1136,7 @@ return pages.map { p ->
             connection.resolveDownloadSource(bvid, cid, quality)
         }
         downloadManager.qualityProvider = { settingsStore.current.audioQuality }
+        downloadManager.concurrencyProvider = { settingsStore.current.downloadConcurrency }
         // 本地识别（工单 AI-8）：音频走与下载同一个取流解析器，最低音质档
         summaryManager.localAsrRunner = com.biliseek.app.summary.LocalAsrSource(
             app = app,
@@ -1509,6 +1510,9 @@ return pages.map { p ->
 
     fun setVideoQualityMetered(value: Int) =
         viewModelScope.launch { settingsStore.setVideoQualityMetered(value) }
+
+    fun setDownloadConcurrency(value: Int) =
+        viewModelScope.launch { settingsStore.setDownloadConcurrency(value) }
 
     fun setLoudnessNormalization(value: Boolean) =
         viewModelScope.launch { settingsStore.setLoudnessNormalization(value) }

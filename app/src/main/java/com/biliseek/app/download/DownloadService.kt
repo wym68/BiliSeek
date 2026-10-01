@@ -98,10 +98,15 @@ class DownloadService : Service() {
         val title = task.title.ifBlank { "下载中" }
         val subtitle = when (task.status) {
             DownloadStatus.DOWNLOADING -> {
-                val kind = if (task.content == com.biliseek.app.data.DownloadContent.VIDEO) "视频" else "音频"
-                val loc = locationLabel(task.location)
-                val pct = if (task.progress > 0) " · ${(task.progress * 100).toInt()}%" else ""
-                "$kind · $loc$pct"
+                // 多条并行时管理器合成一条汇总（content 为空）：只显示总进度
+                if (task.content.isBlank()) {
+                    if (task.progress > 0) "总进度 ${(task.progress * 100).toInt()}%" else "下载中"
+                } else {
+                    val kind = if (task.content == com.biliseek.app.data.DownloadContent.VIDEO) "视频" else "音频"
+                    val loc = locationLabel(task.location)
+                    val pct = if (task.progress > 0) " · ${(task.progress * 100).toInt()}%" else ""
+                    "$kind · $loc$pct"
+                }
             }
             DownloadStatus.QUEUED -> "排队中"
             DownloadStatus.DONE -> "下载完成"

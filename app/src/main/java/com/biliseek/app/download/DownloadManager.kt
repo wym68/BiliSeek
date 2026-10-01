@@ -21,6 +21,7 @@ import com.biliseek.app.data.DownloadStatus
 import com.biliseek.app.data.downloadFileName
 import com.biliseek.app.data.isReplaceableFailedRecord
 import com.biliseek.app.data.shouldSkipEnqueue
+import com.biliseek.app.data.clampDownloadConcurrency
 import com.biliseek.app.data.downloadResolveDelayMs
 import com.biliseek.app.data.DOWNLOAD_RESOLVE_MIN_INTERVAL_MS
 import com.biliseek.app.data.resolveRangeHeader
@@ -129,8 +130,13 @@ class DownloadManager private constructor(private val app: Application) {
     var qualityProvider: (() -> AudioQuality)? = null
 
     /** 当前正在执行的任务，通知栏进度用。 */
-    val active: DownloadTask? get() = activeRef.get()
-    private val activeRef = AtomicReference<DownloadTask?>(null)
+    val active: DownloadTask? get() = activeTasks.values.firstOrNull()
+
+    /** 正在执行的任务（id → 带实时进度的任务）。并发下载时可能有多条。 */
+    private val activeTasks = java.util.concurrent.ConcurrentHashMap<Long, DownloadTask>()
+
+    /** 同时下载数。由 AppViewModel 注入（读设置），每轮开工时读一次。 */
+    var concurrencyProvider: (() -> Int)? = null
 
     // ── 入口 ──────────────────────────────────────────────
 
@@ -221,7 +227,11 @@ class DownloadManager private constructor(private val app: Application) {
 
     // ── 执行 ──────────────────────────────────────────────
 
-    /** 由服务调用。串行处理队列，队列空了收尾。
+    /**
+     * 由服务调用。按设置开 1..3 个工位并行处理队列，队列空了收尾。
+     *
+     * 每个工位在锁内领取下一条排队任务（[claimNext]），领到即标为下载中，两个工位不会领到同一条。
+     * 所有工位收工后再看一眼队列：期间新入队、而工位已经退出的任务接着开一轮处理。
      *
      * 必须整体切到 IO：下载是阻塞式 OkHttp + MediaMuxer，跑在主线程会
      * `NetworkOnMainThreadException`（服务侧 scope 是 Main.immediate）。
@@ -231,18 +241,36 @@ class DownloadManager private constructor(private val app: Application) {
         try {
             kotlinx.coroutines.withContext(Dispatchers.IO) {
                 while (true) {
-                    val next = dao.byStatus(DownloadStatus.QUEUED).firstOrNull() ?: break
-                    runCancellable(next, service)
+                    val workers = clampDownloadConcurrency(concurrencyProvider?.invoke() ?: 1)
+                    kotlinx.coroutines.coroutineScope {
+                        repeat(workers) { launch { workerLoop(service) } }
+                    }
+                    if (dao.byStatus(DownloadStatus.QUEUED).isEmpty()) break
                 }
             }
         } finally {
             processingRef.set(false)
-            activeRef.set(null)
+            activeTasks.clear()
             refreshTasks()
             // 收尾前再确认一次队列：处理期间可能又有人入队，
             // 若服务在任务还有剩余时停掉，新任务会卡在 QUEUED 等不到下次启动
             if (dao.byStatus(DownloadStatus.QUEUED).isEmpty()) service.finish()
         }
+    }
+
+    /** 一个工位：领一条做一条，领不到就收工。 */
+    private suspend fun workerLoop(service: DownloadService) {
+        while (true) {
+            val next = claimNext() ?: return
+            runCancellable(next, service)
+        }
+    }
+
+    /** 在锁内领取下一条排队任务并标为下载中。 */
+    private suspend fun claimNext(): DownloadEntity? = queueMutex.withLock {
+        val next = dao.byStatus(DownloadStatus.QUEUED).firstOrNull() ?: return@withLock null
+        dao.upsert(next.copy(status = DownloadStatus.DOWNLOADING, error = ""))
+        next
     }
 
     /**
@@ -257,6 +285,7 @@ class DownloadManager private constructor(private val app: Application) {
                 job.join()
             } finally {
                 runningJobs.remove(row.id)
+                activeTasks.remove(row.id)
             }
         }
     }
@@ -265,9 +294,9 @@ class DownloadManager private constructor(private val app: Application) {
         var row = queued
         dao.upsert(row.copy(status = DownloadStatus.DOWNLOADING, error = ""))
         val running = row.toTask(status = DownloadStatus.DOWNLOADING, progress = 0f)
-        activeRef.set(running)
+        activeTasks[row.id] = running
         refreshTasks()
-        service.showNotification(running)
+        notify(service, running)
 
         try {
             val source = resolveThrottled(row)
@@ -319,9 +348,9 @@ class DownloadManager private constructor(private val app: Application) {
             }
             dao.upsert(doneRow)
             val done = doneRow.toTask(status = DownloadStatus.DONE, progress = 1f)
-            activeRef.set(done)
+            activeTasks.remove(row.id)
             refreshTasks()
-            service.showNotification(done)
+            notify(service, done)
         } catch (e: kotlinx.coroutines.CancellationException) {
             // 用户取消：表行已由 delete() 删掉，这里只清半成品，不标失败
             stagingRoot(row.bvid, row.cid).deleteRecursively()
@@ -340,9 +369,9 @@ class DownloadManager private constructor(private val app: Application) {
                 progress = 0f,
                 error = failedRow.error,
             )
-            activeRef.set(failed)
+            activeTasks.remove(row.id)
             refreshTasks()
-            service.showNotification(failed)
+            notify(service, failed)
         }
     }
 
@@ -453,9 +482,9 @@ class DownloadManager private constructor(private val app: Application) {
 
     private suspend fun notifyProgress(row: DownloadEntity, progress: Float, service: DownloadService) {
         val task = row.toTask(status = DownloadStatus.DOWNLOADING, progress = progress)
-        activeRef.set(task)
+        activeTasks[row.id] = task
         refreshTasks()
-        service.showNotification(task)
+        notify(service, task)
     }
 
     // ── mux：只封装、不重编码 ────────────────────────────
@@ -758,14 +787,34 @@ class DownloadManager private constructor(private val app: Application) {
         fileSize = fileSize,
     )
 
+    /**
+     * 更新通知。只有一条在下载时显示它本身；多条并行时合成一条「正在下载 N 项」+ 平均进度，
+     * 免得几个任务轮流刷同一条通知、标题来回跳。
+     */
+    private fun notify(service: DownloadService, latest: DownloadTask) {
+        val running = activeTasks.values.filter { it.status == DownloadStatus.DOWNLOADING }
+        val shown = if (running.size <= 1) {
+            latest
+        } else {
+            latest.copy(
+                title = "正在下载 ${running.size} 项",
+                content = "",
+                location = "",
+                status = DownloadStatus.DOWNLOADING,
+                progress = running.map { it.progress }.average().toFloat(),
+            )
+        }
+        service.showNotification(shown)
+    }
+
     /** 从 DB 全量刷新任务列表。进行中的任务用内存里的实时进度覆盖。 */
     private suspend fun refreshTasks() {
-        val active = activeRef.get()
         val rows = dao.all()
         _tasks.value = rows
             .sortedByDescending { it.downloadedAt }
             .map { row ->
-                if (active != null && active.id == row.id && row.status == DownloadStatus.DOWNLOADING) {
+                val active = activeTasks[row.id]
+                if (active != null && row.status == DownloadStatus.DOWNLOADING) {
                     active.copy(
                         id = row.id,
                         title = row.title,
