@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   自适应图标前景。path 与 docs/assets/logo.svg 完全一致（1024 坐标系），
-  外层 group 缩放到 108dp 画布，并让整个图形的最小外接圆（r≈33.5）落在中央 66dp 安全区内。
+  外层 group 缩放到 108dp 画布。水平方向按图形外接框居中（可见区 72dp 内左右各留白约 7.85dp），
+  竖直方向保持原位；图形离中心最远点约 33.5dp，与 66dp 安全区基本贴合。
+  translateX/Y 改动时 ic_launcher_monochrome 同步改。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -11,7 +13,7 @@
     <group
         android:scaleX="0.05937"
         android:scaleY="0.05937"
-        android:translateX="20.695"
+        android:translateX="22.595"
         android:translateY="21.940">
         <group>
             <!-- 机身边框在镜柄处断开：外框顺时针 + 镜柄周围胶囊逆时针，挖出一个洞 -->
