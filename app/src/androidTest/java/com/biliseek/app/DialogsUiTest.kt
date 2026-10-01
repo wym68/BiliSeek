@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DownloadContent
 import com.biliseek.app.data.PlaylistEntity
@@ -132,12 +133,12 @@ class DialogsUiTest {
         }
 
         compose.onNodeWithText("下载").assertIsDisplayed()
-        compose.onNodeWithText("只音频（m4a）").assertIsDisplayed()
-        compose.onNodeWithText("视频（mp4）").assertIsDisplayed()
-        compose.onNodeWithText("应用内").assertIsDisplayed()
-        compose.onNodeWithText("公共媒体库").assertIsDisplayed()
-        compose.onNodeWithText("自定义目录").assertIsDisplayed()
-        compose.onNodeWithText("开始下载").assertIsDisplayed()
+        compose.onNodeWithText("只音频（m4a）").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("视频（mp4）").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("应用内").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("公共媒体库").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("自定义目录").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("开始下载").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -156,7 +157,7 @@ class DialogsUiTest {
             }
         }
 
-        compose.onNodeWithText("开始下载").performClick()
+        compose.onNodeWithText("开始下载").performScrollTo().performClick()
         val request = requests?.singleOrNull()
         check(request != null) { "未触发 onConfirm 或条数不对" }
         check(request.bvid == "BV1xx411c7mD")

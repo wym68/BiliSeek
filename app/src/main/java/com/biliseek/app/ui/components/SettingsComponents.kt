@@ -205,26 +205,49 @@ fun <T> SettingsChoiceSheet(
 ) {
     SettingsSheet(title = title, note = note, onDismiss = onDismiss) {
         choices.forEach { choice ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .selectable(
-                        selected = choice.value == selected,
-                        role = Role.RadioButton,
-                        onClick = {
-                            onSelect(choice.value)
-                            onDismiss()
-                        },
-                    )
-                    .padding(horizontal = BsSpacing.xl, vertical = BsSpacing.md),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(BsSpacing.lg),
-            ) {
-                RadioButton(selected = choice.value == selected, onClick = null)
-                SettingsTexts(choice.label, choice.description, Modifier.weight(1f))
-            }
+            SettingsRadioRow(
+                label = choice.label,
+                description = choice.description,
+                selected = choice.value == selected,
+                onClick = {
+                    onSelect(choice.value)
+                    onDismiss()
+                },
+            )
         }
     }
+}
+
+/** 单选行：单选圈 + 标题 + 一句说明。整行可点。 */
+@Composable
+fun SettingsRadioRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    description: String? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = BsSpacing.xl, vertical = BsSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(BsSpacing.lg),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        SettingsTexts(label, description, Modifier.weight(1f))
+    }
+}
+
+/** 弹层内的小节标题（主色小字），与 [SettingsGroup] 的组名同一样式。 */
+@Composable
+fun SettingsSheetSection(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = BsSpacing.xl, end = BsSpacing.xl, top = BsSpacing.md, bottom = BsSpacing.xs),
+    )
 }
 
 /** 设置用的底部弹层外壳：标题 + 可选说明 + 可滚动内容。 */
