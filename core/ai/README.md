@@ -1,7 +1,7 @@
 # :core:ai
 
 AI 总结能力模块：把「带时间戳的原文」交给用户配置的大模型，产出 Markdown 总结。设计与任务拆分见
-[`docs/10-AI总结-实现工单.md`](../../docs/10-AI总结-实现工单.md)。
+[`docs/archive/10-AI总结-实现工单.md`](../../docs/archive/10-AI总结-实现工单.md)。
 
 ## 边界
 
