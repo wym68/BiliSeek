@@ -1181,12 +1181,12 @@ adb uninstall com.biliseek.debug     # 需要时卸载
 1. 手机：设置 → 开发者选项 → **无线调试** → 打开
 2. 点「**使用配对码配对设备**」，手机会显示：
   - 配对码（6 位数字）
-  - IP 地址和端口（形如 `192.168.1.7:37251`）
+  - IP 地址和端口（形如 `<手机IP>:<配对端口>`）
 
 在电脑终端：
 
 ```bash
-adb pair 192.168.1.7:37251
+adb pair <手机IP>:<配对端口>
 # 提示 Enter pairing code: 时输入手机上的 6 位配对码
 ```
 
@@ -1197,11 +1197,11 @@ adb pair 192.168.1.7:37251
 回到手机的「无线调试」主页，记下顶部的 **IP 地址和端口**（这个端口和配对端口**不是同一个**）：
 
 ```bash
-adb connect 192.168.1.7:5555
+adb connect <手机IP>:<连接端口>
 adb devices
 ```
 
-期望看到 `192.168.1.7:5555   device`。
+期望看到 `<手机IP>:<连接端口>   device`。
 
 > **常见坑**：配对用的端口是临时的，连接要用无线调试主页上显示的那个端口。搞混了会连不上。
 
@@ -1216,7 +1216,7 @@ adb shell pm clear com.biliseek.debug
 **若同时连着模拟器或有线设备**，指定目标：
 
 ```bash
-adb -s 192.168.1.7:5555 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s <手机IP>:<连接端口> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ## C4. 打开日志窗口
@@ -1321,7 +1321,7 @@ adb logcat -c && adb logcat -s BiliSeekAuth:V BiliSeekPlayUrl:V BiliSeekPlayer:V
 无线调试经常掉，掉了不影响手机上的 App，只影响电脑这边的日志和命令：
 
 ```bash
-adb connect 192.168.1.7:5555     # 重连
+adb connect <手机IP>:<连接端口>     # 重连
 ```
 
 手机重启或换 Wi-Fi 后需要重新走 C1 配对。
@@ -1329,7 +1329,7 @@ adb connect 192.168.1.7:5555     # 重连
 ## C8. 收尾
 
 ```bash
-adb disconnect 192.168.1.7:5555
+adb disconnect <手机IP>:<连接端口>
 ```
 
 手机上关掉「无线调试」开关（不关的话待机耗电略高）。
