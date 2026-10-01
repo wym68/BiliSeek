@@ -1,5 +1,6 @@
 package com.biliseek.app
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -8,9 +9,9 @@ import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DownloadContent
 import com.biliseek.app.data.PlaylistEntity
 import com.biliseek.app.download.DownloadRequest
+import com.biliseek.app.ui.AddToListPickerDialog
 import com.biliseek.app.ui.DownloadDialog
 import com.biliseek.app.ui.MeteredVideoDialog
-import com.biliseek.app.ui.PlaylistPickerDialog
 import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.designsystem.theme.BiliSeekTheme
@@ -18,7 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * 三个对话框的交互测试：流量拦截 / 加歌单选择 / 下载确认。
+ * 三个对话框的交互测试：流量拦截 / 加入列表选择 / 下载确认。
  *
  * 覆盖《M12 计划》B-3 的 Dialogs 部分。
  */
@@ -51,44 +52,61 @@ class DialogsUiTest {
         check(dismissed) { "「继续只听」未触发关闭" }
     }
 
-    // ── 加歌单选择（M7 C-4）────────────────────────────────
+    // ── 加入列表选择（M7 C-4；加入列表改造后为 AddToListPickerDialog）──────
+
+    /** 未登录形态：只有本地歌单区，收藏夹相关回调都不该被触发。 */
+    @Composable
+    private fun LoggedOutPicker(
+        playlists: List<PlaylistEntity>,
+        onPickPlaylist: (Long) -> Unit = {},
+        onCreatePlaylist: (String) -> Unit = {},
+    ) {
+        AddToListPickerDialog(
+            playlists = playlists,
+            favoriteFolders = emptyList(),
+            isLoggedIn = false,
+            onPickPlaylist = onPickPlaylist,
+            onCreatePlaylist = onCreatePlaylist,
+            onRenamePlaylist = { _, _ -> },
+            onDeletePlaylist = {},
+            onPickFavorite = {},
+            onCreateFavorite = { _, _ -> },
+            onEditFavorite = { _, _ -> },
+            onDeleteFavorite = {},
+            onDismiss = {},
+        )
+    }
 
     @Test
-    fun 加歌单_列出全部歌单并回调选中项() {
+    fun 加入列表_列出本地歌单并回调选中项() {
         var picked: Long? = null
-        var creating = false
+        var created: String? = null
         compose.setContent {
             BiliSeekTheme {
-                PlaylistPickerDialog(
+                LoggedOutPicker(
                     playlists = listOf(
                         PlaylistEntity(id = 7, name = "我的歌单", createdAt = 1, updatedAt = 1),
                         PlaylistEntity(id = 9, name = "通勤专用", createdAt = 2, updatedAt = 2),
                     ),
-                    onPick = { picked = it },
-                    onCreate = { creating = true },
-                    onDismiss = {},
+                    onPickPlaylist = { picked = it },
+                    onCreatePlaylist = { created = it },
                 )
             }
         }
 
         compose.onNodeWithText("我的歌单").assertIsDisplayed()
         compose.onNodeWithText("通勤专用").assertIsDisplayed()
+        compose.onNodeWithText("B站收藏夹").assertDoesNotExist()
         compose.onNodeWithText("通勤专用").performClick()
         check(picked == 9L) { "点击歌单未回调正确的 id" }
-        check(!creating)
+        check(created == null)
     }
 
     @Test
-    fun 加歌单_无歌单时直接进新建() {
-        var created = false
+    fun 加入列表_未登录且无歌单时直接进新建() {
         compose.setContent {
             BiliSeekTheme {
-                PlaylistPickerDialog(
-                    playlists = emptyList(),
-                    onPick = {},
-                    onCreate = { created = true },
-                    onDismiss = {},
-                )
+                LoggedOutPicker(playlists = emptyList())
             }
         }
 
