@@ -1441,8 +1441,11 @@ return pages.map { p ->
     // ── 下载 ────────────────────────────────────────────
 
     /** 入队下载。内容（只音频/视频）与位置在调用前由 UI 弹窗定好。 */
-    fun enqueueDownload(request: com.biliseek.app.download.DownloadRequest) =
+    fun enqueueDownload(request: com.biliseek.app.download.DownloadRequest) {
         downloadManager.enqueue(request)
+        // 与「加入播放队列」同一套浮框提示，否则点了「开始下载」看不出有没有生效
+        emitMessage("已加入下载队列")
+    }
 
     fun retryDownload(id: Long) = downloadManager.retry(id)
 

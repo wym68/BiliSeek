@@ -17,6 +17,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Refresh
+import com.biliseek.designsystem.component.BsConfirmDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.DownloadContent
@@ -38,6 +44,9 @@ import com.biliseek.core.player.formatDuration
  *
  * 静默失败是本项目反复强调要避免的那类问题——失败在这里有明确文案、
  * 有重试按钮，不是下了没反应。
+ *
+ * 行样式与 AI 总结列表一致：已完成的条目整行点击即播放；操作只放右侧图标
+ * （已完成：删除；失败：重试 + 删除；排队中：取消）。
  */
 @Composable
 fun DownloadsScreen(
@@ -50,13 +59,15 @@ fun DownloadsScreen(
 ) {
     // 公共 / SAF 的删除要先问用户：仅清记录，还是源文件一起删
     var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
+    // 应用内文件的删除：图标容易误触，先确认一次
+    var pendingDeletePrivate by remember { mutableStateOf<DownloadTask?>(null) }
 
     Column(modifier.fillMaxSize()) {
         BsTopBar(title = "已下载", subtitle = "${tasks.count { it.isDone }} 个", onNavigate = onClose)
         if (tasks.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text(
-                    "还没有下载。在搜索结果里长按条目 → 下载",
+                    "还没有下载。在搜索结果条目的「⋮」菜单里选「下载」",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -70,10 +81,29 @@ fun DownloadsScreen(
                     onRetry = onRetry,
                     onDelete = onDelete,
                     onAskDelete = { pendingDelete = it },
+                    onAskDeletePrivate = { pendingDeletePrivate = it },
                 )
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
+    }
+
+    pendingDeletePrivate?.let { task ->
+        BsConfirmDialog(
+            title = "删除这个下载？",
+            text = buildString {
+                append("将删除应用内保存的文件")
+                if (task.fileSize > 0) append("，释放约 ${formatBytes(task.fileSize)}")
+                append("。")
+            },
+            confirmLabel = "删除",
+            destructive = true,
+            onConfirm = {
+                onDelete(task.id, true)
+                pendingDeletePrivate = null
+            },
+            onDismiss = { pendingDeletePrivate = null },
+        )
     }
 
     pendingDelete?.let { task ->
@@ -99,57 +129,53 @@ private fun DownloadRow(
     onRetry: (Long) -> Unit,
     onDelete: (Long, Boolean) -> Unit,
     onAskDelete: (DownloadTask) -> Unit,
+    onAskDeletePrivate: (DownloadTask) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            CoverThumbnail(task.coverUrl, width = 72.dp)
-            Column(Modifier.weight(1f)) {
-                Text(
-                    task.title.ifBlank { "未命名" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    buildString {
-                        append(if (task.content == DownloadContent.VIDEO) "视频" else "音频")
-                        append(" · ")
-                        append(locationLabel(task.location))
-                        if (task.fileSize > 0) append(" · ${formatBytes(task.fileSize)}")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                StatusLine(task)
-            }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            // 只有下载完成的条目能播：整行点击即播放
+            .then(if (task.isDone) Modifier.clickable { onPlay(task) } else Modifier)
+            .padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        CoverThumbnail(task.coverUrl, width = 72.dp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                task.title.ifBlank { "未命名" },
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                buildString {
+                    append(if (task.content == DownloadContent.VIDEO) "视频" else "音频")
+                    append(" · ")
+                    append(locationLabel(task.location))
+                    if (task.fileSize > 0) append(" · ${formatBytes(task.fileSize)}")
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            StatusLine(task)
         }
-        Row(
-            Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            when {
-                task.isDone -> {
-                    TextButton(onClick = { onPlay(task) }) { Text("播放") }
-                    TextButton(onClick = {
-                        if (task.location == DownloadLocation.PRIVATE) {
-                            // 应用内：删记录就是不要文件了，直接删，不弹窗
-                            onDelete(task.id, true)
-                        } else {
-                            onAskDelete(task)
-                        }
-                    }) { Text("删除") }
+        when {
+            task.isDone -> IconButton(onClick = {
+                if (task.location == DownloadLocation.PRIVATE) onAskDeletePrivate(task) else onAskDelete(task)
+            }) {
+                Icon(Icons.Outlined.Delete, contentDescription = "删除")
+            }
+            task.isFailed -> Row {
+                IconButton(onClick = { onRetry(task.id) }) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "重试")
                 }
-                task.isFailed -> {
-                    TextButton(onClick = { onRetry(task.id) }) { Text("重试") }
-                    TextButton(onClick = { onDelete(task.id, false) }) { Text("删除") }
+                IconButton(onClick = { onDelete(task.id, false) }) {
+                    Icon(Icons.Outlined.Delete, contentDescription = "删除")
                 }
-                task.status == DownloadStatus.QUEUED -> {
-                    Text("排队中", style = MaterialTheme.typography.labelSmall)
-                    TextButton(onClick = { onDelete(task.id, false) }) { Text("取消") }
-                }
+            }
+            task.status == DownloadStatus.QUEUED -> IconButton(onClick = { onDelete(task.id, false) }) {
+                Icon(Icons.Outlined.Close, contentDescription = "取消下载")
             }
         }
     }
@@ -216,7 +242,14 @@ private fun StatusLine(task: DownloadTask) {
         task.isFailed -> Text(
             task.error.ifBlank { "下载失败" },
             style = MaterialTheme.typography.labelSmall,
-            color = Color.Red,
+            color = MaterialTheme.colorScheme.error,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        task.status == DownloadStatus.QUEUED -> Text(
+            "排队中",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
