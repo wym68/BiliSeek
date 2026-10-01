@@ -19,6 +19,7 @@ import com.biliseek.app.data.DownloadEntity
 import com.biliseek.app.data.DownloadLocation
 import com.biliseek.app.data.DownloadStatus
 import com.biliseek.app.data.downloadFileName
+import com.biliseek.app.data.isReplaceableFailedRecord
 import com.biliseek.app.data.resolveRangeHeader
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.AudioQuality
@@ -128,9 +129,9 @@ class DownloadManager private constructor(private val app: Application) {
     fun enqueue(request: DownloadRequest) {
         scope.launch {
             queueMutex.withLock {
-                // 同一 bvid 的旧失败记录先清掉，避免 (bvid, 0) 占着唯一索引
+                // 只清这次要顶替的旧失败记录（同一 P，或分 P 未知的占位），别的 P 的失败记录保留
                 dao.all().forEach { old ->
-                    if (old.bvid == request.bvid && old.status == DownloadStatus.FAILED) {
+                    if (isReplaceableFailedRecord(old.bvid, old.cid, old.status, request.bvid, request.cid)) {
                         dao.deleteById(old.id)
                     }
                 }
