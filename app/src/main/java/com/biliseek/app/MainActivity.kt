@@ -42,7 +42,6 @@ import com.biliseek.app.ui.LikeScreen
 import com.biliseek.app.ui.MessageCenterScreen
 import com.biliseek.app.ui.ReplyAtScreen
 import com.biliseek.app.ui.PrivateChatScreen
-import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.app.toSearchVideo
 import com.biliseek.app.ui.DownloadsScreen
 import com.biliseek.app.ui.DynamicScreen
@@ -85,8 +84,8 @@ class MainActivity : ComponentActivity() {
     /** API 26–28 写公共媒体库需要运行时权限；29+ 走 MediaStore 不需要。 */
     private val requestStoragePermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            pendingStorageDownload?.let { req ->
-                if (granted) viewModel.enqueueDownload(req)
+            pendingStorageDownload?.let { requests ->
+                if (granted) viewModel.enqueueDownloads(requests)
                 // 拒绝时任务不入队——界面上的失败提示由用户自己决定重试
             }
             pendingStorageDownload = null
@@ -107,7 +106,7 @@ class MainActivity : ComponentActivity() {
         }
 
     /** 等权限就绪后入队的下载（仅 API 26–28 + 公共媒体库路径）。 */
-    private var pendingStorageDownload: com.biliseek.app.download.DownloadRequest? = null
+    private var pendingStorageDownload: List<com.biliseek.app.download.DownloadRequest>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -180,13 +179,15 @@ class MainActivity : ComponentActivity() {
                 val coroutineScope = rememberCoroutineScope()
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
                 // 长按 → 下载：先问内容与保存位置（搜索结果 / 多 P 分 P / UP 投稿共用）
+                // 播放页「下载当前」直接确认这一条；其余入口经 ViewModel（多 P 先挑分 P）落到 pendingDownload
                 var downloadFor by remember { mutableStateOf<com.biliseek.app.ui.DownloadTarget?>(null) }
+                val pendingDownload by viewModel.pendingDownload.collectAsState()
                 // 视频动态长按菜单：动态 tab 与 UP 空间「动态」共用，四项全部复用搜索结果那套动作
                 val dynamicVideoActions = DynamicVideoActions(
                     addToPlaylist = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
                     appendToQueue = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
                     playNext = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
-                    download = { entry -> entry.toSearchVideo()?.let { downloadFor = it.toDownloadTarget() } },
+                    download = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.Download) },
                     summarize = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.Summarize) },
                 )
                 // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
@@ -510,7 +511,7 @@ class MainActivity : ComponentActivity() {
                             onPlayNext = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
                             onCopyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
                             onShowPages = viewModel::showPages,
-                            onDownload = { downloadFor = it.toDownloadTarget() },
+                            onDownload = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.Download) },
                             onSummarize = viewModel::summarizeVideo,
                             onPageSummarize = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.Summarize) },
                             onViewUpOwner = { video ->
@@ -538,15 +539,7 @@ class MainActivity : ComponentActivity() {
                             onPageAppendToQueue = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
                             onPagePlayNext = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
                             onPageCopyLink = { copyToClipboard(viewModel.pageVideoUrl(it)) },
-                            onPageDownload = {
-                                downloadFor = com.biliseek.app.ui.DownloadTarget(
-                                    bvid = pagePanel.bvid,
-                                    cid = it.cid,
-                                    title = "P${it.page} ${it.title}".trim(),
-                                    coverUrl = pagePanel.cover,
-                                    author = pagePanel.author,
-                                )
-                            },
+                            onPageDownload = { viewModel.pageSingleAction(it, com.biliseek.app.PendingAction.Download) },
                             // Ch3 复选模式
                             isSelectionMode = selectionMode is com.biliseek.app.SelectionMode.On,
                             selectedBvids = selectedBvids,
@@ -775,7 +768,7 @@ class MainActivity : ComponentActivity() {
                             onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
                             onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
                             onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
-                            onPostDownload = { downloadFor = it.toSearchVideo().toDownloadTarget() },
+                            onPostDownload = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.Download) },
                             onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
                         )
                     },
@@ -1050,21 +1043,25 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // 下载前先确认内容与保存位置
-                downloadFor?.let { target ->
+                (pendingDownload ?: downloadFor?.let { listOf(it) })?.let { targets ->
                     DownloadDialog(
-                        target = target,
+                        targets = targets,
                         settings = settings,
-                        onDismiss = { downloadFor = null },
-                        onConfirm = { request ->
-                            if (request.location == com.biliseek.app.data.DownloadLocation.PUBLIC &&
+                        onDismiss = {
+                            downloadFor = null
+                            viewModel.dismissPendingDownload()
+                        },
+                        onConfirm = { requests ->
+                            val location = requests.firstOrNull()?.location
+                            if (location == com.biliseek.app.data.DownloadLocation.PUBLIC &&
                                 needsStoragePermission()
                             ) {
-                                pendingStorageDownload = request
+                                pendingStorageDownload = requests
                                 requestStoragePermission.launch(
                                     android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
                                 )
                             } else {
-                                viewModel.enqueueDownload(request)
+                                viewModel.enqueueDownloads(requests)
                             }
                         },
                         onRememberLocation = viewModel::setDownloadLocation,

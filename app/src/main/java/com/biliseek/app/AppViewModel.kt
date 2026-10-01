@@ -165,6 +165,8 @@ data class MultiPagePickerState(
     val author: String,
     val pages: List<PageEntry>,
     val pendingAction: PendingAction,
+    /** 视频标题：下载时补在分 P 标题前（[com.biliseek.app.data.downloadTitleFor]）。 */
+    val videoTitle: String = "",
 )
 
 /**
@@ -178,6 +180,8 @@ data class PagePanelState(
     val cover: String = "",
     /** 加歌单 / 下载 / 播放历史落库要用，同封面一起带过来。 */
     val author: String = "",
+    /** 视频标题：下载时补在分 P 标题前。 */
+    val videoTitle: String = "",
 ) {
     val isOpen: Boolean get() = pages.isNotEmpty()
 }
@@ -712,27 +716,21 @@ return pages.map { p ->
         durationSec = durationSec,
     )
 
-    /** 批量下载请求：用设置里记住的默认，不弹窗；公共目录需权限、批量不走权限弹窗 → 回退私有。 */
-    private fun toBatchDownloadRequest(r: PlaybackRequest.Bili): com.biliseek.app.download.DownloadRequest {
-        val settings = settingsStore.current
-        val location = when (settings.lastDownloadLocation) {
-            com.biliseek.app.data.DownloadLocation.SAF ->
-                if (settings.lastDownloadSafTreeUri.isNotBlank()) com.biliseek.app.data.DownloadLocation.SAF
-                else com.biliseek.app.data.DownloadLocation.PRIVATE
-            com.biliseek.app.data.DownloadLocation.PUBLIC -> com.biliseek.app.data.DownloadLocation.PRIVATE
-            else -> com.biliseek.app.data.DownloadLocation.PRIVATE
+    private fun PlaybackRequest.Bili.toDownloadTarget() = com.biliseek.app.ui.DownloadTarget(
+        bvid = bvid,
+        cid = cid ?: 0,
+        title = title,
+        coverUrl = coverUrl,
+        author = author,
+    )
+
+    /** 下载动作的分 P 请求：标题前补上视频标题（「已下载」里才分得清是哪个视频）。 */
+    private fun List<PlaybackRequest.Bili>.forDownload(action: PendingAction, videoTitle: String) =
+        if (action == PendingAction.Download) {
+            map { it.copy(title = com.biliseek.app.data.downloadTitleFor(videoTitle, it.title)) }
+        } else {
+            this
         }
-        return com.biliseek.app.download.DownloadRequest(
-            bvid = r.bvid,
-            cid = r.cid,
-            title = r.title,
-            author = r.author,
-            coverUrl = r.coverUrl,
-            content = com.biliseek.app.data.DownloadContent.AUDIO,
-            location = location,
-            safTreeUri = if (location == com.biliseek.app.data.DownloadLocation.SAF) settings.lastDownloadSafTreeUri else "",
-        )
-    }
 
     /** 对一组请求执行动作（批量 / 单条选完 P 后共用）。 */
     private fun execute(action: PendingAction, requests: List<PlaybackRequest.Bili>) {
@@ -750,9 +748,9 @@ return pages.map { p ->
             PendingAction.AddToPlaylist -> {
                 _pendingBatchAdd.value = requests.map { it.toTrackEntity() }
             }
+            // 先弹下载对话框选内容与位置（选一次对全部生效），确认后才入队
             PendingAction.Download -> {
-                requests.forEach { downloadManager.enqueue(toBatchDownloadRequest(it)) }
-                emitMessage("已加入 ${requests.size} 项到下载队列")
+                _pendingDownload.value = requests.map { it.toDownloadTarget() }
             }
             PendingAction.Summarize -> summary.open(requests.map { it.toSummaryVideo() })
         }
@@ -812,12 +810,12 @@ return pages.map { p ->
         val sel = pageSelection.selected.value
         val chosen = _pagePanel.value.pages.filter { it.cid.toString() in sel }
         pageSelection.exit()
-        execute(action, chosen.map { it.toPageRequest() })
+        execute(action, chosen.map { it.toPageRequest() }.forDownload(action, _pagePanel.value.videoTitle))
     }
 
     /** 多 P 面板单条动作（三点菜单）。面板里每行就是分 P，不再需要挑 P。 */
     fun pageSingleAction(entry: PageEntry, action: PendingAction) {
-        execute(action, listOf(entry.toPageRequest()))
+        execute(action, listOf(entry.toPageRequest()).forDownload(action, _pagePanel.value.videoTitle))
     }
 
     fun pageVideoUrl(entry: PageEntry) =
@@ -1027,6 +1025,7 @@ return pages.map { p ->
                 author = video.author,
                 pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
                 pendingAction = action,
+                videoTitle = cleanTitle(video.title),
             )
         }
     }
@@ -1048,7 +1047,7 @@ return pages.map { p ->
                 durationSec = p.durationSec,
             )
         }
-        execute(picker.pendingAction, requests)
+        execute(picker.pendingAction, requests.forDownload(picker.pendingAction, picker.videoTitle))
     }
 
     /** 「下一首播放」。不打断正在播的这首。 */
@@ -1069,6 +1068,7 @@ return pages.map { p ->
                     pages = pages.map { PageEntry(it.cid, it.page, it.part, it.duration) },
                     cover = coverOf(video),
                     author = video.author,
+                    videoTitle = cleanTitle(video.title),
                 )
             }
         }
@@ -1351,6 +1351,7 @@ return pages.map { p ->
                             },
                             cover = coverOf(video),
                             author = video.author,
+                            videoTitle = cleanTitle(video.title),
                         )
                     }
                 }
@@ -1452,11 +1453,18 @@ return pages.map { p ->
     // ── 下载 ────────────────────────────────────────────
 
     /** 入队下载。内容（只音频/视频）与位置在调用前由 UI 弹窗定好。 */
-    fun enqueueDownload(request: com.biliseek.app.download.DownloadRequest) {
-        downloadManager.enqueue(request)
+    fun enqueueDownloads(requests: List<com.biliseek.app.download.DownloadRequest>) {
+        if (requests.isEmpty()) return
+        downloadManager.enqueueAll(requests)
         // 与「加入播放队列」同一套浮框提示，否则点了「开始下载」看不出有没有生效
-        emitMessage("已加入下载队列")
+        emitMessage(if (requests.size > 1) "已加入 ${requests.size} 项到下载队列" else "已加入下载队列")
     }
+
+    /** 待确认的下载（选完分 P / 批量选择后弹下载对话框）。null = 没有。 */
+    private val _pendingDownload = MutableStateFlow<List<com.biliseek.app.ui.DownloadTarget>?>(null)
+    val pendingDownload: StateFlow<List<com.biliseek.app.ui.DownloadTarget>?> = _pendingDownload.asStateFlow()
+
+    fun dismissPendingDownload() { _pendingDownload.value = null }
 
     fun retryDownload(id: Long) = downloadManager.retry(id)
 

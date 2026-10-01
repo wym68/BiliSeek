@@ -145,34 +145,42 @@ class DownloadManager private constructor(private val app: Application) {
      * 批量入队 20 个分 P 不会瞬间打出 20 次 playurl，直链也不会在排队期间过期。
      * cid 未知（个别入口拿不到分 P）时先记 0，取流时再换成真实 cid。
      */
-    fun enqueue(request: DownloadRequest) {
+    fun enqueue(request: DownloadRequest) = enqueueAll(listOf(request))
+
+    /** 批量入队：在同一个协程里按给定顺序写入，P1、P2、P3 的下载顺序与选择顺序一致。 */
+    fun enqueueAll(requests: List<DownloadRequest>) {
+        if (requests.isEmpty()) return
         scope.launch {
             queueMutex.withLock {
-                // 只清这次要顶替的旧失败记录（同一 P，或分 P 未知的占位），别的 P 的失败记录保留
-                dao.all().forEach { old ->
-                    if (isReplaceableFailedRecord(old.bvid, old.cid, old.status, request.bvid, request.cid)) {
-                        dao.deleteById(old.id)
-                    }
-                }
-                val cid = request.cid?.takeIf { it > 0 } ?: 0L
-                val existing = dao.find(request.bvid, cid)
-                if (!shouldSkipEnqueue(existing?.status)) {
-                    // 已完成的视为重新下载：旧文件先删，免得留下孤儿文件
-                    if (existing?.status == DownloadStatus.DONE) deleteFiles(existing)
-                    dao.upsert(
-                        entity(
-                            request = request,
-                            cid = cid,
-                            durationSec = 0,
-                            status = DownloadStatus.QUEUED,
-                            error = "",
-                        ),
-                    )
-                }
+                requests.forEach { enqueueLocked(it) }
                 refreshTasks()
                 startService()
             }
         }
+    }
+
+    /** 入队一条（调用方持有 [queueMutex]）。 */
+    private suspend fun enqueueLocked(request: DownloadRequest) {
+        // 只清这次要顶替的旧失败记录（同一 P，或分 P 未知的占位），别的 P 的失败记录保留
+        dao.all().forEach { old ->
+            if (isReplaceableFailedRecord(old.bvid, old.cid, old.status, request.bvid, request.cid)) {
+                dao.deleteById(old.id)
+            }
+        }
+        val cid = request.cid?.takeIf { it > 0 } ?: 0L
+        val existing = dao.find(request.bvid, cid)
+        if (shouldSkipEnqueue(existing?.status)) return
+        // 已完成的视为重新下载：旧文件先删，免得留下孤儿文件
+        if (existing?.status == DownloadStatus.DONE) deleteFiles(existing)
+        dao.upsert(
+            entity(
+                request = request,
+                cid = cid,
+                durationSec = 0,
+                status = DownloadStatus.QUEUED,
+                error = "",
+            ),
+        )
     }
 
     /** 重试一条失败 / 中断的下载。 */

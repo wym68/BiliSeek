@@ -57,3 +57,18 @@ val DOWNLOAD_CONCURRENCY_CHOICES: List<Int> = (1..MAX_DOWNLOAD_CONCURRENCY).toLi
 
 /** 存储里读出的同时下载数（可能是旧值 / 被改过）收进 1..[MAX_DOWNLOAD_CONCURRENCY]。 */
 fun clampDownloadConcurrency(value: Int): Int = value.coerceIn(1, MAX_DOWNLOAD_CONCURRENCY)
+
+/**
+ * 分 P 下载的标题：前面补上视频标题，否则「已下载」里只看到「P2 第二集」，分不清是哪个视频。
+ * 视频标题为空、或分 P 标题已经以它开头（批量展开时已拼好）时原样返回。
+ */
+fun downloadTitleFor(videoTitle: String, partTitle: String): String {
+    val video = videoTitle.trim()
+    val part = partTitle.trim()
+    return when {
+        video.isEmpty() -> part
+        part.isEmpty() -> video
+        part.startsWith(video) -> part
+        else -> "$video $part"
+    }
+}

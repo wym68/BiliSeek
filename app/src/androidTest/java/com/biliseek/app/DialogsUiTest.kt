@@ -121,7 +121,7 @@ class DialogsUiTest {
         compose.setContent {
             BiliSeekTheme {
                 DownloadDialog(
-                    target = SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget(),
+                    targets = listOf(SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget()),
                     settings = AppSettings(),
                     onDismiss = {},
                     onConfirm = {},
@@ -142,14 +142,14 @@ class DialogsUiTest {
 
     @Test
     fun 下载对话框_确认带出内容与位置() {
-        var request: DownloadRequest? = null
+        var requests: List<DownloadRequest>? = null
         compose.setContent {
             BiliSeekTheme {
                 DownloadDialog(
-                    target = SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget(),
+                    targets = listOf(SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget()),
                     settings = AppSettings(),
                     onDismiss = {},
-                    onConfirm = { request = it },
+                    onConfirm = { requests = it },
                     onRememberLocation = {},
                     onRememberSafTree = {},
                 )
@@ -157,8 +157,9 @@ class DialogsUiTest {
         }
 
         compose.onNodeWithText("开始下载").performClick()
-        check(request != null) { "未触发 onConfirm" }
-        check(request!!.bvid == "BV1xx411c7mD")
-        check(request!!.content == DownloadContent.AUDIO)
+        val request = requests?.singleOrNull()
+        check(request != null) { "未触发 onConfirm 或条数不对" }
+        check(request.bvid == "BV1xx411c7mD")
+        check(request.content == DownloadContent.AUDIO)
     }
 }

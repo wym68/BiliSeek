@@ -81,4 +81,18 @@ class DownloadQueuePolicyTest {
         assertEquals(3, clampDownloadConcurrency(10))
         assertEquals(listOf(1, 2, 3), DOWNLOAD_CONCURRENCY_CHOICES)
     }
+
+    // ── 分 P 下载标题 ──
+
+    @Test
+    fun `分 P 标题前补视频标题`() {
+        assertEquals("潜伏解读 P2 第二集", downloadTitleFor("潜伏解读", "P2 第二集"))
+    }
+
+    @Test
+    fun `已带视频标题或缺一方时不重复拼`() {
+        assertEquals("潜伏解读 P2 第二集", downloadTitleFor("潜伏解读", "潜伏解读 P2 第二集"))
+        assertEquals("P2 第二集", downloadTitleFor("", "P2 第二集"))
+        assertEquals("潜伏解读", downloadTitleFor("潜伏解读", " "))
+    }
 }
