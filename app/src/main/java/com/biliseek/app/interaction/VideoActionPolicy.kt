@@ -7,6 +7,7 @@ enum class VideoAction { LIKE, COIN, TRIPLE }
  * 播放页视频互动栏的状态：计数 + 当前账号的互动态。
  *
  * 计数来自 `x/web-interface/view` 的 stat，互动态来自 `archive/relation`（需登录）。
+ * 简介、播放量、发布时间同出自那次 view 响应，顺带给播放页的简介区用，不另发请求。
  * 写操作全部乐观更新，失败回滚到操作前的快照。
  */
 data class VideoInteractionState(
@@ -23,6 +24,11 @@ data class VideoInteractionState(
     val favored: Boolean = false,
     /** 自制 2 枚、转载 1 枚。 */
     val maxCoins: Int = 2,
+    /** 简介原文（未处理；是否显示见 [com.biliseek.app.ui.VideoDescriptionPolicy.shouldShow]）。 */
+    val desc: String = "",
+    val viewCount: Long = 0,
+    /** 发布时间（Unix 秒），0 = 未知。 */
+    val pubDate: Long = 0,
     val isLoading: Boolean = false,
     val busy: Set<VideoAction> = emptySet(),
 )

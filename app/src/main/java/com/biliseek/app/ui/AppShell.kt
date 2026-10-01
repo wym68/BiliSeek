@@ -130,6 +130,9 @@ fun AppShell(
     onSummary: () -> Unit = {},
     /** 当前视频已有总结（播放页「总结」按钮已激活态）。 */
     hasSummary: Boolean = false,
+    /** 播放页简介里点时间点 / 链接。 */
+    onDescriptionTimestamp: (Long) -> Unit = {},
+    onDescriptionLink: (DescLinkTarget) -> Unit = {},
     /** 播放页视频互动栏（点赞 / 投币 / 收藏）状态与动作。 */
     videoInteraction: com.biliseek.app.interaction.VideoInteractionState? = null,
     videoActionHandlers: VideoActionHandlers = VideoActionHandlers(),
@@ -410,6 +413,8 @@ fun AppShell(
                         onShare = onShare,
                         onSummary = onSummary,
                         hasSummary = hasSummary,
+                        onDescriptionTimestamp = onDescriptionTimestamp,
+                        onDescriptionLink = onDescriptionLink,
                         onOpenAddToList = onOpenAddToList,
                         onOpenUpSpace = onOpenUpSpace,
                         onDownload = onDownloadCurrent,

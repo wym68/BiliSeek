@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 播放页视频互动栏（点赞 / 投币 / 收藏 / 三连）的状态与动作。
+ * 播放页视频互动栏（点赞 / 投币 / 收藏 / 三连）的状态与动作；简介区的数据也出自这里的那次 view 请求。
  *
  * 请求纪律（风控）：
  * - **只在播放页展开时** [bind] 当前 bvid（纯听后台、迷你播放器都不拉）；
@@ -65,6 +65,9 @@ class VideoInteractionController(
                 coined = relation?.coin ?: 0,
                 favored = relation?.favorite ?: false,
                 maxCoins = VideoActionPolicy.maxCoins(view?.copyright ?: 1),
+                desc = view?.desc.orEmpty(),
+                viewCount = stat?.view ?: 0,
+                pubDate = view?.pubdate ?: 0,
             )
             // 读失败也落一个「全 0 未激活」的态，按钮照样能点；只有成功才进缓存
             if (_state.value?.bvid == bvid) _state.value = loaded

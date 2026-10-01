@@ -1671,6 +1671,41 @@ return pages.map { p ->
         )
     }
 
+    // ── 播放页简介 ────────────────────────────────────────
+
+    /** 简介里点时间点：原地跳转并接着播（暂停中也开始播）。播放器里没有已加载媒体时什么也不做。 */
+    fun seekFromDescription(positionMs: Long) {
+        connection.seekAndPlay(positionMs)
+    }
+
+    /**
+     * 简介里点链接 / 视频号：B 站视频应用内播放（与搜索框直达同一条路径），
+     * b23 短链先展开（用户点击才发这一次请求）再判断，其余网址交给浏览器。
+     */
+    fun openDescriptionLink(target: com.biliseek.app.ui.DescLinkTarget) {
+        when (target) {
+            is com.biliseek.app.ui.DescLinkTarget.Video -> play(PlaybackRequest.Bili(target.bvid, title = target.bvid))
+            is com.biliseek.app.ui.DescLinkTarget.Web -> openExternalUrl(target.url)
+            is com.biliseek.app.ui.DescLinkTarget.ShortLink -> viewModelScope.launch {
+                val finalUrl = network.repository.expandShortLink(target.url).getOrNull()
+                val resolved = finalUrl?.let(com.biliseek.app.ui.VideoDescriptionPolicy::classifyUrl)
+                if (resolved is com.biliseek.app.ui.DescLinkTarget.Video) {
+                    play(PlaybackRequest.Bili(resolved.bvid, title = resolved.bvid))
+                } else {
+                    // 展不开或落点不是视频：交给浏览器（能展开就用展开后的地址）
+                    openExternalUrl(finalUrl ?: target.url)
+                }
+            }
+        }
+    }
+
+    private fun openExternalUrl(url: String) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { getApplication<Application>().startActivity(intent) }
+            .onFailure { emitMessage("没有可以打开链接的应用") }
+    }
+
     /** 阅读页点时间戳：正在播同一 P 就原地跳，否则从该处开始听（默认只听）。 */
     fun openSummaryTimestamp(positionMs: Long) {
         val target = summary.reader.value ?: return

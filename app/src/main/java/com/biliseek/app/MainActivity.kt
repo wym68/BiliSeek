@@ -391,6 +391,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onSummary = viewModel::summarizeCurrent,
                     hasSummary = currentHasSummary,
+                    onDescriptionTimestamp = viewModel::seekFromDescription,
+                    onDescriptionLink = viewModel::openDescriptionLink,
                     onShare = {
                         viewModel.currentVideoUrl()?.let { url ->
                             copyToClipboard(url)

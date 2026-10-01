@@ -2,6 +2,7 @@ package com.biliseek.app.ui
 
 import android.view.SurfaceView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
@@ -51,9 +53,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -136,7 +140,7 @@ internal fun CoverArea(
 }
 
 /**
- * 播放控制条：上一首 / 播放 / 下一首 + 模式切换按钮。
+ * 播放控制条：上一首 / 播放 / 下一首 + 模式切换按钮。全屏控制层在用；播放页用 [PlayerPageControlRow]。
  *
  * 调研要点（BBPlayer 参考）：
  * - Optimistic UI：点击立即翻转本地显示状态，prop 变化自动覆盖（`remember(isPlaying)`）
@@ -174,7 +178,6 @@ internal fun PlayerControlBar(
     hapticType: HapticFeedbackType = HapticFeedbackType.LongPress,
 ) {
     var optimisticPlaying by remember(isPlaying) { mutableStateOf(isPlaying) }
-    val displayPlaying = optimisticPlaying
     val haptic = LocalHapticFeedback.current
 
     Row(
@@ -182,54 +185,14 @@ internal fun PlayerControlBar(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(hapticType)
-                onSkipPrevious()
-            },
-            modifier = Modifier.size(buttonSize),
-            enabled = hasPrevious,
-        ) {
-            Icon(
-                Icons.Filled.SkipPrevious,
-                contentDescription = "上一首",
-                modifier = Modifier.size(iconSize),
-                tint = if (hasPrevious) iconColor else iconColor.copy(alpha = 0.38f),
-            )
+        SkipButton(Icons.Filled.SkipPrevious, "上一首", hasPrevious, iconColor, buttonSize, iconSize, hapticType, onSkipPrevious)
+        Spacer(Modifier.width(spacing))
+        PlayPauseButton(optimisticPlaying, mainButtonSize, mainIconSize, hapticType) {
+            optimisticPlaying = !optimisticPlaying
+            onTogglePlayPause()
         }
         Spacer(Modifier.width(spacing))
-        FilledIconButton(
-            onClick = {
-                haptic.performHapticFeedback(hapticType)
-                optimisticPlaying = !optimisticPlaying
-                onTogglePlayPause()
-            },
-            modifier = Modifier.size(mainButtonSize),
-            shape = CircleShape,
-        ) {
-            Icon(
-                if (displayPlaying) Icons.Filled.Pause else Icons.Filled.PlayCircle,
-                contentDescription = if (displayPlaying) "暂停" else "播放",
-                modifier = Modifier.size(mainIconSize),
-                tint = MaterialTheme.colorScheme.onPrimary,
-            )
-        }
-        Spacer(Modifier.width(spacing))
-        IconButton(
-            onClick = {
-                haptic.performHapticFeedback(hapticType)
-                onSkipNext()
-            },
-            modifier = Modifier.size(buttonSize),
-            enabled = hasNext,
-        ) {
-            Icon(
-                Icons.Filled.SkipNext,
-                contentDescription = "下一首",
-                modifier = Modifier.size(iconSize),
-                tint = if (hasNext) iconColor else iconColor.copy(alpha = 0.38f),
-            )
-        }
+        SkipButton(Icons.Filled.SkipNext, "下一首", hasNext, iconColor, buttonSize, iconSize, hapticType, onSkipNext)
         if (showModeSwitch) {
             Spacer(Modifier.width(16.dp))
             TextButton(onClick = {
@@ -251,34 +214,167 @@ internal fun PlayerControlBar(
 }
 
 /**
- * 底栏：播放模式 / 播放列表。评论已移到标题下的视频互动栏（VideoActionBar）。
+ * 播放页控制行：播放模式 · 上一首 · 播放 · 下一首 · 看/听 · 播放列表，一行排开。
+ *
+ * 播放键左右两侧各占一半剩余宽度，所以播放键永远在屏幕正中；两侧按钮在各自一半里均分。
+ * 侧边按钮统一 44dp：360dp 宽的屏幕上右侧三个按钮恰好放得下，宽屏自动拉开间距。
+ * 播放模式与播放列表仍在最左 / 最右（原底栏的位置），手感不变。
  */
 @Composable
-internal fun PlayerBottomBar(
+internal fun PlayerPageControlRow(
+    isPlaying: Boolean,
+    isAudioMode: Boolean,
     playMode: PlayMode,
+    onTogglePlayPause: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSwitchMode: () -> Unit,
     onCyclePlayMode: () -> Unit,
     onOpenQueue: () -> Unit,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    var optimisticPlaying by remember(isPlaying) { mutableStateOf(isPlaying) }
+    val haptic = LocalHapticFeedback.current
+    val iconColor = MaterialTheme.colorScheme.onSurface
+    val sideButton = 44.dp
+
     Row(
-        modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onCyclePlayMode) {
-            Icon(
-                when (playMode) {
-                    PlayMode.SHUFFLE -> Icons.Filled.Shuffle
-                    PlayMode.REPEAT_ONE -> Icons.Filled.RepeatOne
-                    else -> Icons.Filled.Repeat
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    onCyclePlayMode()
                 },
-                contentDescription = "播放模式",
-                tint = if (playMode != PlayMode.SEQUENTIAL) MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(sideButton),
+            ) {
+                Icon(
+                    when (playMode) {
+                        PlayMode.SHUFFLE -> Icons.Filled.Shuffle
+                        PlayMode.REPEAT_ONE -> Icons.Filled.RepeatOne
+                        else -> Icons.Filled.Repeat
+                    },
+                    contentDescription = "播放模式",
+                    tint = if (playMode != PlayMode.SEQUENTIAL) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            SkipButton(
+                Icons.Filled.SkipPrevious, "上一首", hasPrevious, iconColor,
+                sideButton, 30.dp, HapticFeedbackType.LongPress, onSkipPrevious,
             )
         }
-        IconButton(onClick = onOpenQueue) {
-            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "播放列表")
+        PlayPauseButton(optimisticPlaying, 64.dp, 36.dp, HapticFeedbackType.LongPress) {
+            optimisticPlaying = !optimisticPlaying
+            onTogglePlayPause()
         }
+        Row(
+            Modifier.weight(1f),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkipButton(
+                Icons.Filled.SkipNext, "下一首", hasNext, iconColor,
+                sideButton, 30.dp, HapticFeedbackType.LongPress, onSkipNext,
+            )
+            // 听 / 看切换：图标在上、字在下，窄屏也放得下「退回听」三个字
+            Column(
+                Modifier
+                    .size(sideButton)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(role = Role.Button) {
+                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                        onSwitchMode()
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                val tint = MaterialTheme.colorScheme.primary
+                Icon(
+                    if (isAudioMode) Icons.Filled.PlayCircle else Icons.Filled.Headphones,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = tint,
+                )
+                Text(
+                    if (isAudioMode) "看" else "退回听",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tint,
+                    maxLines = 1,
+                )
+            }
+            IconButton(onClick = onOpenQueue, modifier = Modifier.size(sideButton)) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "播放列表")
+            }
+        }
+    }
+}
+
+/** 上一首 / 下一首。不可用时半透明且不响应点击。 */
+@Composable
+private fun SkipButton(
+    icon: ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    iconColor: Color,
+    buttonSize: Dp,
+    iconSize: Dp,
+    hapticType: HapticFeedbackType,
+    onClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    IconButton(
+        onClick = {
+            haptic.performHapticFeedback(hapticType)
+            onClick()
+        },
+        modifier = Modifier.size(buttonSize),
+        enabled = enabled,
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            modifier = Modifier.size(iconSize),
+            tint = if (enabled) iconColor else iconColor.copy(alpha = 0.38f),
+        )
+    }
+}
+
+/**
+ * 播放 / 暂停主按钮：实心圆底 + 深色图标。
+ * 播放态用不带圆圈的三角（[Icons.Filled.PlayArrow]）——按钮本身就是圆，再套一个带圈图标会成「圆里套圆」。
+ */
+@Composable
+private fun PlayPauseButton(
+    playing: Boolean,
+    buttonSize: Dp,
+    iconSize: Dp,
+    hapticType: HapticFeedbackType,
+    onClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    FilledIconButton(
+        onClick = {
+            haptic.performHapticFeedback(hapticType)
+            onClick()
+        },
+        modifier = Modifier.size(buttonSize),
+        shape = CircleShape,
+    ) {
+        Icon(
+            if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+            contentDescription = if (playing) "暂停" else "播放",
+            modifier = Modifier.size(iconSize),
+            tint = MaterialTheme.colorScheme.onPrimary,
+        )
     }
 }
 

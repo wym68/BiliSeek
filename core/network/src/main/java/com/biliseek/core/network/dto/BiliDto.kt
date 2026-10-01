@@ -69,8 +69,8 @@ data class PageItem(
 )
 
 /**
- * `x/web-interface/view` —— 视频详情。目前只用于播放页"查看作者"缺 UP 主 mid 时
- * 现查一次兜底（历史记录/收藏夹/本地播放列表起播的视频不一定带 authorMid）。
+ * `x/web-interface/view` —— 视频详情。播放页展开时由互动栏拉一次（计数 + 简介 + 发布时间），
+ * 另在"查看作者"缺 UP 主 mid 时现查兜底（历史记录/收藏夹/本地播放列表起播的视频不一定带 authorMid）。
  */
 @Serializable
 data class VideoViewInfo(
@@ -81,8 +81,10 @@ data class VideoViewInfo(
     val stat: VideoStat? = null,
     /** 1=自制 2=转载。转载视频每人最多投 1 枚币。 */
     val copyright: Int = 1,
-    /** 简介。AI 总结用作提示词参考信息（纠正同音错字），不作为视频内容。 */
+    /** 简介。播放页展示；AI 总结用作提示词参考信息（纠正同音错字），不作为视频内容。 */
     val desc: String = "",
+    /** 发布时间（Unix 秒）。播放页简介统计行用。 */
+    val pubdate: Long = 0,
     /** 分区名。AI 总结的参考信息（视频标签需另一个接口，暂不请求）。 */
     val tname: String = "",
     val title: String = "",

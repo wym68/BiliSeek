@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -22,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -98,6 +101,10 @@ fun PlayerScreen(
     onSummary: () -> Unit = {},
     /** 当前视频已有总结：「总结」按钮显示为已激活。 */
     hasSummary: Boolean = false,
+    /** 简介里点时间点：跳到该处播放。 */
+    onDescriptionTimestamp: (Long) -> Unit = {},
+    /** 简介里点链接 / 视频号。 */
+    onDescriptionLink: (DescLinkTarget) -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
@@ -122,9 +129,11 @@ fun PlayerScreen(
             Box(Modifier.fillMaxSize().background(scrim))
         }
 
-        // 顶部栏 → CoverArea → 标题/进度条/控制条/底栏，统一放进同一条纵向流里、
+        // 顶部栏 → CoverArea → 标题/互动栏/简介 → 进度条/控制行，统一放进同一条纵向流里、
         // 始终显示——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
         // 不再各自作为 Box 的平级子项——否则它们会叠在一起画（曾经的重叠 bug）。
+        // 只有中段（标题/互动栏/简介）可滑动：封面（视频画面）固定在上、进度条与控制行固定在下，
+        // 读长简介时画面不滑走、随时能暂停切歌。
         Column(
             Modifier
                 .fillMaxSize()
@@ -148,29 +157,55 @@ fun PlayerScreen(
                 videoAspectRatio = state.videoAspectRatio,
             )
 
-            Text(
-                state.title.ifBlank { "BiliSeek" },
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val boundInteraction = interaction?.takeIf { it.bvid == state.bvid }
+            val activeColor = accent.accent ?: MaterialTheme.colorScheme.primary
+            // 换视频时滚动位置回到顶部
+            key(state.bvid) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        state.title.ifBlank { "BiliSeek" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
 
-            VideoActionBar(
-                state = interaction?.takeIf { it.bvid == state.bvid },
-                handlers = interactionHandlers,
-                onOpenFavorite = onOpenAddToList,
-                onOpenComments = onOpenComments,
-                onShare = onShare,
-                activeColor = accent.accent ?: MaterialTheme.colorScheme.primary,
-                onSummary = onSummary,
-                hasSummary = hasSummary,
-            )
+                    VideoActionBar(
+                        state = boundInteraction,
+                        handlers = interactionHandlers,
+                        onOpenFavorite = onOpenAddToList,
+                        onOpenComments = onOpenComments,
+                        onShare = onShare,
+                        activeColor = activeColor,
+                        onSummary = onSummary,
+                        hasSummary = hasSummary,
+                    )
+
+                    boundInteraction?.let { info ->
+                        VideoDescriptionSection(
+                            desc = info.desc,
+                            viewCount = info.viewCount,
+                            pubDate = info.pubDate,
+                            durationMs = state.durationMs,
+                            onTimestamp = onDescriptionTimestamp,
+                            onLink = onDescriptionLink,
+                            linkColor = activeColor,
+                        )
+                    }
+                }
+            }
 
             ProgressBar(state, onSeek)
 
-            PlayerControlBar(
+            PlayerPageControlRow(
                 isPlaying = state.showPauseButton,
                 isAudioMode = isAudio,
+                playMode = state.playMode,
                 onTogglePlayPause = onTogglePlayPause,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
@@ -181,14 +216,10 @@ fun PlayerScreen(
                         onPresentationChange(PresentationMode.NONE, null)
                     }
                 },
-                hasPrevious = state.hasPrevious,
-                hasNext = state.hasNext,
-            )
-
-            PlayerBottomBar(
-                playMode = state.playMode,
                 onCyclePlayMode = onCyclePlayMode,
                 onOpenQueue = onOpenQueue,
+                hasPrevious = state.hasPrevious,
+                hasNext = state.hasNext,
             )
 
             state.error?.let {
