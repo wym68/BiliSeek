@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.DownloadContent
 import com.biliseek.app.data.DownloadLocation
 import com.biliseek.app.data.DownloadStatus
+import com.biliseek.app.download.DownloadListPolicy
 import com.biliseek.app.download.DownloadTask
 import com.biliseek.core.player.formatDuration
 
@@ -47,6 +49,8 @@ import com.biliseek.core.player.formatDuration
  *
  * 行样式与 AI 总结列表一致：已完成的条目整行点击即播放；操作只放右侧图标
  * （已完成：删除；失败：重试 + 删除；排队中 / 下载中：取消）。
+ *
+ * 分三段（[DownloadListPolicy]）：下载中（含排队）、失败（段头「全部重试 / 清除」）、已完成。
  */
 @Composable
 fun DownloadsScreen(
@@ -56,6 +60,8 @@ fun DownloadsScreen(
     onRetry: (Long) -> Unit,
     onDelete: (Long, Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    onRetryAllFailed: () -> Unit = {},
+    onClearFailed: () -> Unit = {},
 ) {
     // 公共 / SAF 的删除要先问用户：仅清记录，还是源文件一起删
     var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
@@ -73,18 +79,34 @@ fun DownloadsScreen(
             }
             return@Column
         }
+        val sections = remember(tasks) { DownloadListPolicy.sections(tasks) }
         LazyColumn(Modifier.fillMaxSize()) {
-            items(tasks, key = { it.id }) { task ->
-                DownloadRow(
-                    task = task,
-                    onPlay = onPlay,
-                    onRetry = onRetry,
-                    onDelete = onDelete,
-                    onAskDelete = { pendingDelete = it },
-                    onAskDeletePrivate = { pendingDeletePrivate = it },
-                )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            fun section(
+                key: String,
+                title: String,
+                list: List<DownloadTask>,
+                actions: (@Composable () -> Unit)? = null,
+            ) {
+                if (list.isEmpty()) return
+                item(key = "header_$key") { SectionHeader("$title ${list.size}", actions) }
+                items(list, key = { it.id }) { task ->
+                    DownloadRow(
+                        task = task,
+                        onPlay = onPlay,
+                        onRetry = onRetry,
+                        onDelete = onDelete,
+                        onAskDelete = { pendingDelete = it },
+                        onAskDeletePrivate = { pendingDeletePrivate = it },
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             }
+            section("active", "下载中", sections.active)
+            section("failed", "失败", sections.failed) {
+                TextButton(onClick = onRetryAllFailed) { Text("全部重试") }
+                TextButton(onClick = onClearFailed) { Text("清除") }
+            }
+            section("done", "已完成", sections.done)
         }
     }
 
@@ -119,6 +141,26 @@ fun DownloadsScreen(
                 pendingDelete = null
             },
         )
+    }
+}
+
+/** 分段标题：「下载中 2」+ 可选的段内操作。 */
+@Composable
+private fun SectionHeader(text: String, actions: (@Composable () -> Unit)?) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp)
+            .heightIn(min = 32.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        actions?.invoke()
     }
 }
 

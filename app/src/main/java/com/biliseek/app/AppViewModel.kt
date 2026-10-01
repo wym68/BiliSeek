@@ -1468,6 +1468,10 @@ return pages.map { p ->
 
     fun retryDownload(id: Long) = downloadManager.retry(id)
 
+    fun retryAllFailedDownloads() = downloadManager.retryAllFailed()
+
+    fun clearFailedDownloads() = downloadManager.clearFailed()
+
     /**
      * 删除下载。公共 / SAF 时由 UI 弹窗决定是否连源文件一起删，
      * 见 [com.biliseek.app.download.DownloadManager.delete]。

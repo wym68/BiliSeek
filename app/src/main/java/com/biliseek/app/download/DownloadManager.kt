@@ -183,6 +183,29 @@ class DownloadManager private constructor(private val app: Application) {
         )
     }
 
+    /** 全部失败的下载重新排队（「已下载」页失败段的「全部重试」）。 */
+    fun retryAllFailed() {
+        scope.launch {
+            queueMutex.withLock {
+                val failed = dao.byStatus(DownloadStatus.FAILED)
+                if (failed.isEmpty()) return@withLock
+                failed.forEach { dao.upsert(it.copy(status = DownloadStatus.QUEUED, error = "")) }
+                refreshTasks()
+                startService()
+            }
+        }
+    }
+
+    /** 清除全部失败记录。失败的任务没有成品文件，只删记录。 */
+    fun clearFailed() {
+        scope.launch {
+            queueMutex.withLock {
+                dao.byStatus(DownloadStatus.FAILED).forEach { dao.deleteById(it.id) }
+                refreshTasks()
+            }
+        }
+    }
+
     /** 重试一条失败 / 中断的下载。 */
     fun retry(id: Long) {
         scope.launch {

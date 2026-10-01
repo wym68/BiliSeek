@@ -611,6 +611,8 @@ class MainActivity : ComponentActivity() {
                                 onPlay = viewModel::playDownload,
                                 onRetry = viewModel::retryDownload,
                                 onDelete = viewModel::deleteDownload,
+                                onRetryAllFailed = viewModel::retryAllFailedDownloads,
+                                onClearFailed = viewModel::clearFailedDownloads,
                             )
                         } else {
                             LibraryScreen(
