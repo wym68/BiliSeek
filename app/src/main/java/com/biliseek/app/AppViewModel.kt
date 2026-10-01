@@ -1097,6 +1097,16 @@ return pages.map { p ->
     }
 
     init {
+        // 下载完成的浮框提示：下载在后台服务里跑，这里只比较任务列表前后两次的状态
+        viewModelScope.launch {
+            var previous: List<com.biliseek.app.download.DownloadTask>? = null
+            downloadManager.tasks.collect { current ->
+                previous?.let { prev ->
+                    com.biliseek.app.download.DownloadNoticePolicy.completionMessage(prev, current)?.let(::emitMessage)
+                }
+                previous = current
+            }
+        }
         // 续播与位置回写：播放内核不认识数据库，通过回调解耦
         connection.resumePositionProvider = { bvid, cid -> library.resumePosition(bvid, cid) }
         connection.positionRecorder = { bvid, cid, position ->
