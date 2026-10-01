@@ -20,6 +20,9 @@ import com.biliseek.app.data.DownloadLocation
 import com.biliseek.app.data.DownloadStatus
 import com.biliseek.app.data.downloadFileName
 import com.biliseek.app.data.isReplaceableFailedRecord
+import com.biliseek.app.data.shouldSkipEnqueue
+import com.biliseek.app.data.downloadResolveDelayMs
+import com.biliseek.app.data.DOWNLOAD_RESOLVE_MIN_INTERVAL_MS
 import com.biliseek.app.data.resolveRangeHeader
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.AudioQuality
@@ -96,6 +99,9 @@ class DownloadManager private constructor(private val app: Application) {
     private val dao = db.downloadDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueMutex = Mutex()
+    /** 下载取流的节流：同一时刻只取一条，两次之间至少隔 [DOWNLOAD_RESOLVE_MIN_INTERVAL_MS]。 */
+    private val resolveMutex = Mutex()
+    private var lastResolveAt: Long? = null
     private val processingRef = AtomicReference(false)
 
     private val http = OkHttpClient.Builder()
@@ -125,7 +131,11 @@ class DownloadManager private constructor(private val app: Application) {
 
     // ── 入口 ──────────────────────────────────────────────
 
-    /** 入队一个下载。取流解析失败也会落一条 FAILED 记录，让失败可见可重试。 */
+    /**
+     * 入队一个下载。**入队时不取流**：只落一条 QUEUED 记录，轮到它时（[processOne]）才取直链——
+     * 批量入队 20 个分 P 不会瞬间打出 20 次 playurl，直链也不会在排队期间过期。
+     * cid 未知（个别入口拿不到分 P）时先记 0，取流时再换成真实 cid。
+     */
     fun enqueue(request: DownloadRequest) {
         scope.launch {
             queueMutex.withLock {
@@ -135,31 +145,18 @@ class DownloadManager private constructor(private val app: Application) {
                         dao.deleteById(old.id)
                     }
                 }
-                try {
-                    val source = requireNotNull(resolveSource) { "下载取流未接线" }
-                        .invoke(request.bvid, request.cid, downloadQuality())
-                    val cid = source.cid
-                    dao.find(request.bvid, cid)?.let { existing ->
-                        if (existing.status == DownloadStatus.DONE) deleteFiles(existing)
-                    }
+                val cid = request.cid?.takeIf { it > 0 } ?: 0L
+                val existing = dao.find(request.bvid, cid)
+                if (!shouldSkipEnqueue(existing?.status)) {
+                    // 已完成的视为重新下载：旧文件先删，免得留下孤儿文件
+                    if (existing?.status == DownloadStatus.DONE) deleteFiles(existing)
                     dao.upsert(
                         entity(
                             request = request,
                             cid = cid,
-                            durationSec = (source.durationMs / 1000).coerceAtLeast(0),
+                            durationSec = 0,
                             status = DownloadStatus.QUEUED,
                             error = "",
-                        ),
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.w(TAG, "下载取流失败：${e.message}")
-                    dao.upsert(
-                        entity(
-                            request = request,
-                            cid = request.cid ?: 0L,
-                            durationSec = 0,
-                            status = DownloadStatus.FAILED,
-                            error = "取流失败：${e.message ?: "未知错误"}",
                         ),
                     )
                 }
@@ -243,7 +240,8 @@ class DownloadManager private constructor(private val app: Application) {
         }
     }
 
-    private suspend fun processOne(row: DownloadEntity, service: DownloadService) {
+    private suspend fun processOne(queued: DownloadEntity, service: DownloadService) {
+        var row = queued
         dao.upsert(row.copy(status = DownloadStatus.DOWNLOADING, error = ""))
         val running = row.toTask(status = DownloadStatus.DOWNLOADING, progress = 0f)
         activeRef.set(running)
@@ -251,8 +249,15 @@ class DownloadManager private constructor(private val app: Application) {
         service.showNotification(running)
 
         try {
-            val source = requireNotNull(resolveSource) { "下载取流未接线" }
-                .invoke(row.bvid, row.cid, downloadQuality())
+            val source = resolveThrottled(row)
+            // 排队取流期间被取消（表行已删）：到此为止，不能再写回
+            if (dao.find(queued.bvid, queued.cid)?.id != queued.id) return
+            if (row.cid != source.cid) {
+                // 入队时 cid 未知（记的 0）：换成真实 cid；同一 P 已有别的记录时按情况让路
+                row = adoptResolvedCid(row, source.cid) ?: return
+            }
+            if (row.durationSec <= 0) row = row.copy(durationSec = (source.durationMs / 1000).coerceAtLeast(0))
+            dao.upsert(row.copy(status = DownloadStatus.DOWNLOADING, error = ""))
             val fileName = downloadFileName(row.bvid, row.cid, row.content)
             val staging = stagingFile(row.bvid, row.cid, row.content)
             val playUri = when (row.content) {
@@ -314,6 +319,44 @@ class DownloadManager private constructor(private val app: Application) {
             refreshTasks()
             service.showNotification(failed)
         }
+    }
+
+    /**
+     * 下载取流，按 [DOWNLOAD_RESOLVE_MIN_INTERVAL_MS] 节流（[downloadResolveDelayMs]）。
+     * 取流失败按普通下载失败处理（记录标 FAILED、可重试），不重试、不连发。
+     */
+    private suspend fun resolveThrottled(row: DownloadEntity): DownloadSource = resolveMutex.withLock {
+        val wait = downloadResolveDelayMs(lastResolveAt, System.currentTimeMillis())
+        if (wait > 0) kotlinx.coroutines.delay(wait)
+        try {
+            requireNotNull(resolveSource) { "下载取流未接线" }
+                .invoke(row.bvid, row.cid.takeIf { it > 0 }, downloadQuality())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw IOException("取流失败：${e.message ?: "未知错误"}", e)
+        } finally {
+            lastResolveAt = System.currentTimeMillis()
+        }
+    }
+
+    /**
+     * 入队时 cid 未知的记录换成真实 cid。同一 P 已有别的记录时：
+     * 正在下载 → 本条让路（删掉本条，返回 null，不重复下）；已完成 → 视为重新下载，旧文件与旧记录删掉；
+     * 排队 / 失败 → 旧记录删掉，由本条接手。
+     */
+    private suspend fun adoptResolvedCid(row: DownloadEntity, cid: Long): DownloadEntity? = queueMutex.withLock {
+        val other = dao.find(row.bvid, cid)
+        if (other != null && other.id != row.id) {
+            if (other.status == DownloadStatus.DOWNLOADING) {
+                dao.deleteById(row.id)
+                refreshTasks()
+                return@withLock null
+            }
+            if (other.status == DownloadStatus.DONE) deleteFiles(other)
+            dao.deleteById(other.id)
+        }
+        row.copy(cid = cid)
     }
 
     /** 单条流（只音频 / 视频轨）：流式写盘 + Range 断点续传。 */

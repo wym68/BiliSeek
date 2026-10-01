@@ -23,3 +23,28 @@ fun isReplaceableFailedRecord(
     if (oldCid <= 0L) return true
     return requestCid != null && requestCid > 0L && oldCid == requestCid
 }
+
+/**
+ * 同一 (bvid, cid) 已有记录时，这次入队要不要跳过：已在排队或正在下载就跳过——
+ * 再写一行会把进行中的任务顶掉（唯一索引 REPLACE 换了 id），下完写回时对不上号。
+ * 已完成 / 失败 / 没有记录 → 照常入队（已完成的视为重新下载）。
+ */
+fun shouldSkipEnqueue(existingStatus: String?): Boolean =
+    existingStatus == DownloadStatus.QUEUED || existingStatus == DownloadStatus.DOWNLOADING
+
+/** 下载取流（playurl）的最小间隔。批量下载时取流按这个节奏一条条来，不连发。 */
+const val DOWNLOAD_RESOLVE_MIN_INTERVAL_MS = 2_000L
+
+/**
+ * 下一次下载取流前还要等多久（ms）。
+ *
+ * 取流放在「轮到下载时」才做（不在入队时做）：入队 20 个分 P 不会瞬间打出 20 次 playurl，
+ * 直链也不会在排队期间过期。并发下载时多个任务的取流也经由这里排队。
+ *
+ * @param lastAtMs 上一次取流的时刻；null = 还没取过
+ */
+fun downloadResolveDelayMs(lastAtMs: Long?, nowMs: Long, minIntervalMs: Long = DOWNLOAD_RESOLVE_MIN_INTERVAL_MS): Long {
+    if (lastAtMs == null) return 0L
+    val elapsed = nowMs - lastAtMs
+    return if (elapsed in 0 until minIntervalMs) minIntervalMs - elapsed else 0L
+}

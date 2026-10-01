@@ -1,5 +1,6 @@
 package com.biliseek.app.data
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,5 +35,38 @@ class DownloadQueuePolicyTest {
         assertFalse(replaceable(oldCid = 3, requestCid = 3, oldStatus = DownloadStatus.DONE))
         assertFalse(replaceable(oldCid = 3, requestCid = 3, oldStatus = DownloadStatus.QUEUED))
         assertFalse(replaceable(oldCid = 3, requestCid = 3, oldBvid = "BV2"))
+    }
+
+    // ── 入队去重 ──
+
+    @Test
+    fun `已在排队或下载中的同一条跳过`() {
+        assertTrue(shouldSkipEnqueue(DownloadStatus.QUEUED))
+        assertTrue(shouldSkipEnqueue(DownloadStatus.DOWNLOADING))
+    }
+
+    @Test
+    fun `已完成失败或没有记录时照常入队`() {
+        assertFalse(shouldSkipEnqueue(DownloadStatus.DONE))
+        assertFalse(shouldSkipEnqueue(DownloadStatus.FAILED))
+        assertFalse(shouldSkipEnqueue(null))
+    }
+
+    // ── 取流节流 ──
+
+    @Test
+    fun `第一次取流不等`() {
+        assertEquals(0L, downloadResolveDelayMs(lastAtMs = null, nowMs = 10_000))
+    }
+
+    @Test
+    fun `间隔不足时补足剩余时间`() {
+        assertEquals(1_500L, downloadResolveDelayMs(lastAtMs = 10_000, nowMs = 10_500, minIntervalMs = 2_000))
+    }
+
+    @Test
+    fun `间隔已够或时钟回拨时不等`() {
+        assertEquals(0L, downloadResolveDelayMs(lastAtMs = 10_000, nowMs = 12_000, minIntervalMs = 2_000))
+        assertEquals(0L, downloadResolveDelayMs(lastAtMs = 10_000, nowMs = 9_000, minIntervalMs = 2_000))
     }
 }
