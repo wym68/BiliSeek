@@ -1538,11 +1538,24 @@ return pages.map { p ->
      *
      * 退回听与 PiP 不受策略约束：前者只会更省，后者是系统在驱动。
      */
-    fun requestPresentation(target: PresentationMode, surfaceView: SurfaceView?) {
+    /**
+     * @param automatic 起播时按「记住上次在看」自动进看模式（不是用户点的）。
+     *        只下了音频的本地文件此时不为它联网，留在听（[com.biliseek.app.data.resolveOfflineWatch]）。
+     */
+    fun requestPresentation(target: PresentationMode, surfaceView: SurfaceView?, automatic: Boolean = false) {
         val isVideo = target != PresentationMode.NONE
         if (!isVideo || target == PresentationMode.PIP) {
             applyPresentation(target, surfaceView)
             return
+        }
+        // 只下了音频的本地文件没有画面：主动点「看」改为联网播放，没网就提示
+        when (com.biliseek.app.data.resolveOfflineWatch(connection.needsOnlineForVideo, isOnline(), automatic)) {
+            com.biliseek.app.data.OfflineWatch.STAY_LISTENING -> return
+            com.biliseek.app.data.OfflineWatch.NO_NETWORK -> {
+                emitMessage("这条只下载了音频，联网后才能看画面")
+                return
+            }
+            com.biliseek.app.data.OfflineWatch.NORMAL, com.biliseek.app.data.OfflineWatch.ONLINE -> Unit
         }
         when (resolveVideoGate(settingsStore.current, isMetered())) {
             VideoGate.ALLOW -> applyPresentation(target, surfaceView)
@@ -1558,7 +1571,12 @@ return pages.map { p ->
      */
     fun applyPresentation(target: PresentationMode, surfaceView: SurfaceView?) {
         _videoBlocked.value = null
-        connection.setPresentation(target, surfaceView)
+        if (target != PresentationMode.NONE && connection.needsOnlineForVideo) {
+            // 只下了音频的本地文件：从当前位置改为在线播放才有画面（流量闸门已在 requestPresentation 过）
+            connection.watchOnline(target, surfaceView)
+        } else {
+            connection.setPresentation(target, surfaceView)
+        }
         viewModelScope.launch {
             settingsStore.setLastPresentationWasVideo(target != PresentationMode.NONE)
         }
@@ -1571,6 +1589,15 @@ return pages.map { p ->
         val s = settingsStore.current
         return s.defaultPresentation == DefaultPresentation.REMEMBER_LAST &&
             s.lastPresentationWasVideo
+    }
+
+    /** 当前有可用网络（只问系统，不发请求）。 */
+    private fun isOnline(): Boolean {
+        val cm = getApplication<Application>()
+            .getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as? android.net.ConnectivityManager ?: return true
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     /** 计量网络（移动数据 / 计费热点）判定。策略本身是纯函数，这里只负责问系统。 */

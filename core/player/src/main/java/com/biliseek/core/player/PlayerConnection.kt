@@ -207,6 +207,13 @@ class PlayerConnection(private val context: Context) {
     /** 当前在播的是本地文件。本地文件没有音质档位可换。 */
     private var currentIsOffline = false
 
+    /** 当前本地文件带视频轨（视频下载）。只下了音频的为 false，「看」需要联网（[watchOnline]）。 */
+    private var currentOfflineHasVideo = false
+
+    /** 当前在播的是只下了音频的本地文件：切「看」要联网改播在线流，否则没有画面。 */
+    val needsOnlineForVideo: Boolean
+        get() = currentIsOffline && !currentOfflineHasVideo && loadedRequest is PlaybackRequest.Bili
+
     /**
      * 本次会话里用户在播放页选过的音质，优先于设置页默认。
      * 设置页改了默认值时清掉（[clearAudioQualityOverride]），以设置页为准。
@@ -461,6 +468,8 @@ class PlayerConnection(private val context: Context) {
         startPositionOverride: Long?,
         reload: Boolean,
         freshUrl: Boolean = false,
+        /** false = 跳过本地文件、直接在线取流（[watchOnline]）；失败时退回本地。 */
+        allowOffline: Boolean = true,
     ) {
         // 起播可能早于绑定完成——外部分享会新建一个 Activity，
         // onCreate 里就把链接喂了进来，而 connect() 还在路上。
@@ -510,7 +519,7 @@ class PlayerConnection(private val context: Context) {
                     if (freshUrl) resolver.invalidate(request.bvid, request.cid)
                     // 倍速能在取流前就否掉无损，省掉一次注定要回退的请求
                     val ask = resolveAskedAudioQuality(requestedAudioQuality(), currentSpeed())
-                    val resolved = resolver.resolve(request.bvid, request.cid, ask)
+                    val resolved = resolver.resolve(request.bvid, request.cid, ask, allowOffline)
                     media = resolved
                     uri = resolved.uri
                     mimeType = resolved.mimeType
@@ -519,6 +528,15 @@ class PlayerConnection(private val context: Context) {
             }
         } catch (e: Exception) {
             if (generation != trackGeneration) return
+            if (!allowOffline && request is PlaybackRequest.Bili) {
+                // 联网看画面失败：退回本地音频，从原位置接着听——不能连声音都没了
+                setPresentation(PresentationMode.NONE)
+                load(request, fromQueue, startPositionOverride, reload = true, allowOffline = true)
+                _state.value = _state.value.copy(
+                    error = "联网取流失败，已继续播放本地音频" + (e.message?.let { "：$it" } ?: ""),
+                )
+                return
+            }
             _state.value = _state.value.copy(
                 isResolving = false,
                 error = e.message ?: "取流失败",
@@ -618,6 +636,7 @@ class PlayerConnection(private val context: Context) {
         // 记下这次实际生效的音质，供 UI 如实显示（含回退原因）
         lastLosslessSelected = media?.losslessSelected == true
         currentIsOffline = isOffline
+        currentOfflineHasVideo = isOffline && media?.hasVideoTrack == true
         effective = resolveEffectiveQuality(
             requested = requestedAudioQuality(),
             speed = currentSpeed(),
@@ -1127,6 +1146,21 @@ class PlayerConnection(private val context: Context) {
             recording = false
         }
         pushState()
+    }
+
+    /**
+     * 只下了音频的本地文件要「看」：呈现态照常切过去，同时从当前位置改为在线播放（音视频轨都有）。
+     * 联网取流失败时 [load] 会退回本地音频、从原位置接着听，并在错误行说明原因。
+     * 流量闸门（计量网络）由调用方先过，这里不再判断。
+     */
+    fun watchOnline(target: PresentationMode, surfaceView: SurfaceView? = null) {
+        val c = controller ?: return
+        val request = loadedRequest as? PlaybackRequest.Bili ?: return setPresentation(target, surfaceView)
+        val position = c.currentPosition
+        setPresentation(target, surfaceView)
+        scope?.launch {
+            load(request, fromQueue = true, startPositionOverride = position, reload = true, allowOffline = false)
+        }
     }
 
     fun release() {

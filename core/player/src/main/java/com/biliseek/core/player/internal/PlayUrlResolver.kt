@@ -82,10 +82,12 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
         bvid: String,
         cid: Long?,
         quality: AudioQuality = AudioQuality.AUTO,
+        /** false = 跳过本地文件、直接在线取流（只下了音频的条目要「看」时用）。 */
+        allowOffline: Boolean = true,
     ): ResolvedMedia {
         // 离线拦截点。**必须在 awaitReady() 之前**：飞行模式下播放已下载的歌，
         // 若先等风控凭据，会卡在网络错误上——离线功能被自己的风控 gate 挡住。
-        offlineLookup?.invoke(bvid, cid)?.let { offline ->
+        if (allowOffline) offlineLookup?.invoke(bvid, cid)?.let { offline ->
             Log.d(TAG, "离线命中 $bvid:$cid → ${offline.uri}")
             return ResolvedMedia(
                 uri = offline.uri,

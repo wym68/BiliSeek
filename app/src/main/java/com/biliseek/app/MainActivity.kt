@@ -285,7 +285,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     viewModel.playbackStarted.collect {
                         if (viewModel.shouldAutoEnterVideo()) {
-                            viewModel.requestPresentation(PresentationMode.INLINE, surfaceView)
+                            viewModel.requestPresentation(PresentationMode.INLINE, surfaceView, automatic = true)
                         }
                     }
                 }
