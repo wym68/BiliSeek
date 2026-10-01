@@ -36,15 +36,17 @@ class UpSpaceController(
 
     /** 点 UP 搜索结果 → 打开空间页（默认投稿视图）。 */
     fun openUpSpace(user: SearchUser) {
-        _upSpace.value = UpSpaceUiState(up = user)
+        // 本人的空间：不查关注状态、不计访问（B 站不允许关注自己）
+        val isSelf = UpSpacePolicy.isSelf(user.mid, session.value)
+        _upSpace.value = UpSpaceUiState(up = user, isSelf = isSelf)
         loadUpPosts(1)
-        loadFollowingState(user.mid)
+        if (!isSelf) loadFollowingState(user.mid)
         // 如果头像或粉丝数为空，从 API 获取完整信息
         if (user.upic.isBlank() || user.fans == 0L) {
             loadUserInfo(user.mid)
         }
         // 计一次访问（最常访问排序用）。
-        recordUpVisit(user.mid)
+        if (!isSelf) recordUpVisit(user.mid)
     }
 
     /** 获取用户完整信息（头像、粉丝数）。 */
@@ -86,6 +88,8 @@ class UpSpaceController(
             emitMessage("请先登录后再关注")
             return@launch
         }
+        // 兜底：本人的空间不显示关注按钮，万一从别处触发也不发请求
+        if (UpSpacePolicy.isSelf(mid, session.value)) return@launch
         val cur = _upSpace.value
         // 防止双击：true→true 已是最终态，不重复发
         if (cur.followingLoading) return@launch

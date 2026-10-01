@@ -160,6 +160,7 @@ fun UpSpaceScreen(
                         up = up,
                         following = state.following,
                         followingLoading = state.followingLoading,
+                        showFollow = !state.isSelf,
                         onToggleFollow = onToggleFollow,
                     )
                 }
@@ -214,6 +215,8 @@ private fun UpHeader(
     up: SearchUser,
     following: Boolean?,
     followingLoading: Boolean,
+    /** 本人的空间不显示关注按钮，右侧留空。 */
+    showFollow: Boolean,
     onToggleFollow: (Long, Boolean) -> Unit,
 ) {
     Row(
@@ -252,7 +255,9 @@ private fun UpHeader(
         // 关注按钮：未拉取时一律显示"关注"，避免 UI 闪烁
         // 按钮规范：未关注 = 主操作（Button）；已关注 = 次要（FilledTonalButton），取关同一个按钮
         val isFollowing = following == true
-        if (isFollowing) {
+        if (!showFollow) {
+            // 本人的空间：不放按钮
+        } else if (isFollowing) {
             FilledTonalButton(
                 onClick = { onToggleFollow(up.mid, false) },
                 enabled = !followingLoading,

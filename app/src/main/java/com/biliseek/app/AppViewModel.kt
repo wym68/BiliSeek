@@ -239,6 +239,8 @@ data class UpSpaceUiState(
     val following: Boolean? = null,
     /** 关注请求 in-flight（按钮 loading）。 */
     val followingLoading: Boolean = false,
+    /** 是当前登录账号本人的空间：不显示关注按钮（见 UpSpacePolicy.isSelf）。 */
+    val isSelf: Boolean = false,
 )
 
 /** Ch4 图文动态图片全屏预览状态。 */
