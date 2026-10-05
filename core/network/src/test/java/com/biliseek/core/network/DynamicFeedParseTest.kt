@@ -189,4 +189,52 @@ class DynamicFeedParseTest {
         val entry = parseDynamicItems(data.items)[0]
         assertEquals(12345L, entry.authorMid)
     }
+
+    private fun avItem(archive: String) = json.decodeFromString<DynamicFeedData>(
+        """{ "items": [{
+          "id_str": "1", "type": "DYNAMIC_TYPE_AV",
+          "modules": { "module_author": { "mid": 1, "name": "UP" },
+            "module_dynamic": { "major": { "type": "MAJOR_TYPE_ARCHIVE", "archive": $archive } } }
+        }] }""".trimIndent(),
+    ).items.single()
+
+    @Test
+    fun `动态里的视频 角标文字含充电或带充电字段算充电专属`() {
+        fun charge(archive: String) = parseDynamicItem(avItem(archive))!!.video!!.chargeExclusive
+        assertTrue(charge("""{"bvid":"BV1a","title":"t","badge":{"text":"充电专属"}}"""))
+        assertTrue(charge("""{"bvid":"BV1b","title":"t","is_charging_arc":true}"""))
+        assertTrue(charge("""{"bvid":"BV1c","title":"t","elec_arc_type":1}"""))
+    }
+
+    @Test
+    fun `动态里的普通视频 角标是投稿视频 不算充电`() {
+        val entry = parseDynamicItem(avItem("""{"bvid":"BV1d","title":"t","badge":{"text":"投稿视频"}}"""))!!
+        assertEquals(false, entry.video!!.chargeExclusive)
+        assertEquals(false, entry.video!!.limitedFree)
+    }
+
+    @Test
+    fun `动态里限时免费的充电视频 角标文字是限时免费 不算充电专属`() {
+        // 2026-10-05 真机日志：BV1jjHp6jEk7 badge.text="限时免费"（充电专属是「充电专属」，都带 disable_preview=1）
+        val entry = parseDynamicItem(avItem("""{"bvid":"BV1a","title":"t","badge":{"text":"限时免费"}}"""))!!
+        assertEquals(true, entry.video!!.limitedFree)
+        assertEquals(false, entry.video!!.chargeExclusive)
+    }
+
+    @Test
+    fun `转发的视频按原视频的角标算充电专属和限免`() {
+        val forward = json.decodeFromString<DynamicFeedData>(
+            """{ "items": [{
+              "id_str": "2", "type": "DYNAMIC_TYPE_FORWARD",
+              "modules": { "module_author": { "mid": 5, "name": "转发者" }, "module_dynamic": { "desc": { "text": "转了" } } },
+              "orig": { "id_str": "3", "type": "DYNAMIC_TYPE_AV",
+                "modules": { "module_author": { "mid": 9, "name": "原作者" },
+                  "module_dynamic": { "major": { "type": "MAJOR_TYPE_ARCHIVE",
+                    "archive": { "bvid": "BV1b", "title": "t", "badge": { "text": "限时免费" } } } } } }
+            }] }""".trimIndent(),
+        ).items.single()
+        val video = parseDynamicItem(forward)!!.video!!
+        assertEquals(true, video.limitedFree)
+        assertEquals(false, video.chargeExclusive)
+    }
 }

@@ -46,6 +46,9 @@ fun LoginPanel(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    // 打不开 B 站 App 时的提示：走 App 内提示（在迷你条上方）；没提供时（预览、测试）退回系统 Toast
+    val showMessage = com.biliseek.app.ui.components.LocalShowMessage.current
+        ?: { msg: String -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
             Modifier.padding(16.dp).fillMaxWidth(),
@@ -72,7 +75,7 @@ fun LoginPanel(
                     Text("请用 B 站 App 扫码", style = MaterialTheme.typography.bodySmall)
                     // 一键唤起官方 App：把同一个 QR URL 直接转交给 B 站 App 的 WebView，
                     // 用户在 B 站 App 里点确认即完成登录。我们继续轮询，2s 内拿到结果。
-                    Button(onClick = { openInBiliApp(context, loginState.url) }) {
+                    Button(onClick = { openInBiliApp(context, loginState.url, showMessage) }) {
                         Text("用 B 站 App 一键登录")
                     }
                     OutlinedButton(onClick = onCancel) { Text("取消") }
@@ -135,7 +138,7 @@ private fun QrImage(url: String) {
  *
  * Manifest 已声明 `<queries>` 允许查询该包名；setPackage 同时避免浏览器抢走选择框。
  */
-private fun openInBiliApp(context: Context, url: String) {
+private fun openInBiliApp(context: Context, url: String, showMessage: (String) -> Unit) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
         setPackage(BILIBILI_PACKAGE)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -143,8 +146,8 @@ private fun openInBiliApp(context: Context, url: String) {
     try {
         context.startActivity(intent)
     } catch (_: ActivityNotFoundException) {
-        Toast.makeText(context, "未找到哔哩哔哩 App，请先安装", Toast.LENGTH_SHORT).show()
+        showMessage("未找到哔哩哔哩 App，请先安装")
     } catch (_: SecurityException) {
-        Toast.makeText(context, "无法打开哔哩哔哩 App，请手动扫码", Toast.LENGTH_SHORT).show()
+        showMessage("无法打开哔哩哔哩 App，请手动扫码")
     }
 }

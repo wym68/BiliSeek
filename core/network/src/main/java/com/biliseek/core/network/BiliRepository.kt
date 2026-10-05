@@ -33,9 +33,17 @@ import com.biliseek.core.network.internal.RequestThrottle
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.RiskCooldown
 import com.biliseek.core.network.internal.ThrottleBucket
+import com.biliseek.core.network.internal.parseEraGroups
+import com.biliseek.core.network.internal.parseEraPageTitle
+import com.biliseek.core.network.internal.resolveCardItems
+import com.biliseek.core.network.internal.resolveMusicIssues
 import com.biliseek.core.network.internal.resolveRetryAction
+import com.biliseek.core.network.internal.resolveWeeklyIssues
+import com.biliseek.core.network.internal.toChartPage
 import com.biliseek.core.network.internal.runWithLoginRefresh
 import com.biliseek.core.network.internal.runWriteRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.put
 import java.io.IOException
 
@@ -432,6 +440,114 @@ class BiliRepository internal constructor(
         requireLoggedInMid()
         accountRead("稍后再看") { api.watchLater() }
             ?.list.orEmpty().filter { it.bvid.isNotBlank() }
+    }
+
+    // ── 榜单（首页快捷入口）────────────────────────────────
+
+    /**
+     * 每周必看的全部期数，最新一期在前。公开接口，不需要登录；一次请求，走 [chartRead]。
+     * 没有任何期数时返回空列表。
+     */
+    suspend fun weeklyIssues(): Result<List<ChartIssue>> = runCatching {
+        resolveWeeklyIssues(chartRead("每周必看期数") { api.weeklySeriesList() }?.list.orEmpty())
+    }
+
+    /** 每周必看的某一期：页头 =「期名 · 主题」，条目是这一期的视频。一次请求，走 [chartRead]。 */
+    suspend fun weeklyIssue(issue: ChartIssue): Result<ChartPage> = runCatching {
+        chartRead("每周必看") { api.weeklySeriesOne(issue.number) }?.toChartPage() ?: ChartPage.EMPTY
+    }
+
+    /** 入站必刷。公开接口，一次请求取全部。 */
+    suspend fun preciousVideos(): Result<ChartPage> = runCatching {
+        chartRead("入站必刷") { api.preciousVideos() }?.toChartPage() ?: ChartPage.EMPTY
+    }
+
+    /**
+     * 热歌榜（音频榜单 `list_type=1` 的「热榜」）的全部期，最新一期在前。
+     * 公开接口，不需要登录；一次请求，走 [chartRead]。没有任何期时返回空列表。
+     */
+    suspend fun hotSongIssues(): Result<List<ChartIssue>> = runCatching {
+        resolveMusicIssues(chartRead("热歌榜期数") { api.musicToplistPeriods(listType = 1) }?.list.orEmpty())
+    }
+
+    /** 热歌榜的某一期：页头 =「第 N 期」，条目按名次排。一次请求，走 [chartRead]。 */
+    suspend fun hotSongIssue(issue: ChartIssue): Result<ChartPage> = runCatching {
+        chartRead("热歌榜") { api.musicToplistSongs(issue.id) }?.toChartPage(issue.number) ?: ChartPage.EMPTY
+    }
+
+    /**
+     * 榜单读请求的统一出口：走 [accountRead] 的风控分流（冷却期内本地快速失败，-352 记入冷却且绝不重试，
+     * -412 重置设备凭据），请求本身套 FEED 限速桶。**不加重试循环。**
+     */
+    private suspend fun <T> chartRead(what: String, request: suspend () -> BiliResponse<T>): T? =
+        accountRead(what) {
+            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) { request() }
+        }
+
+    // ── 热门播客（运营搭建的活动页）──────────────────────────
+
+    /**
+     * 取一个活动页（`blackboard/era`）：标题 + 按页面里的标签页分组的 BV 号。公开页面，不需要登录。
+     * 页面只给 BV 号，标题封面要再经 [videoCards] 补。页面里认不出任何视频时抛 [emptyMessage]，
+     * 而不是返回空列表。热门播客与搜索框里的活动页都走这里。
+     */
+    suspend fun eraPage(
+        url: String,
+        emptyMessage: String = "这个活动页没能解析：里面没有找到视频，或者页面结构认不出来",
+    ): Result<EraPageContent> = runCatching {
+        val html = eraPageRead(url)
+        val content = withContext(Dispatchers.Default) {
+            EraPageContent(title = parseEraPageTitle(html), groups = parseEraGroups(html))
+        }
+        if (content.groups.isEmpty()) {
+            throw SearchException(SearchError.Unknown("era page: no groups"), emptyMessage)
+        }
+        content
+    }
+
+    /**
+     * 热门播客：固定网址的活动页，按期（标签页）分组，最新一期在前。
+     * **绑定这一个活动页**：运营换页或改版就解析不出，此时抛出明确的错误。
+     */
+    suspend fun podcastPage(): Result<EraPageContent> =
+        eraPage(PODCAST_ERA_URL, emptyMessage = "热门播客页面结构变了，没能解析")
+
+    /**
+     * 批量取视频的标题、封面、UP 主、时长、播放量（`x/article/cards`，一次请求），按传入顺序返回，
+     * 取不到或已不可用的跳过。公开接口，不需要登录。一次最多 [MAX_CARD_IDS] 个。
+     */
+    suspend fun videoCards(bvids: List<String>): Result<List<ChartItem>> = runCatching {
+        val ids = bvids.distinct().take(MAX_CARD_IDS)
+        if (ids.isEmpty()) return@runCatching emptyList()
+        val cards = chartRead("视频信息") { api.articleCards(ids.joinToString(",")) }.orEmpty()
+        resolveCardItems(ids, cards)
+    }
+
+    /**
+     * 取 B 站活动页（`bilibili.com` 域内）的 HTML。公开页面，不需要登录。
+     *
+     * 页面不是 JSON 接口，没有 `code` 字段：冷却期内本地快速失败；HTTP 412 当作被拦，
+     * 记入全局冷却且**不重试**；其他非 2xx 报「页面加载失败」。套 FEED 限速桶。
+     */
+    private suspend fun eraPageRead(url: String): String {
+        require(isTrustedBiliHost(url)) { "只取 bilibili.com 域内的页面：$url" }
+        authGate.awaitReady()
+        ensureNotCoolingRead()
+        val response = requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+            api.eraPage(url)
+        }
+        if (response.code() == 412) {
+            riskCooldown.onRiskControl()
+            throw SearchException(SearchError.Blocked, "触发风控（HTTP 412），已进入退避")
+        }
+        if (!response.isSuccessful) {
+            throw SearchException(
+                SearchError.Unknown("HTTP ${response.code()}"),
+                "页面加载失败：HTTP ${response.code()}",
+            )
+        }
+        riskCooldown.onSuccess()
+        return response.body()?.string().orEmpty()
     }
 
     // ── UP 主搜索与空间投稿（M11-D）────────────────────────
@@ -1020,6 +1136,13 @@ class BiliRepository internal constructor(
         ) { f, _ -> api.deleteFavoriteFolder(f) }
             .map { }
 
+    /** 取消订阅合集（「列表」页合集分区里的一项）。 */
+    suspend fun unfavSeason(seasonId: Long): Result<Unit> =
+        writeRequest(
+            payload = mapOf("platform" to "web", "season_id" to seasonId.toString()),
+        ) { f, _ -> api.unfavSeason(f) }
+            .map { }
+
     /** 一键三连。 */
     suspend fun tripleAction(bvid: String): Result<Unit> =
         writeRequest(
@@ -1442,6 +1565,12 @@ class BiliRepository internal constructor(
         /** 消息中心限速：B 站私信接口对连发敏感，按 800ms/req 起步。 */
         const val MESSAGE_MIN_INTERVAL_MS = 800L
         const val THROTTLE_JITTER_MS = 300L
+
+        /** 热门播客：运营搭建的 H5 活动页（App 热门页的「热门播客」入口分享出来的页面）。 */
+        const val PODCAST_ERA_URL = "https://www.bilibili.com/blackboard/era/fuwAmTrtqFLexuSx.html"
+
+        /** 批量取视频卡片时一次最多带的 BV 数（一期最多 21 个，留余量）。 */
+        const val MAX_CARD_IDS = 30
     }
 }
 

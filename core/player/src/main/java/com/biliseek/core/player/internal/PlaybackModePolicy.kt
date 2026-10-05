@@ -39,21 +39,26 @@ internal fun resolvePresentationOnEnterBackground(
 /**
  * 换一条内容起播时的呈现态。
  *
- * **看模式下切下一首回到听。** 起播本来就会禁掉视频轨（「默认只听」在时序上的落点），
+ * **在播放页内嵌看时切下一首回到听。** 起播本来就会禁掉视频轨（「默认只听」在时序上的落点），
  * 呈现态必须跟着一起复位——只禁轨不复位，界面会以为还在看模式：
- * 渲染一块没有画面的 SurfaceView（黑屏、不显示封面），按钮还写着「退回听」。
+ * 渲染一块没有画面的 SurfaceView（黑屏、不显示封面）。
  *
- * PiP 例外，理由与 [resolvePresentationOnEnterBackground] 完全相同：
- * 那是个**系统窗口**，把轨关掉只会剩一个黑窗，而不是「回到听」。
+ * 两个例外：
+ * - PiP，理由与 [resolvePresentationOnEnterBackground] 完全相同：
+ *   那是个**系统窗口**，把轨关掉只会剩一个黑窗，而不是「回到听」。
+ * - 全屏（用户要求连续看）：下一条有画面就接着全屏播；没有画面（[nextHasVideo] 为假，
+ *   只下了音频的本地文件）就回到听，全屏层随之退出。
  */
 internal fun resolvePresentationOnTrackChange(
     current: PresentationMode,
     sameContent: Boolean = false,
+    nextHasVideo: Boolean = true,
 ): PresentationMode = when {
     // 同一条内容重新取流（换音质、倍速跨过无损阈值）不是「换内容」：
     // 用户正在看就接着看，退回听会把全屏也一并踢掉
     sameContent -> current
     current == PresentationMode.PIP -> PresentationMode.PIP
+    current == PresentationMode.FULLSCREEN && nextHasVideo -> PresentationMode.FULLSCREEN
     else -> PresentationMode.NONE
 }
 

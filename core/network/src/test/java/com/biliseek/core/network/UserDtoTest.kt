@@ -141,4 +141,35 @@ class UserDtoTest {
         assertEquals("30", params["ps"])
         assertEquals("pubdate", params["order"])
     }
+
+    @Test
+    fun `空间投稿的充电字段`() {
+        val data = json.decodeFromString<SpaceArchiveData>(
+            """{"list":{"vlist":[
+              {"bvid":"BV1a","title":"充电","is_charging_arc":true,"elec_arc_type":1},
+              {"bvid":"BV1b","title":"普通"}
+            ]},"page":{"count":2,"pn":1,"ps":30}}""",
+        )
+        val (charge, normal) = data.list!!.vlist
+        assertTrue(charge.isChargingArc)
+        assertEquals(1, charge.elecArcType)
+        assertFalse(normal.isChargingArc)
+        assertEquals(0, normal.elecArcType)
+    }
+
+    @Test
+    fun `空间投稿的充电角标文字 限时免费的视频是「限时免费」`() {
+        // 2026-10-05 真机日志：BV1jjHp6jEk7 is_charging_arc=true elec_arc_type=1 elec_arc_badge="限时免费"
+        val data = json.decodeFromString<SpaceArchiveData>(
+            """{"list":{"vlist":[
+              {"bvid":"BV1a","is_charging_arc":true,"elec_arc_type":1,"elec_arc_badge":"限时免费"},
+              {"bvid":"BV1b","is_charging_arc":true,"elec_arc_type":1,"elec_arc_badge":"充电专属"},
+              {"bvid":"BV1c"}
+            ]},"page":{"count":3,"pn":1,"ps":30}}""",
+        )
+        val (free, exclusive, normal) = data.list!!.vlist
+        assertEquals("限时免费", free.elecArcBadge)
+        assertEquals("充电专属", exclusive.elecArcBadge)
+        assertEquals("", normal.elecArcBadge)
+    }
 }

@@ -1,5 +1,7 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.ui.components.miniBarContentPadding
+import com.biliseek.designsystem.component.BsLoadMoreFooter
 import androidx.compose.material.icons.outlined.DynamicFeed
 import com.biliseek.designsystem.component.BsLoadingState
 import com.biliseek.designsystem.component.BsErrorState
@@ -31,7 +33,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -297,7 +298,7 @@ private fun PostsList(
         posts.errorMessage != null && posts.items.isEmpty() -> BsErrorState(posts.errorMessage, onRetry = onRetry)
         posts.items.isEmpty() -> BsEmptyState("这个 UP 还没有投稿", icon = Icons.Outlined.VideoLibrary)
         else -> {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
                 items(posts.items, key = { it.bvid }) { video ->
                     PostRow(
                         video = video,
@@ -312,16 +313,16 @@ private fun PostsList(
                 }
                 if (posts.hasMore || posts.isLoadingMore) {
                     item(key = "footer") {
-                        if (posts.hasMore && !posts.isLoadingMore) {
+                        // 失败后不自动再来（否则会一直重打 B 站），等用户点「重试」
+                        if (shouldAutoLoadMore(posts.hasMore, posts.isLoadingMore, posts.errorMessage)) {
                             LaunchedEffect(posts.items.size) { onLoadMore() }
                         }
-                        Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
-                            if (posts.isLoadingMore) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("加载中…", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
+                        BsLoadMoreFooter(
+                            isLoadingMore = posts.isLoadingMore,
+                            errorMessage = posts.errorMessage,
+                            onRetry = onLoadMore,
+                            endText = "加载中…",
+                        )
                     }
                 }
             }
@@ -349,7 +350,7 @@ private fun PostRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 封面 64dp 宽（16:9），与搜索结果条目一致（M11 真机反馈）
-        CoverThumbnail(normalizeCoverUrl(video.pic), width = 64.dp)
+        CoverThumbnail(normalizeCoverUrl(video.pic), width = 64.dp, badge = chargeBadge(video))
         Column(Modifier.weight(1f)) {
             Text(
                 com.biliseek.core.network.stripHighlight(video.title),
@@ -410,7 +411,7 @@ private fun UpDynamicList(
             BsErrorState("${dynamic.errorMessage}\n需登录才能查看 TA 的动态", onRetry = null)
         dynamic.items.isEmpty() -> BsEmptyState("没有动态", icon = Icons.Outlined.DynamicFeed)
         else -> {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
                 items(dynamic.items, key = { it.idStr }) { entry ->
                     DynamicCard(
                         entry = entry,
@@ -419,6 +420,7 @@ private fun UpDynamicList(
                         expandState = dynamicExpand[entry.idStr],
                         onToggleExpand = { onToggleExpand(entry) },
                         onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
+                        onBodyImageClick = onOpenImagePreview,
                         onRepostClick = { onOpenRepost(entry.idStr) },
                         onCommentClick = { onOpenComment(entry) },
                         onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
@@ -428,16 +430,16 @@ private fun UpDynamicList(
                 }
                 if (dynamic.hasMore || dynamic.isLoadingMore) {
                     item(key = "footer") {
-                        if (dynamic.hasMore && !dynamic.isLoadingMore) {
+                        // 失败后不自动再来（否则会一直重打 B 站），等用户点「重试」
+                        if (shouldAutoLoadMore(dynamic.hasMore, dynamic.isLoadingMore, dynamic.errorMessage)) {
                             LaunchedEffect(dynamic.items.size) { onLoadMore() }
                         }
-                        Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
-                            if (dynamic.isLoadingMore) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("加载中…", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
+                        BsLoadMoreFooter(
+                            isLoadingMore = dynamic.isLoadingMore,
+                            errorMessage = dynamic.errorMessage,
+                            onRetry = onLoadMore,
+                            endText = "加载中…",
+                        )
                     }
                 }
             }

@@ -39,6 +39,7 @@ import com.biliseek.app.summary.StyleChoice
 import com.biliseek.app.summary.StyleSheetState
 import com.biliseek.app.summary.SummaryNetworkPolicy
 import com.biliseek.app.summary.SummarySource
+import com.biliseek.app.ui.components.CompactDragHandle
 
 /**
  * AI 总结风格弹窗（工单 AI-6）：顶部「使用 B 站 AI 总结（免费）」，其下自己生成（风格 + 原文来源说明）。
@@ -72,13 +73,17 @@ fun SummaryStyleSheet(
         (!style.needsLlm || state.llmReady) && sourceUsable && (style != StyleChoice.CUSTOM || prompt.isNotBlank())
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { CompactDragHandle() },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 24.dp),
+                .padding(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("AI 总结", style = MaterialTheme.typography.titleMedium)

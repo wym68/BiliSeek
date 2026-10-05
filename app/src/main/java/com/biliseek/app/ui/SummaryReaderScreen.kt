@@ -2,7 +2,6 @@ package com.biliseek.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -19,8 +18,6 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -116,39 +113,7 @@ fun SummaryReaderScreen(
                     if (done) {
                         IconButton(onClick = onShare) { Icon(Icons.Outlined.Share, contentDescription = "分享") }
                     }
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "更多") }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            if (done) {
-                                DropdownMenuItem(text = { Text("另存为…") }, onClick = { menuOpen = false; onExport() })
-                            }
-                            if (entity?.hasTranscript == true) {
-                                DropdownMenuItem(
-                                    text = { Text(if (showTranscript) "查看总结" else "查看原文") },
-                                    onClick = {
-                                        menuOpen = false
-                                        showTranscript = !showTranscript
-                                        if (showTranscript) onLoadTranscript()
-                                    },
-                                )
-                            }
-                            if (running) {
-                                DropdownMenuItem(text = { Text("取消") }, onClick = { menuOpen = false; onCancel() })
-                            } else {
-                                DropdownMenuItem(text = { Text("生成新版本") }, onClick = { menuOpen = false; onRegenerate() })
-                            }
-                            DropdownMenuItem(
-                                text = { Text(if (versions.size > 1) "删除此版本" else "删除") },
-                                onClick = { menuOpen = false; confirmDelete = true },
-                            )
-                            if (versions.size > 1) {
-                                DropdownMenuItem(
-                                    text = { Text("删除全部版本") },
-                                    onClick = { menuOpen = false; confirmDeleteAll = true },
-                                )
-                            }
-                        }
-                    }
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.MoreVert, contentDescription = "更多") }
                 },
             )
 
@@ -220,6 +185,31 @@ fun SummaryReaderScreen(
 
     ExpandableBottomPanel(onDismiss = onClose, state = panel) { body() }
 
+    // 右上「更多」：底部操作表（与应用别处的「更多」一致）
+    if (menuOpen) {
+        ActionListSheet(
+            title = entity?.title ?: "AI 总结",
+            items = buildList {
+                if (done) add("另存为…" to { menuOpen = false; onExport() })
+                if (entity?.hasTranscript == true) {
+                    add(
+                        (if (showTranscript) "查看总结" else "查看原文") to {
+                            menuOpen = false
+                            showTranscript = !showTranscript
+                            if (showTranscript) onLoadTranscript()
+                        },
+                    )
+                }
+                // 在操作表里单写「取消」会被当成关闭菜单，这里写明是取消生成
+                if (running) add("取消生成" to { menuOpen = false; onCancel() })
+                else add("生成新版本" to { menuOpen = false; onRegenerate() })
+                add((if (versions.size > 1) "删除此版本" else "删除") to { menuOpen = false; confirmDelete = true })
+                if (versions.size > 1) add("删除全部版本" to { menuOpen = false; confirmDeleteAll = true })
+            },
+            onDismiss = { menuOpen = false },
+        )
+    }
+
     if (confirmDeleteAll) {
         BsConfirmDialog(
             title = "清除全部 ${versions.size} 个版本？",
@@ -275,32 +265,27 @@ private fun VersionBar(
         modifier = Modifier.testTag("summary_versions"),
     ) {
         if (versions.size > 1) {
-            Box {
-                AssistChip(
-                    onClick = { open = true },
-                    label = { Text("版本 ${SummaryVersionPolicy.ordinal(ids, current.id)}/${versions.size} ▾") },
-                )
-                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                    versions.forEach { v ->
+            AssistChip(
+                onClick = { open = true },
+                label = { Text("版本 ${SummaryVersionPolicy.ordinal(ids, current.id)}/${versions.size} ▾") },
+            )
+            if (open) {
+                ActionListSheet(
+                    title = "切换版本",
+                    items = versions.map { v ->
                         val suffix = when (v.status) {
                             AiSummaryStatus.DONE -> ""
                             AiSummaryStatus.FAILED -> " · 失败"
                             else -> " · 生成中"
                         }
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    (if (v.id == current.id) "✓ " else "") +
-                                        SummaryVersionPolicy.label(v.style, v.sourceKind, v.createdAt) + suffix,
-                                )
-                            },
-                            onClick = {
-                                open = false
-                                onSelect(v.id)
-                            },
-                        )
-                    }
-                }
+                        ((if (v.id == current.id) "✓ " else "") +
+                            SummaryVersionPolicy.label(v.style, v.sourceKind, v.createdAt) + suffix) to {
+                            open = false
+                            onSelect(v.id)
+                        }
+                    },
+                    onDismiss = { open = false },
+                )
             }
         }
         if (showActions) {

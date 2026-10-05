@@ -50,6 +50,11 @@ data class DynamicEntry(
      * （转发时含 orig 的），UI 按占位串替换成行内图片。
      */
     val emotes: Map<String, com.biliseek.core.network.dto.Emote> = emptyMap(),
+    /**
+     * 长图文正文段落（文字 / 图片，按原文顺序），展开后图文穿插显示。
+     * 只有 opus/detail 拉到的详情才有；feed 卡片始终为空。
+     */
+    val body: List<com.biliseek.core.network.dto.DynamicBlock> = emptyList(),
 )
 
 data class DynamicVideo(
@@ -62,7 +67,25 @@ data class DynamicVideo(
     val playText: String = "",
     /** 弹幕数（"324"） */
     val danmakuText: String = "",
+    /** 充电专属视频（封面「充电」角标），见 [isChargeExclusiveArchive]。 */
+    val chargeExclusive: Boolean = false,
+    /** 正在限时免费的充电视频（封面「限免」角标），见 [isLimitedFreeArchive]。 */
+    val limitedFree: Boolean = false,
 )
+
+/**
+ * 动态里的视频是不是充电专属：角标文字含「充电」（普通视频是「投稿视频」，不能只看有没有角标），
+ * 或 `is_charging_arc` / `elec_arc_type == 1`（对齐 bilipai `resolveDynamicArchiveBadgeLabel`）。
+ */
+internal fun isChargeExclusiveArchive(archive: com.biliseek.core.network.dto.DynamicArchive): Boolean =
+    archive.badge?.text?.contains("充电") == true || archive.isChargingArc || archive.elecArcType == 1
+
+/**
+ * 动态里的视频是不是正在限时免费的充电视频：角标文字是「限时免费」
+ * （2026-10-05 真机日志：BV1jjHp6jEk7；文字里没有「充电」，所以不算充电专属）。
+ */
+internal fun isLimitedFreeArchive(archive: com.biliseek.core.network.dto.DynamicArchive): Boolean =
+    archive.badge?.text?.let { "限时免费" in it || "限免" in it } == true
 
 /** 动态类型常量（接口返回的 type 枚举值）。 */
 object DynamicItemType {
@@ -152,6 +175,7 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         ridStr = item.basic?.ridStr.orEmpty(),
         stat = stat,
         emotes = collectDynamicEmotes(item),
+        body = major?.opus?.blocks.orEmpty(),
     )
 
     // 多图抽取：去空 src、normalizeCoverUrl
@@ -171,6 +195,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
                         durationText = archive.durationText,
                         playText = archive.stat?.play.orEmpty(),
                         danmakuText = archive.stat?.danmaku.orEmpty(),
+                        chargeExclusive = isChargeExclusiveArchive(archive),
+                        limitedFree = isLimitedFreeArchive(archive),
                     )
                 } else null,
                 coverUrl = cover,
@@ -213,6 +239,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
                         // 转发内嵌视频的统计仍取原视频的（B 站埋点）
                         playText = origArchive.stat?.play.orEmpty(),
                         danmakuText = origArchive.stat?.danmaku.orEmpty(),
+                        chargeExclusive = isChargeExclusiveArchive(origArchive),
+                        limitedFree = isLimitedFreeArchive(origArchive),
                     )
                 } else null,
                 coverUrl = when {

@@ -67,12 +67,13 @@ fun resolveLevel(startLevel: Float, totalDy: Float, height: Float): Float {
 }
 
 /**
- * 长按临时倍速的目标速度。返回 null 表示不加速（当前已经不慢于目标）。
+ * 长按临时倍速的目标速度（全屏、播放页小框共用）。返回 null 表示不加速：暂停中，或当前已经不慢于目标。
  *
  * 正在放无损时只加到 1.5×：再往上会触发「无损 → AAC」的重新取流，
  * 按下、松开各缓冲一次，长按加速就成了卡两下。
  */
-fun resolveLongPressSpeed(currentSpeed: Float, losslessActive: Boolean): Float? {
+fun resolveLongPressSpeed(currentSpeed: Float, losslessActive: Boolean, isPlaying: Boolean = true): Float? {
+    if (!isPlaying) return null
     val target = if (losslessActive) LONG_PRESS_SPEED_LOSSLESS else LONG_PRESS_SPEED
     return if (currentSpeed >= target) null else target
 }

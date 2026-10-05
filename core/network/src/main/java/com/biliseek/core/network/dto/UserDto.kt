@@ -102,4 +102,13 @@ data class SpaceVideo(
     /** 播放量。UP 主隐藏时为字符串 "--"，容错解析为 0。 */
     @Serializable(with = TolerantLongSerializer::class)
     val play: Long = 0,
+    /** 充电专属视频（封面「充电」角标）。 */
+    @SerialName("is_charging_arc") val isChargingArc: Boolean = false,
+    /** 1 = 充电视频（限时免费的充电视频也是 1，看 [elecArcBadge] 区分）。 */
+    @SerialName("elec_arc_type") val elecArcType: Int = 0,
+    /**
+     * 充电角标文字：充电专属是「充电专属」，限时免费的是「限时免费」，普通视频为空
+     * （2026-10-05 真机日志核实：BV1jjHp6jEk7 限时免费，其余两个字段和充电专属一样）。
+     */
+    @SerialName("elec_arc_badge") val elecArcBadge: String = "",
 )

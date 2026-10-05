@@ -12,12 +12,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,23 +32,26 @@ import com.biliseek.app.summary.SummaryGroup
 import com.biliseek.app.summary.SummaryGroupState
 import com.biliseek.app.summary.SummaryLibraryPolicy
 import com.biliseek.app.summary.SummaryLibraryState
+import com.biliseek.app.ui.components.SwipeToRemoveRow
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.component.BsTopBar
 
 /**
  * 「AI 总结」本地列表：所有存在本机的总结，一条视频一行（多个版本合并显示），
- * 点进去看、右侧垃圾桶删除，顶部显示总占用并可一键清空——总结文件会一直累积，得让人看得见、删得掉。
+ * 点一行看总结、右侧按钮播放这个视频、右滑删除（可撤销），顶部显示总占用、垃圾桶一键清空
+ * ——总结文件会一直累积，得让人看得见、删得掉。
  */
 @Composable
 fun SummaryListScreen(
     state: SummaryLibraryState,
     onClose: () -> Unit,
     onOpen: (SummaryGroup) -> Unit,
+    onPlay: (SummaryGroup) -> Unit,
     onDelete: (SummaryGroup) -> Unit,
     onClearAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var pendingDelete by remember { mutableStateOf<SummaryGroup?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
@@ -58,7 +61,9 @@ fun SummaryListScreen(
             onNavigate = onClose,
             actions = {
                 if (!state.isEmpty) {
-                    TextButton(onClick = { confirmClear = true }) { Text("清空") }
+                    IconButton(onClick = { confirmClear = true }) {
+                        Icon(Icons.Outlined.Delete, contentDescription = "全部清空")
+                    }
                 }
             },
         )
@@ -72,31 +77,19 @@ fun SummaryListScreen(
             }
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize().testTag("summary_list")) {
-            items(state.groups, key = { "${it.bvid}_${it.cid}" }) { group ->
-                SummaryRow(group, onOpen = { onOpen(group) }, onAskDelete = { pendingDelete = group })
+        LazyColumn(Modifier.fillMaxSize().testTag("summary_list"), contentPadding = miniBarContentPadding()) {
+            items(state.groups, key = SummaryLibraryPolicy::key) { group ->
+                SwipeToRemoveRow(
+                    background = MaterialTheme.colorScheme.background,
+                    onRemove = { onDelete(group) },
+                ) {
+                    SummaryRow(group, onOpen = { onOpen(group) }, onPlay = { onPlay(group) })
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
 
-    pendingDelete?.let { group ->
-        BsConfirmDialog(
-            title = "删除这个视频的总结？",
-            text = if (group.versionCount > 1) {
-                "将删除全部 ${group.versionCount} 个版本及保存的原文，释放约 ${SummaryLibraryPolicy.formatSize(group.sizeBytes)}。"
-            } else {
-                "将删除这份总结及保存的原文，释放约 ${SummaryLibraryPolicy.formatSize(group.sizeBytes)}。"
-            },
-            confirmLabel = "删除",
-            destructive = true,
-            onConfirm = {
-                pendingDelete = null
-                onDelete(group)
-            },
-            onDismiss = { pendingDelete = null },
-        )
-    }
     if (confirmClear) {
         BsConfirmDialog(
             title = "清空全部 AI 总结？",
@@ -113,7 +106,7 @@ fun SummaryListScreen(
 }
 
 @Composable
-private fun SummaryRow(group: SummaryGroup, onOpen: () -> Unit, onAskDelete: () -> Unit) {
+private fun SummaryRow(group: SummaryGroup, onOpen: () -> Unit, onPlay: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -149,8 +142,8 @@ private fun SummaryRow(group: SummaryGroup, onOpen: () -> Unit, onAskDelete: () 
                 },
             )
         }
-        IconButton(onClick = onAskDelete) {
-            Icon(Icons.Outlined.Delete, contentDescription = "删除")
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Outlined.PlayCircle, contentDescription = "播放")
         }
     }
 }

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.interaction.VideoAction
 import com.biliseek.app.interaction.VideoActionPolicy
 import com.biliseek.app.interaction.VideoInteractionState
+import com.biliseek.app.ui.components.CompactDragHandle
 import com.biliseek.designsystem.component.BsIconAction
 import com.biliseek.designsystem.component.BsIconActionLayout
 import com.biliseek.designsystem.theme.BsSize
@@ -189,9 +190,10 @@ private fun CoinSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { CompactDragHandle() },
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = BsSpacing.xl).padding(bottom = BsSpacing.xl),
+            Modifier.fillMaxWidth().padding(horizontal = BsSpacing.xl).padding(top = BsSpacing.sm, bottom = BsSpacing.xl),
             verticalArrangement = Arrangement.spacedBy(BsSpacing.lg),
         ) {
             Text("投币", style = MaterialTheme.typography.titleMedium)

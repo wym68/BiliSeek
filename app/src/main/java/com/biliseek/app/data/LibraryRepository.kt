@@ -1,7 +1,7 @@
 package com.biliseek.app.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 
 /** 本地库读写。UI 层不直接碰 DAO。 */
 class LibraryRepository(private val db: BiliSeekDatabase) {
@@ -15,20 +15,17 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
 
     fun observePlaylists(): Flow<List<PlaylistEntity>> = playlists.observeAll()
 
-    /** playlistId → 条目数。加入列表弹窗的目录行显示用。 */
-    fun observePlaylistTrackCounts(): Flow<Map<Long, Int>> =
-        playlists.observeTrackCounts().map { list -> list.associate { it.playlistId to it.trackCount } }
-
     fun observeTracks(playlistId: Long): Flow<List<PlaylistTrack>> =
         playlists.observeTracks(playlistId)
 
-    suspend fun createPlaylist(name: String): Long {
+    suspend fun createPlaylist(name: String, icon: String = ""): Long {
         val now = System.currentTimeMillis()
-        return playlists.insert(PlaylistEntity(name = name, createdAt = now, updatedAt = now))
+        return playlists.insert(PlaylistEntity(name = name, createdAt = now, updatedAt = now, icon = icon))
     }
 
-    suspend fun renamePlaylist(id: Long, name: String) =
-        playlists.rename(id, name, System.currentTimeMillis())
+    /** 改列表的名字和图标。 */
+    suspend fun editPlaylist(id: Long, name: String, icon: String) =
+        playlists.edit(id, name, icon, System.currentTimeMillis())
 
     suspend fun deletePlaylist(id: Long) = playlists.delete(id)
 
@@ -47,6 +44,10 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
 
     suspend fun removeFromPlaylist(playlistId: Long, trackId: Long) =
         playlists.unlink(playlistId, trackId)
+
+    /** 撤销移除：按原来的 [sortKey] 放回原位（track 行移除时并没有删）。 */
+    suspend fun restoreToPlaylist(playlistId: Long, trackId: Long, sortKey: Double) =
+        playlists.link(PlaylistTrackEntity(playlistId, trackId, sortKey))
 
     /** 把 track 移到 [before] 与 [after] 之间，只改一行。 */
     suspend fun reorder(playlistId: Long, trackId: Long, before: Double?, after: Double?) {
@@ -73,6 +74,20 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     /** 某天的播放记录（日历史页）。 */
     fun observeDayHistory(dayStartMs: Long, dayEndMs: Long): Flow<List<PlayHistoryEntity>> =
         history.observeDay(dayStartMs, dayEndMs)
+
+    private val listenDays = db.listenDayDao()
+
+    /** 累计一段真实收听时长（[ListenTimeTracker] 调）。 */
+    suspend fun addListenedTime(epochDay: Long, ms: Long) {
+        if (ms <= 0) return
+        db.withTransaction {
+            listenDays.ensureDay(epochDay)
+            listenDays.addListened(epochDay, ms)
+        }
+    }
+
+    /** 某天的真实收听时长；这天没有记录（比如在开始统计之前）为 null。 */
+    fun observeListenedMs(epochDay: Long): Flow<Long?> = listenDays.observe(epochDay)
 
     /**
      * 记录一次播放。
@@ -184,6 +199,9 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     }
 
     suspend fun clearFavoriteFolders() = favoriteFolders.clear()
+
+    /** 从收藏夹里移出一条后，目录快照里的条数就地减一。 */
+    suspend fun decrementFavoriteFolderCount(mediaId: Long) = favoriteFolders.decrementCount(mediaId)
 
     // ── 搜索历史 ────────────────────────────────────────
 

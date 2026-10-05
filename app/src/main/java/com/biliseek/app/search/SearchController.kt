@@ -4,6 +4,7 @@ import com.biliseek.app.SearchMode
 import com.biliseek.app.SearchUiState
 import com.biliseek.app.data.LibraryRepository
 import com.biliseek.app.data.SearchHistoryEntity
+import com.biliseek.app.ui.toSearchVideo
 import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.SearchDuration
 import com.biliseek.core.network.SearchError
@@ -24,7 +25,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * 搜索：关键词输入与提交（BV / AV / b23 短链直达）、外部分享文本、视频搜索与 UP 主搜索、
+ * 搜索：关键词输入与提交（BV / AV / b23 短链 / 活动页直达）、外部分享文本、视频搜索与 UP 主搜索、
  * 分页、筛选、模式切换、搜索历史。
  *
  * 从 AppViewModel 拆出，由 `AppViewModel.search` 持有；生命周期挂在宿主的 [scope] 上。
@@ -37,6 +38,8 @@ class SearchController(
     private val library: LibraryRepository,
     private val play: (PlaybackRequest) -> Unit,
     private val onNewSearch: () -> Unit = {},
+    /** 搜索框里认出活动页（b23 短链展开成活动页、或直接粘贴的网址）：交给榜单页列出里面的视频。 */
+    private val openEraPage: (String) -> Unit = {},
 ) {
     private val _search = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _search.asStateFlow()
@@ -54,20 +57,28 @@ class SearchController(
         }
     }
 
-    /** 提交搜索。输入是 BV/AV/短链时直接播放，否则走关键词搜索。 */
-    fun submitSearch() {
+    /**
+     * 提交搜索。输入是 BV 号 / av 号 / 视频链接 / 短链时先拉详情显示一条结果，点了才播（用户 2026-10-04 要求）；
+     * 否则走关键词搜索。
+     */
+    fun submitSearch() = submit(directPlay = false)
+
+    /** [directPlay]：外部分享过来的直接起播；搜索框里自己输入的先显示结果。 */
+    private fun submit(directPlay: Boolean) {
         val raw = _search.value.keyword
         when (val intent = parseSearchInput(raw)) {
-            is SearchIntent.Video -> play(PlaybackRequest.Bili(intent.bvid, title = intent.bvid))
+            is SearchIntent.Video -> openVideo(intent.bvid, fallbackKeyword = raw, directPlay = directPlay)
 
-            // 本地换算，不为了拿 BV 号多打一次网络请求
+            // av 号本地换算成 BV 号，不为了换算多打一次网络请求
             is SearchIntent.VideoAid -> {
                 val bvid = runCatching { avToBv(intent.aid) }.getOrNull()
                 if (bvid == null) doSearch(raw, page = 1)
-                else play(PlaybackRequest.Bili(bvid, title = bvid))
+                else openVideo(bvid, fallbackKeyword = raw, directPlay = directPlay)
             }
 
-            is SearchIntent.ShortLink -> expandAndOpen(intent.url, fallbackKeyword = raw)
+            is SearchIntent.ShortLink -> expandAndOpen(intent.url, fallbackKeyword = raw, directPlay = directPlay)
+
+            is SearchIntent.EraPage -> showEraPage(intent.url)
 
             is SearchIntent.Keyword -> {
                 if (intent.text.isBlank()) return
@@ -81,22 +92,66 @@ class SearchController(
         }
     }
 
-    /** 展开 b23 短链后二次解析。展不开或落点不可信时，退回关键词搜索。 */
-    private fun expandAndOpen(url: String, fallbackKeyword: String) {
+    /**
+     * 认出一个视频：外部分享过来的直接起播；搜索框里输入的先显示一条结果（[showVideoResult]）。
+     */
+    private fun openVideo(bvid: String, fallbackKeyword: String, directPlay: Boolean) {
+        if (directPlay) {
+            play(PlaybackRequest.Bili(bvid, title = bvid))
+        } else {
+            showVideoResult(bvid, fallbackKeyword)
+        }
+    }
+
+    /**
+     * 拉一次视频详情（播放页本来也要拉的公开接口），在搜索结果里只放这一条：标题、UP 主、时长、播放量都有，
+     * 点了和普通结果一样起播（多 P 先挑 P）。在「UP 主」模式下也切回「视频」，结果才看得到。
+     * 拉不到（断网、视频不存在）时退回把原输入当关键词搜索，和短链展不开时一样。
+     */
+    private fun showVideoResult(bvid: String, fallbackKeyword: String) {
+        onNewSearch()
+        _search.value = _search.value.copy(
+            searchMode = SearchMode.VIDEO,
+            isLoading = true,
+            error = null,
+            items = emptyList(), page = 0, totalPages = 0, totalResults = 0,
+        )
+        scope.launch {
+            repository.videoView(bvid)
+                .onSuccess { view ->
+                    _search.value = _search.value.copy(
+                        isLoading = false,
+                        items = listOf(view.toSearchVideo()),
+                        page = 1, totalPages = 1, totalResults = 1,
+                    )
+                }
+                .onFailure {
+                    _search.value = _search.value.copy(isLoading = false)
+                    doSearch(fallbackKeyword, page = 1)
+                }
+        }
+    }
+
+    /**
+     * 展开 b23 短链后二次解析：落点是视频就按 [openVideo] 处理，是活动页就列出页面里的视频，
+     * 既不是视频也不是活动页就提示「这个链接不是视频」（[SearchError.NotVideo]）。
+     * 展不开（断网、落点不在 B 站域内）时退回关键词搜索：这时它可能就是个正常视频，不能说它不是。
+     */
+    private fun expandAndOpen(url: String, fallbackKeyword: String, directPlay: Boolean) {
         scope.launch {
             _search.value = _search.value.copy(isLoading = true, error = null)
             repository.expandShortLink(url)
                 .onSuccess { finalUrl ->
                     _search.value = _search.value.copy(isLoading = false)
                     when (val resolved = parseSearchInput(finalUrl)) {
-                        is SearchIntent.Video ->
-                            play(PlaybackRequest.Bili(resolved.bvid, title = resolved.bvid))
+                        is SearchIntent.Video -> openVideo(resolved.bvid, fallbackKeyword, directPlay)
                         is SearchIntent.VideoAid -> {
                             val bvid = runCatching { avToBv(resolved.aid) }.getOrNull()
                             if (bvid == null) doSearch(fallbackKeyword, page = 1)
-                            else play(PlaybackRequest.Bili(bvid, title = bvid))
+                            else openVideo(bvid, fallbackKeyword, directPlay)
                         }
-                        else -> doSearch(fallbackKeyword, page = 1)
+                        is SearchIntent.EraPage -> showEraPage(resolved.url)
+                        else -> showNotVideo()
                     }
                 }
                 .onFailure {
@@ -107,7 +162,29 @@ class SearchController(
     }
 
     /**
-     * 接住外部分享。
+     * 短链展开后既不是视频也不是活动页：明确提示「这个链接不是视频」，不再拿链接文字去搜索。
+     * 旧结果一并清掉——有旧结果时错误只会收窄成列表底部一条，容易漏看；
+     * 视频 / UP 主两种搜索模式的面板都要显示。
+     */
+    private fun showNotVideo() {
+        onNewSearch()
+        _search.value = _search.value.copy(
+            isLoading = false,
+            items = emptyList(), page = 0, totalPages = 0, totalResults = 0,
+            users = emptyList(), userPage = 0, userTotalPages = 0, userTotalResults = 0,
+            error = SearchError.NotVideo,
+            userError = SearchError.NotVideo,
+        )
+    }
+
+    /** 活动页：链接已经「用掉」，清空搜索框回到首页，由榜单页列出页面里的视频。 */
+    private fun showEraPage(url: String) {
+        _search.value = SearchUiState()
+        openEraPage(url)
+    }
+
+    /**
+     * 接住外部分享：分享过来的视频**直接起播**（用户 2026-10-04 选定；搜索框里输入的才先显示结果）。
      *
      * 分享过来的文本往往是「标题 + 一句吆喝 + 链接」，
      * [parseSearchInput] 本来就能从中挑出 BV / 短链，直接整段喂进去即可。
@@ -115,7 +192,7 @@ class SearchController(
     fun handleSharedText(text: String) {
         if (text.isBlank()) return
         _search.value = _search.value.copy(keyword = text.trim(), error = null)
-        submitSearch()
+        submit(directPlay = true)
     }
 
     private fun doSearch(keyword: String, page: Int) {

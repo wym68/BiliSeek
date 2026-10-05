@@ -83,17 +83,31 @@ class PlaybackModePolicyTest {
     }
 
     @Test
-    fun `换内容起播时看模式回落到听`() {
-        // 产品取向：看模式下切下一首回到听。
+    fun `换内容起播时内嵌看回落到听`() {
+        // 产品取向：在播放页内嵌看时切下一首回到听。
         // 起播本来就会禁掉视频轨，呈现态必须跟着复位，否则界面以为还在看模式——
-        // 渲染一块没有画面的 SurfaceView：黑屏、不显示封面、按钮还写着「退回听」
+        // 渲染一块没有画面的 SurfaceView：黑屏、不显示封面
         assertEquals(
             PresentationMode.NONE,
             resolvePresentationOnTrackChange(PresentationMode.INLINE),
         )
+    }
+
+    @Test
+    fun `全屏看时换内容接着全屏看`() {
+        // 用户要求：全屏时点下一首（或播完自动下一首）直接全屏播下一个，不退回听
+        assertEquals(
+            PresentationMode.FULLSCREEN,
+            resolvePresentationOnTrackChange(PresentationMode.FULLSCREEN, nextHasVideo = true),
+        )
+    }
+
+    @Test
+    fun `全屏时下一条没有画面就回到听`() {
+        // 只下了音频的本地文件没有视频轨：留在全屏只剩一个黑框，回到听，全屏层随之退出
         assertEquals(
             PresentationMode.NONE,
-            resolvePresentationOnTrackChange(PresentationMode.FULLSCREEN),
+            resolvePresentationOnTrackChange(PresentationMode.FULLSCREEN, nextHasVideo = false),
         )
     }
 
@@ -115,15 +129,20 @@ class PlaybackModePolicyTest {
     }
 
     @Test
-    fun `换内容与进后台两条回落规则一致`() {
-        // 两者理由相同（PiP 可见、其余回落），不该出现一个改了另一个没改
-        PresentationMode.entries.forEach { presentation ->
+    fun `换内容与进后台两条回落规则只在全屏上不同`() {
+        // 两者理由相同（PiP 可见、其余回落），不该出现一个改了另一个没改。
+        // 唯一的例外是全屏：换内容接着全屏看（用户要求），进后台仍回落
+        PresentationMode.entries.filter { it != PresentationMode.FULLSCREEN }.forEach { presentation ->
             assertEquals(
                 "呈现态 $presentation 下两条规则分叉了",
                 resolvePresentationOnEnterBackground(presentation),
                 resolvePresentationOnTrackChange(presentation),
             )
         }
+        assertEquals(
+            PresentationMode.NONE,
+            resolvePresentationOnEnterBackground(PresentationMode.FULLSCREEN),
+        )
     }
 
     @Test

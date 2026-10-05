@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.biliseek.app.ui.components.LocalMiniBarInset
 import com.biliseek.core.network.dto.PrivateMessage
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.network.privateMessageImageUrl
@@ -92,7 +93,8 @@ fun PrivateChatScreen(
         }
     }
 
-    Column(modifier.fillMaxSize()) {
+    // 输入框在页面最下面：整页底部让出迷你条（它盖在页面最下面），输入框仍在迷你条上方
+    Column(modifier.fillMaxSize().padding(bottom = LocalMiniBarInset.current)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = BsSpacing.xs, vertical = BsSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,

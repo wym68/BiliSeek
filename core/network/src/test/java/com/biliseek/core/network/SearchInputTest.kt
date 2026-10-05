@@ -39,6 +39,77 @@ class SearchInputTest {
     }
 
     @Test
+    fun `av 号不分大小写`() {
+        assertEquals(SearchIntent.VideoAid(170001), parseSearchInput("AV170001"))
+        assertEquals(SearchIntent.VideoAid(170001), parseSearchInput("  Av170001  "))
+    }
+
+    @Test
+    fun `视频页网址里的 av 号直达，后面可以跟斜杠、问号、html`() {
+        assertEquals(SearchIntent.VideoAid(170001), parseSearchInput("https://www.bilibili.com/video/av170001?p=2"))
+        assertEquals(SearchIntent.VideoAid(170001), parseSearchInput("看这个 https://www.bilibili.com/video/av170001/ 好看"))
+        assertEquals(SearchIntent.VideoAid(170001), parseSearchInput("https://m.bilibili.com/video/av170001.html"))
+    }
+
+    @Test
+    fun `纯数字是关键词，不再当 av 号`() {
+        assertEquals(SearchIntent.Keyword("2024"), parseSearchInput("2024"))
+        assertEquals(SearchIntent.Keyword("170001"), parseSearchInput("170001"))
+    }
+
+    @Test
+    fun `链接里别的数字不算 av 号`() {
+        val favlist = "https://space.bilibili.com/12345/favlist?fid=1"
+        assertEquals(SearchIntent.Keyword(favlist), parseSearchInput(favlist))
+        val column = "https://www.bilibili.com/read/cv12345/"
+        assertEquals(SearchIntent.Keyword(column), parseSearchInput(column))
+    }
+
+    @Test
+    fun `av 后面不是纯数字、或数字是 0，都不算`() {
+        assertEquals(SearchIntent.Keyword("avatar2024"), parseSearchInput("avatar2024"))
+        assertEquals(SearchIntent.Keyword("av170001abc"), parseSearchInput("av170001abc"))
+        assertEquals(SearchIntent.Keyword("av0"), parseSearchInput("av0"))
+        assertEquals(SearchIntent.Keyword("av 170001"), parseSearchInput("av 170001"))
+    }
+
+    @Test
+    fun `活动页网址规整成不带分享参数的 https 地址`() {
+        val raw = "https://www.bilibili.com/blackboard/era/fuwAmTrtqFLexuSx.html" +
+            "?bili_only=1&share_session_id=abc&timestamp=1"
+        assertEquals(
+            SearchIntent.EraPage("https://www.bilibili.com/blackboard/era/fuwAmTrtqFLexuSx.html"),
+            parseSearchInput(raw),
+        )
+    }
+
+    @Test
+    fun `m 站和 http 的活动页网址也认，并规整成 https 的 www 站`() {
+        assertEquals(
+            SearchIntent.EraPage("https://www.bilibili.com/blackboard/era/abc-1_x.html"),
+            parseSearchInput("http://m.bilibili.com/blackboard/era/abc-1_x.html"),
+        )
+    }
+
+    @Test
+    fun `分享文本里能挑出活动页网址`() {
+        assertEquals(
+            SearchIntent.EraPage("https://www.bilibili.com/blackboard/era/abc.html"),
+            parseSearchInput("【热门播客榜单】 https://www.bilibili.com/blackboard/era/abc.html?x=1 快来看"),
+        )
+    }
+
+    @Test
+    fun `不是 era 的活动页、别的域名下的 era 路径、仿冒域名都不算活动页`() {
+        val other = "https://www.bilibili.com/blackboard/activity-xyz.html"
+        assertEquals(SearchIntent.Keyword(other), parseSearchInput(other))
+        val evil = "https://evil.com/blackboard/era/abc.html"
+        assertEquals(SearchIntent.Keyword(evil), parseSearchInput(evil))
+        val spoof = "https://bilibili.com.evil.com/blackboard/era/abc.html"
+        assertEquals(SearchIntent.Keyword(spoof), parseSearchInput(spoof))
+    }
+
+    @Test
     fun `空输入不崩`() {
         assertEquals(SearchIntent.Keyword(""), parseSearchInput("   "))
     }

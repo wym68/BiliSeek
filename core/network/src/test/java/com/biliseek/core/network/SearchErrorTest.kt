@@ -24,6 +24,12 @@ class SearchErrorTest {
     }
 
     @Test
+    fun `链接不是视频不给重试按钮`() {
+        // 重试还是同一个链接，按钮只会让人误以为是加载失败
+        assertFalse(SearchError.NotVideo.retryable)
+    }
+
+    @Test
     fun `可恢复的失败给重试按钮`() {
         assertTrue(SearchError.Network("timeout").retryable)
         assertTrue(SearchError.CredentialsInvalid.retryable)

@@ -95,4 +95,9 @@ class DownloadQueuePolicyTest {
         assertEquals("P2 第二集", downloadTitleFor("", "P2 第二集"))
         assertEquals("潜伏解读", downloadTitleFor("潜伏解读", " "))
     }
+
+    @Test
+    fun `暂停中的同一 P 再次下载时跳过 用户点继续即可`() {
+        org.junit.Assert.assertTrue(shouldSkipEnqueue(DownloadStatus.PAUSED))
+    }
 }

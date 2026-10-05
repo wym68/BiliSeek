@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsLoadingState
 import com.biliseek.designsystem.component.BsErrorState
 import com.biliseek.designsystem.component.BsEmptyState
@@ -74,7 +75,7 @@ fun SeriesListScreen(
             state.items.isEmpty() -> BsEmptyState("还没有订阅合集", icon = Icons.Outlined.VideoLibrary)
 
             else -> {
-                LazyColumn(Modifier.fillMaxWidth()) {
+                LazyColumn(Modifier.fillMaxWidth(), contentPadding = miniBarContentPadding()) {
                     items(state.items, key = { it.id }) { item ->
                         Row(
                             Modifier

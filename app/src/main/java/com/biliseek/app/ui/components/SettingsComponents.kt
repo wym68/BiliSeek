@@ -239,15 +239,31 @@ fun SettingsRadioRow(
     }
 }
 
-/** 弹层内的小节标题（主色小字），与 [SettingsGroup] 的组名同一样式。 */
+/**
+ * 弹层内的小节标题（主色小字），与 [SettingsGroup] 的组名同一样式。
+ * [action] 放在标题行右端（如「新建」按钮）。
+ */
 @Composable
-fun SettingsSheetSection(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = BsSpacing.xl, end = BsSpacing.xl, top = BsSpacing.md, bottom = BsSpacing.xs),
-    )
+fun SettingsSheetSection(title: String, action: (@Composable () -> Unit)? = null) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(
+                start = BsSpacing.xl,
+                end = if (action != null) BsSpacing.sm else BsSpacing.xl,
+                top = BsSpacing.md,
+                bottom = BsSpacing.xs,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        action?.invoke()
+    }
 }
 
 /** 设置用的底部弹层外壳：标题 + 可选说明 + 可滚动内容。 */
@@ -262,6 +278,7 @@ fun SettingsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { CompactDragHandle() },
     ) {
         Column(
             Modifier
@@ -273,7 +290,7 @@ fun SettingsSheet(
             Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = BsSpacing.xl),
+                modifier = Modifier.padding(start = BsSpacing.xl, end = BsSpacing.xl, top = BsSpacing.sm),
             )
             if (!note.isNullOrBlank()) {
                 Spacer(Modifier.size(BsSpacing.xs))

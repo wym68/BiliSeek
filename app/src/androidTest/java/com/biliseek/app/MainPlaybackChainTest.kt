@@ -2,14 +2,17 @@ package com.biliseek.app
 
 import android.Manifest
 import android.content.Context
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelProvider
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -26,7 +29,8 @@ import java.io.File
 
 /**
  * 主链路 Compose UI 测试（《功能优化篇》§10.4 指定）：
- * **起播 → 切看 → 换内容回到听**。
+ * **起播（停在迷你播放条、是听）→ 点开播放页 → 切看 → 换内容回到听**；
+ * 回到迷你播放条（点底部页面 / 返回）时收起播放页并自动切回听（§13.42）；迷你条上暂停与继续。
  *
  * 全离线设计：取流层 `offlineLookup` 回调在风控凭据（`awaitReady`）**之前**
  * 拦截（M9 §9.4 的拦截点），测试把它指向拷贝到私有目录的测试资产——
@@ -104,38 +108,92 @@ class MainPlaybackChainTest {
         composeRule.waitUntil(timeoutMs) { condition() }
     }
 
-    @Test
-    fun 主链路_起播_切看_换内容回到听() {
-        playTwoTrackQueue()
-
-        // ── 起播：播放器自动展开、显示标题、听模式 ──
+    /** 等起播：第一首有标题、不再空闲。 */
+    private fun waitForFirstTrack() {
         waitForState {
             vm.connection.state.value.title == "测试曲目 A" &&
                 vm.connection.state.value.mode != PlaybackMode.IDLE
         }
         composeRule.waitForIdle()
-        // 标题同时出现在标题行与队列当前行：任一处可见即通过
-        composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
-        composeRule.onNodeWithText("切「看」").assertIsDisplayed()
-        composeRule.onNodeWithText("暂停").assertIsDisplayed()
+    }
 
-        // ── 切看：呈现态进 INLINE，按钮翻转 ──
-        composeRule.onNodeWithText("切「看」").performClick()
+    /** 点迷你播放条打开播放页，等顶栏「正在播放」出现。 */
+    private fun openPlayerPage() {
+        composeRule.onAllNodesWithText("测试曲目 A").onFirst().performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("正在播放").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    /** 在播放页点「看」，等进看模式。 */
+    private fun switchToWatch() {
+        composeRule.onNodeWithText("看").performClick()
         waitForState { vm.connection.state.value.presentation == PresentationMode.INLINE }
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("退回「听」").assertIsDisplayed()
-        composeRule.onNodeWithText("全屏").assertIsDisplayed()
+    }
 
-        // ── 换内容（下一首）→ 回到听，按钮回「切看」──
-        composeRule.onNodeWithText("下一首").performClick()
+    @Test
+    fun 主链路_起播_打开播放页_切看_换内容回到听() {
+        playTwoTrackQueue()
+        waitForFirstTrack()
+
+        // ── 起播：停在迷你播放条（不自动打开播放页），是听 ──
+        composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
+        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        check(vm.connection.state.value.presentation == PresentationMode.NONE) { "起播应停在听" }
+
+        // ── 点迷你播放条打开播放页：开关停在听 ──
+        openPlayerPage()
+        composeRule.onNodeWithText("听").assertIsSelected()
+
+        // ── 切看：呈现态进 INLINE，开关停在看，出现全屏入口 ──
+        switchToWatch()
+        composeRule.onNodeWithText("看").assertIsSelected()
+        composeRule.onNodeWithContentDescription("全屏").assertIsDisplayed()
+
+        // ── 换内容（下一首）→ 回到听 ──
+        composeRule.onNodeWithContentDescription("下一首").performClick()
         waitForState {
             vm.connection.state.value.title == "测试曲目 B" &&
                 vm.connection.state.value.presentation == PresentationMode.NONE
         }
         composeRule.waitForIdle()
         composeRule.onAllNodesWithText("测试曲目 B").onFirst().assertIsDisplayed()
-        composeRule.onNodeWithText("切「看」").assertIsDisplayed()
-        composeRule.onAllNodesWithText("退回「听」").assertCountEquals(0)
+        composeRule.onNodeWithText("听").assertIsSelected()
+    }
+
+    @Test
+    fun 主链路_看模式下点底部页面收起播放页并切回听() {
+        playTwoTrackQueue()
+        waitForFirstTrack()
+        openPlayerPage()
+        switchToWatch()
+
+        // ── 点底部「列表」：播放页收起成迷你播放条，自动切回听 ──
+        composeRule.onNodeWithText("列表").performClick()
+        waitForState { vm.connection.state.value.presentation == PresentationMode.NONE }
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
+
+        // ── 切回打开播放页前所在的「搜索」：播放页不会又冒出来 ──
+        composeRule.onNodeWithText("搜索").performClick()
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+    }
+
+    @Test
+    fun 主链路_看模式下按返回收起播放页并切回听() {
+        playTwoTrackQueue()
+        waitForFirstTrack()
+        openPlayerPage()
+        switchToWatch()
+
+        Espresso.pressBack()
+        waitForState { vm.connection.state.value.presentation == PresentationMode.NONE }
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
     }
 
     @Test
@@ -145,15 +203,16 @@ class MainPlaybackChainTest {
             vm.connection.state.value.title == "测试曲目 A" && vm.connection.state.value.isPlaying
         }
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("暂停").performClick()
+        // 起播停在迷你播放条：用迷你条上的播放 / 暂停键（按无障碍描述找）
+        composeRule.onNodeWithContentDescription("暂停").performClick()
         waitForState { !vm.connection.state.value.isPlaying }
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("播放").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("播放").assertIsDisplayed()
 
-        composeRule.onNodeWithText("播放").performClick()
+        composeRule.onNodeWithContentDescription("播放").performClick()
         waitForState { vm.connection.state.value.isPlaying }
         composeRule.waitForIdle()
-        composeRule.onNodeWithText("暂停").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("暂停").assertIsDisplayed()
     }
 
     private fun copyAssetToFiles(context: Context, asset: String): File {

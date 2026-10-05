@@ -1,8 +1,6 @@
 package com.biliseek.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +10,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.automirrored.outlined.QueueMusic
@@ -36,13 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.ui.components.CompactDragHandle
 
 /**
  * 通用底部动作菜单：标题（单行，放不下用省略号）+ 带图标的动作列表。
  *
  * 搜索结果 / 多 P 面板 / UP 空间投稿 / 动态长按的菜单共用骨架，
  * 「加入队列」= 追加到播放队列末尾；「下一首播放」= 插到当前项之后（语义由 VM 保证）。
- * 图标按动作名称对应（[iconFor]），没有对应图标的动作只显示文字。
+ * 图标按动作名称对应（[iconFor]），没有对应图标的动作只显示文字；以「删除」开头的动作标红。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +66,7 @@ fun ActionListSheet(
             HorizontalDivider()
             LazyColumn(Modifier.fillMaxWidth()) {
                 items(items) { (label, action) ->
-                    val destructive = label == "删除"
+                    val destructive = label.startsWith("删除")
                     val tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     Row(
                         Modifier
@@ -95,18 +93,6 @@ fun ActionListSheet(
     }
 }
 
-/** 拖动条：M3 默认的上下各留 22dp，占了近 50dp 高；这里压到 8dp + 4dp 的条 + 8dp。 */
-@Composable
-internal fun CompactDragHandle() {
-    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .size(width = 32.dp, height = 4.dp)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(2.dp)),
-        )
-    }
-}
-
 /** 动作名称 → 图标。名称是各处菜单里写死的中文字面量。 */
 private fun iconFor(label: String): ImageVector? = when (label) {
     "加入列表" -> Icons.AutoMirrored.Outlined.PlaylistAdd
@@ -118,5 +104,5 @@ private fun iconFor(label: String): ImageVector? = when (label) {
     "AI 总结" -> Icons.Outlined.AutoAwesome
     "编辑", "重命名" -> Icons.Outlined.Edit
     "删除" -> Icons.Outlined.Delete
-    else -> null
+    else -> if (label.startsWith("删除")) Icons.Outlined.Delete else null // 删除此版本、删除全部版本…
 }

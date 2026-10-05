@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsLoadingState
 import com.biliseek.designsystem.component.BsErrorState
 import com.biliseek.designsystem.component.BsEmptyState
@@ -7,7 +8,6 @@ import androidx.compose.material.icons.outlined.ThumbUp
 import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,7 +58,7 @@ fun LikeScreen(
             onRefresh = onRetry,
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding(bottom = 16.dp)) {
                 when {
                     state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
                     state.errorMessage != null && state.items.isEmpty() -> item {

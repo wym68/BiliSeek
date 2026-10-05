@@ -88,6 +88,8 @@ data class VideoViewInfo(
     /** 分区名。AI 总结的参考信息（视频标签需另一个接口，暂不请求）。 */
     val tname: String = "",
     val title: String = "",
+    /** 封面。搜索框里输入 BV 号时，结果行用它（`//` 或 `http:` 开头，展示前需规整）。 */
+    val pic: String = "",
     /** 时长（秒，全部分 P 合计）。 */
     val duration: Long = 0,
 )
@@ -294,6 +296,13 @@ data class WatchLaterItem(
     /** 已播进度（秒），-1 = 未开播。 */
     val progress: Long = -1,
     val owner: WatchLaterOwner? = null,
+    /** 充电专属视频才有（bilipai 按 `level` 非空判断，封面「充电」角标）。 */
+    @SerialName("charging_pay") val chargingPay: WatchLaterChargingPay? = null,
+)
+
+@Serializable
+data class WatchLaterChargingPay(
+    val level: Int? = null,
 )
 
 @Serializable
@@ -335,6 +344,8 @@ data class SeriesArchive(
     val cover: String = "",
     val duration: Long = 0,
     val author: String = "",
+    /** UP 主编号；本地从合集内容映射时填，三点菜单的「查看UP主」要用。 */
+    val authorMid: Long = 0,
 )
 
 @Serializable

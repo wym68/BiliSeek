@@ -58,8 +58,9 @@ class SubtitleDtoTest {
     @Test
     fun `视频详情的简介与分区`() {
         val view = json.decodeFromString<VideoViewInfo>(
-            """{"bvid":"BV1xx","aid":1,"title":"标题","desc":"简介","tname":"知识","duration":620}""",
+            """{"bvid":"BV1xx","aid":1,"title":"标题","desc":"简介","tname":"知识","duration":620,"pic":"http://i0.hdslb.com/a.jpg"}""",
         )
+        assertEquals("http://i0.hdslb.com/a.jpg", view.pic)
         assertEquals("简介", view.desc)
         assertEquals("知识", view.tname)
         assertEquals(620L, view.duration)

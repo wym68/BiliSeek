@@ -1,11 +1,15 @@
 package com.biliseek.core.network
 
+import com.biliseek.core.network.dto.DynamicBlock
+import com.biliseek.core.network.dto.DynamicDetailData
 import com.biliseek.core.network.dto.DynamicFeedData
+import com.biliseek.core.network.dto.DynamicPic
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -243,5 +247,116 @@ class DynamicDetailParseTest {
         )
         val entry = parseDynamicItem(detailData.item!!)!!
         assertEquals("段落文本", entry.descText)
+    }
+
+    // ── 长图文段落：按原文顺序保留文字与图片（展开后图文穿插）─────────────
+
+    /** opus/detail：文字、单图、两段文字、分割线、一段两张图、结尾文字。 */
+    private val opusDetailWithInlinePics = """
+        {
+          "item": {
+            "id_str": "op2", "type": "DYNAMIC_TYPE_DRAW",
+            "modules": [
+              { "module_type": "MODULE_TYPE_AUTHOR", "module_author": { "mid": 1, "name": "UP" } },
+              { "module_type": "MODULE_TYPE_CONTENT", "module_content": { "paragraphs": [
+                { "para_type": 1, "text": { "nodes": [ { "word": { "words": "开头一段" } } ] } },
+                { "para_type": 2, "pic": { "pics": [ { "url": "//i0/a.jpg", "width": 1200, "height": 800 } ] } },
+                { "para_type": 1, "text": { "nodes": [ { "word": { "words": "第二段" } } ] } },
+                { "para_type": 1, "text": { "nodes": [ { "word": { "words": "第三段" } } ] } },
+                { "para_type": 3, "line": { "pic": { "url": "//i0/line.png" } } },
+                { "para_type": 2, "pic": { "pics": [ { "url": "//i0/b.jpg" }, { "url": "//i0/c.jpg", "width": 100, "height": 300 } ] } },
+                { "para_type": 1, "text": { "nodes": [ { "word": { "words": "结尾" } } ] } }
+              ] } }
+            ]
+          }
+        }
+    """.trimIndent()
+
+    /** feed / web 详情里同一条动态的摘要：图片位置是「[图片]」，末尾截断，比全文还长。 */
+    private val truncatedSummary =
+        "开头一段\n[图片]\n第二段\n第三段\n[图片]\n[图片]\n结尾之前还有很长很长很长很长很长的一段摘要…"
+
+    @Test
+    fun `opus 详情的段落按原文顺序保留文字与图片`() {
+        val item = json.decodeFromString<DynamicDetailData>(opusDetailWithInlinePics).item!!
+        val entry = parseDynamicItem(item)!!
+        // 连续的文字段合成一段；分割线图是装饰，不进正文段落
+        assertEquals(
+            listOf(
+                DynamicBlock.Text("开头一段"),
+                DynamicBlock.Images(listOf(DynamicPic("https://i0/a.jpg", 1200, 800))),
+                DynamicBlock.Text("第二段\n第三段"),
+                DynamicBlock.Images(listOf(DynamicPic("https://i0/b.jpg"), DynamicPic("https://i0/c.jpg", 100, 300))),
+                DynamicBlock.Text("结尾"),
+            ),
+            entry.body,
+        )
+        // 平铺的正文与图片照旧
+        assertEquals("开头一段\n第二段\n第三段\n结尾", entry.descText)
+        assertTrue("https://i0/line.png" in entry.pics)
+    }
+
+    @Test
+    fun `feed 条目没有正文段落`() {
+        val feedItem = json.decodeFromString<DynamicFeedData>(
+            """{ "items": [{
+              "id_str": "op2", "type": "DYNAMIC_TYPE_DRAW",
+              "modules": { "module_author": { "mid": 1, "name": "UP" },
+                "module_dynamic": { "major": { "type": "MAJOR_TYPE_OPUS", "opus": {
+                  "summary": { "text": "摘要", "rich_text_nodes": [] }, "pics": [] } } } }
+            }] }""".trimIndent(),
+        ).items.single()
+        assertTrue(parseDynamicItem(feedItem)!!.body.isEmpty())
+    }
+
+    @Test
+    fun `带段落的详情优先于更长的截断摘要`() {
+        val web = json.decodeFromString<DynamicFeedData>(
+            """{ "items": [{
+              "id_str": "op2", "type": "DYNAMIC_TYPE_DRAW",
+              "modules": { "module_author": { "mid": 1, "name": "UP" },
+                "module_dynamic": { "major": { "type": "MAJOR_TYPE_OPUS", "opus": {
+                  "summary": { "text": "${truncatedSummary.replace("\n", "\\n")}", "rich_text_nodes": [] },
+                  "pics": [] } } } }
+            }] }""".trimIndent(),
+        ).items.single()
+        val detail = json.decodeFromString<DynamicDetailData>(opusDetailWithInlinePics).item!!
+        assertSame(detail, pickBestDetailItem(listOf(web, detail)))
+        assertSame(detail, pickBestDetailItem(listOf(detail, web)))
+    }
+
+    @Test
+    fun `mergeDetailItem 详情带段落时正文用详情的 不取更长的摘要`() {
+        val detail = json.decodeFromString<DynamicDetailData>(opusDetailWithInlinePics).item!!
+        val seed = DynamicEntry(
+            idStr = "op2", authorName = "UP", authorFace = "", pubTs = 0,
+            descText = truncatedSummary, rawType = DynamicItemType.DRAW, video = null, coverUrl = "",
+        )
+        val merged = mergeDetailItem(detail, seed)
+        assertEquals("开头一段\n第二段\n第三段\n结尾", merged.descText)
+        assertEquals(5, merged.body.size)
+    }
+
+    @Test
+    fun `详情 type 是数字时按 seed 的类型解析`() {
+        // opus/detail 的 type 可能是数字（bilipai 有实例）
+        val numeric = json.decodeFromString<DynamicDetailData>(
+            """{ "item": { "id_str": "n1", "type": 1, "modules": [
+              { "module_type": "MODULE_TYPE_AUTHOR", "module_author": { "mid": 1, "name": "UP" } },
+              { "module_type": "MODULE_TYPE_CONTENT", "module_content": { "paragraphs": [
+                { "para_type": 1, "text": { "nodes": [ { "word": { "words": "全文" } } ] } }
+              ] } }
+            ] } }""".trimIndent(),
+        ).item!!
+        val seed = DynamicEntry(
+            idStr = "n1", authorName = "UP", authorFace = "", pubTs = 0,
+            descText = "摘", rawType = DynamicItemType.WORD, video = null, coverUrl = "",
+        )
+        val merged = mergeDetailItem(numeric, seed)
+        assertEquals("全文", merged.descText)
+        assertEquals(DynamicItemType.WORD, merged.rawType)
+        assertEquals(listOf(DynamicBlock.Text("全文")), merged.body)
+        // 没有 seed 时按 OPUS 解析
+        assertEquals("全文", mergeDetailItem(numeric, seed = null).descText)
     }
 }

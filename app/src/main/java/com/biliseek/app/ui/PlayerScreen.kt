@@ -2,7 +2,6 @@ package com.biliseek.app.ui
 
 import android.view.SurfaceView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.biliseek.core.player.PlaybackState
@@ -50,8 +50,9 @@ enum class PlayerExpansion { COLLAPSED, EXPANDED, FULLSCREEN }
 
 @Composable
 internal fun rememberAccentDecision(palette: CoverPalette): AccentDecision {
-    val darkTheme = isSystemInDarkTheme()
     val surface = MaterialTheme.colorScheme.surface
+    // 按 App 当前主题的实际深浅算，不读系统：设置里可能选了和系统不一样的深色模式
+    val darkTheme = surface.luminance() < 0.5f
     return remember(palette.dominant, darkTheme, surface) {
         AdaptiveAccentColorPolicy.resolve(palette.dominant, darkTheme, surface)
     }
@@ -105,9 +106,19 @@ fun PlayerScreen(
     onDescriptionTimestamp: (Long) -> Unit = {},
     /** 简介里点链接 / 视频号。 */
     onDescriptionLink: (DescLinkTarget) -> Unit = {},
+    /** 看模式下离开播放页时截下的最后一帧：撤掉画面后顶替视频，和整页一起淡出（见 AppShell 的 leavePlayerThen）。 */
+    frozenFrame: androidx.compose.ui.graphics.ImageBitmap? = null,
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    // 长按加速在手势里读最新的播放状态（是否在播、当前速度、音质）
+    val currentState = androidx.compose.runtime.rememberUpdatedState(state)
+    var showSpeedSheet by remember { mutableStateOf(false) }
+    var showTimerSheet by remember { mutableStateOf(false) }
+    // 换视频（切歌 / 自动下一首）时简介弹层跟着收起
+    var showDescriptionSheet by remember(state.bvid) { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
+    val boundInteraction = interaction?.takeIf { it.bvid == state.bvid }
+    val activeColor = accent.accent ?: MaterialTheme.colorScheme.primary
     // 只有播放页展开时才绑定（= 才可能发互动读请求）；纯听后台不会走到这里
     LaunchedEffect(state.bvid) { interactionHandlers.onBind(state.bvid) }
 
@@ -129,11 +140,11 @@ fun PlayerScreen(
             Box(Modifier.fillMaxSize().background(scrim))
         }
 
-        // 顶部栏 → CoverArea → 标题/互动栏/简介 → 进度条/控制行，统一放进同一条纵向流里、
+        // 顶部栏 → CoverArea → 标题/互动栏/简介行 → 进度条/控制行/听看开关，统一放进同一条纵向流里、
         // 始终显示——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
         // 不再各自作为 Box 的平级子项——否则它们会叠在一起画（曾经的重叠 bug）。
-        // 只有中段（标题/互动栏/简介）可滑动：封面（视频画面）固定在上、进度条与控制行固定在下，
-        // 读长简介时画面不滑走、随时能暂停切歌。
+        // 中段（标题/互动栏/简介行）按内容高度排，进度条与控制行紧跟其后——简介正文不在页面上占地方（点「简介」弹层看），
+        // 控制行因此上提，屏幕下方留空；屏幕矮、放不下时中段被压矮并可滑动，封面与控制行始终在。
         Column(
             Modifier
                 .fillMaxSize()
@@ -155,15 +166,17 @@ fun PlayerScreen(
                 onEnterFullscreen = onEnterFullscreen,
                 isFullscreenActive = isFullscreenActive,
                 videoAspectRatio = state.videoAspectRatio,
+                // 看模式下长按画面：播放中临时加速，松手恢复（同全屏）
+                playback = currentState,
+                onSetSpeed = onSetSpeed,
+                frozenFrame = frozenFrame,
             )
 
-            val boundInteraction = interaction?.takeIf { it.bvid == state.bvid }
-            val activeColor = accent.accent ?: MaterialTheme.colorScheme.primary
             // 换视频时滚动位置回到顶部
             key(state.bvid) {
                 Column(
                     Modifier
-                        .weight(1f)
+                        .weight(1f, fill = false)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -187,14 +200,12 @@ fun PlayerScreen(
                     )
 
                     boundInteraction?.let { info ->
-                        VideoDescriptionSection(
+                        VideoDescriptionRow(
                             desc = info.desc,
                             viewCount = info.viewCount,
                             pubDate = info.pubDate,
-                            durationMs = state.durationMs,
-                            onTimestamp = onDescriptionTimestamp,
-                            onLink = onDescriptionLink,
                             linkColor = activeColor,
+                            onOpen = { showDescriptionSheet = true },
                         )
                     }
                 }
@@ -204,11 +215,19 @@ fun PlayerScreen(
 
             PlayerPageControlRow(
                 isPlaying = state.showPauseButton,
-                isAudioMode = isAudio,
                 playMode = state.playMode,
                 onTogglePlayPause = onTogglePlayPause,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
+                onCyclePlayMode = onCyclePlayMode,
+                onOpenQueue = onOpenQueue,
+                hasPrevious = state.hasPrevious,
+                hasNext = state.hasNext,
+            )
+
+            PlayerSwitchRow(
+                state = state,
+                isAudioMode = isAudio,
                 onSwitchMode = {
                     if (isAudio) {
                         onPresentationChange(PresentationMode.INLINE, surfaceView)
@@ -216,10 +235,8 @@ fun PlayerScreen(
                         onPresentationChange(PresentationMode.NONE, null)
                     }
                 },
-                onCyclePlayMode = onCyclePlayMode,
-                onOpenQueue = onOpenQueue,
-                hasPrevious = state.hasPrevious,
-                hasNext = state.hasNext,
+                onOpenSpeed = { showSpeedSheet = true },
+                onOpenTimer = { showTimerSheet = true },
             )
 
             state.error?.let {
@@ -238,8 +255,6 @@ fun PlayerScreen(
             PlayerMoreMenuSheet(
                 state = state,
                 onDismiss = { showMenu = false },
-                onSetSpeed = onSetSpeed,
-                onSetSleepTimer = onSetSleepTimer,
                 onDownload = onDownload,
                 onAddToList = onOpenAddToList,
                 onViewAuthor = onOpenUpSpace,
@@ -248,6 +263,25 @@ fun PlayerScreen(
                 defaultAudioQuality = defaultAudioQuality,
                 onSetAudioQuality = onSetAudioQuality,
                 onSetDefaultAudioQuality = onSetDefaultAudioQuality,
+            )
+        }
+
+        if (showSpeedSheet) {
+            PlayerSpeedSheet(state, onSetSpeed, onDismiss = { showSpeedSheet = false })
+        }
+
+        if (showTimerSheet) {
+            PlayerTimerSheet(state, onSetSleepTimer, onDismiss = { showTimerSheet = false })
+        }
+
+        if (showDescriptionSheet && boundInteraction != null) {
+            VideoDescriptionSheet(
+                desc = boundInteraction.desc,
+                durationMs = state.durationMs,
+                linkColor = activeColor,
+                onTimestamp = onDescriptionTimestamp,
+                onLink = onDescriptionLink,
+                onDismiss = { showDescriptionSheet = false },
             )
         }
     }

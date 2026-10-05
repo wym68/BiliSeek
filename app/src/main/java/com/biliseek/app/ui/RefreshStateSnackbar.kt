@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.biliseek.app.ui.components.AppToast
+import com.biliseek.app.ui.components.LocalMiniBarInset
 import com.biliseek.designsystem.theme.BsSpacing
 import kotlinx.coroutines.delay
 
@@ -56,9 +57,13 @@ fun RefreshStateSnackbar(
             AppToast(
                 message = shown,
                 isError = isError,
-                // 所在内容区已由 Scaffold 让出迷你播放条与底部导航栏，这里只留常规边距；
-                // 早先额外垫的 80dp 与之叠加，提示飘在播放条上方老远
-                modifier = Modifier.padding(BsSpacing.lg),
+                // 所在内容区已由 Scaffold 让出底部导航栏；迷你条盖在页面最下面，底部再让出它的高度
+                modifier = Modifier.padding(
+                    start = BsSpacing.lg,
+                    top = BsSpacing.lg,
+                    end = BsSpacing.lg,
+                    bottom = BsSpacing.lg + LocalMiniBarInset.current,
+                ),
             )
         }
     }

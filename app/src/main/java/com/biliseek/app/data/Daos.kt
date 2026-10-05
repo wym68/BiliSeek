@@ -14,25 +14,11 @@ data class PlaylistTrack(
     val sortKey: Double,
 )
 
-/** 每个歌单的条目数（目录列表显示用）。 */
-data class PlaylistTrackCount(
-    val playlistId: Long,
-    val trackCount: Int,
-)
-
 @Dao
 interface PlaylistDao {
 
     @Query("SELECT * FROM playlist ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<PlaylistEntity>>
-
-    @Query(
-        """
-        SELECT playlistId, COUNT(*) AS trackCount FROM playlist_track
-        GROUP BY playlistId
-        """,
-    )
-    fun observeTrackCounts(): Flow<List<PlaylistTrackCount>>
 
     @Query("SELECT * FROM playlist WHERE id = :id")
     suspend fun byId(id: Long): PlaylistEntity?
@@ -42,6 +28,9 @@ interface PlaylistDao {
 
     @Query("UPDATE playlist SET name = :name, updatedAt = :now WHERE id = :id")
     suspend fun rename(id: Long, name: String, now: Long)
+
+    @Query("UPDATE playlist SET name = :name, icon = :icon, updatedAt = :now WHERE id = :id")
+    suspend fun edit(id: Long, name: String, icon: String, now: Long)
 
     @Query("DELETE FROM playlist WHERE id = :id")
     suspend fun delete(id: Long)
@@ -126,6 +115,24 @@ interface HistoryDao {
 }
 
 data class DayCount(val day: Long, val count: Int)
+
+/**
+ * 每天的真实收听时长。累加分两步（先保证有这一天的行，再加），由仓库包在一个事务里：
+ * minSdk 26 的 SQLite（3.18）还不支持 `INSERT … ON CONFLICT DO UPDATE`。
+ */
+@Dao
+interface ListenDayDao {
+
+    @Query("INSERT OR IGNORE INTO listen_day (epochDay, listenedMs) VALUES (:epochDay, 0)")
+    suspend fun ensureDay(epochDay: Long)
+
+    @Query("UPDATE listen_day SET listenedMs = listenedMs + :ms WHERE epochDay = :epochDay")
+    suspend fun addListened(epochDay: Long, ms: Long)
+
+    /** 某天的收听毫秒数；这天没有记录为 null。 */
+    @Query("SELECT listenedMs FROM listen_day WHERE epochDay = :epochDay")
+    fun observe(epochDay: Long): Flow<Long?>
+}
 
 @Dao
 interface DownloadDao {
@@ -248,6 +255,10 @@ interface FavoriteFolderDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: FavoriteFolderEntity): Long
+
+    /** 从收藏夹里移出一条后就地减一（不为它重新同步整个目录）。 */
+    @Query("UPDATE favorite_folder SET mediaCount = MAX(mediaCount - 1, 0) WHERE mediaId = :mediaId")
+    suspend fun decrementCount(mediaId: Long)
 
     @Query("DELETE FROM favorite_folder")
     suspend fun clear()

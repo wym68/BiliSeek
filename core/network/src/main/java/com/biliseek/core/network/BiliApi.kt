@@ -36,6 +36,12 @@ import com.biliseek.core.network.dto.SeriesListData
 import com.biliseek.core.network.dto.SeriesPage
 import com.biliseek.core.network.dto.CollectedListData
 import com.biliseek.core.network.dto.CollectionSeasonData
+import com.biliseek.core.network.dto.MusicListData
+import com.biliseek.core.network.dto.MusicPeriodsData
+import com.biliseek.core.network.dto.PopularVideo
+import com.biliseek.core.network.dto.PreciousData
+import com.biliseek.core.network.dto.WeeklySeriesListData
+import com.biliseek.core.network.dto.WeeklySeriesOneData
 import kotlinx.serialization.json.JsonElement
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -330,6 +336,44 @@ interface BiliApi {
     @GET("x/v2/history/toview")
     suspend fun watchLater(): BiliResponse<WatchLaterData>
 
+    // ── 榜单（首页快捷入口）──────────────────────────────
+    // 均为公开接口，不需要登录，也不需要 WBI 签名。
+
+    /** 每周必看：全部期数。 */
+    @GET("x/web-interface/popular/series/list")
+    suspend fun weeklySeriesList(): BiliResponse<WeeklySeriesListData>
+
+    /** 每周必看：某一期的视频。 */
+    @GET("x/web-interface/popular/series/one")
+    suspend fun weeklySeriesOne(@Query("number") number: Int): BiliResponse<WeeklySeriesOneData>
+
+    /** 入站必刷。 */
+    @GET("x/web-interface/popular/precious")
+    suspend fun preciousVideos(): BiliResponse<PreciousData>
+
+    /** 音频榜单每期列表。`list_type`：1 = 热榜（热歌榜），2 = 原创榜。 */
+    @GET("x/copyright-music-publicity/toplist/all_period")
+    suspend fun musicToplistPeriods(@Query("list_type") listType: Int): BiliResponse<MusicPeriodsData>
+
+    /** 音频榜单某一期的歌曲。 */
+    @GET("x/copyright-music-publicity/toplist/music_list")
+    suspend fun musicToplistSongs(@Query("list_id") listId: Long): BiliResponse<MusicListData>
+
+    /**
+     * 取 B 站活动页（`blackboard/era`）的 HTML。页面是运营搭建的，内嵌 JSON 里有按期分组的视频 BV 号。
+     * 返回体是整页 HTML，调用方自己读。
+     */
+    @GET
+    suspend fun eraPage(@Url url: String): Response<ResponseBody>
+
+    /**
+     * 批量取视频卡片：`ids` 用逗号分隔，可填 BV / av 号。返回以每个 id 为键的对象，
+     * 只要求 `Referer` 在 bilibili.com 下，不需要 WBI。热门播客用它给一期的 BV 号补标题、封面、
+     * UP 主、时长、播放量。取不到的 id 可能没有键，或值为 null。
+     */
+    @GET("x/article/cards")
+    suspend fun articleCards(@Query("ids") ids: String): BiliResponse<Map<String, PopularVideo?>>
+
     // ── 评论读（B5）───────────────────────────────────────
     /** 评论列表 · WBI 主链路。参数需 WBI 签名。 */
     @GET("x/v2/reply/wbi/main")
@@ -389,6 +433,13 @@ interface BiliApi {
     @POST("x/v3/fav/folder/del")
     suspend fun deleteFavoriteFolder(
         @FieldMap fields: Map<String, String>,          // media_ids, csrf
+    ): BiliResponse<JsonElement>
+
+    /** 取消订阅合集。 */
+    @FormUrlEncoded
+    @POST("x/v3/fav/season/unfav")
+    suspend fun unfavSeason(
+        @FieldMap fields: Map<String, String>,          // platform(web), season_id, csrf
     ): BiliResponse<JsonElement>
 
     @FormUrlEncoded

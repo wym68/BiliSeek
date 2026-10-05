@@ -18,8 +18,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteFolderEntity::class,
         UpVisitEntity::class,
         AiSummaryEntity::class,
+        ListenDayEntity::class,
     ],
-    version = 7,
+    version = 9,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -31,6 +32,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
     abstract fun favoriteFolderDao(): FavoriteFolderDao
     abstract fun upVisitDao(): UpVisitDao
     abstract fun aiSummaryDao(): AiSummaryDao
+    abstract fun listenDayDao(): ListenDayDao
 
     companion object {
         @Volatile
@@ -43,7 +45,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
 
         /**
@@ -191,6 +193,31 @@ abstract class BiliSeekDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP INDEX IF EXISTS `index_ai_summary_bvid_cid`")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_summary_bvid_cid` ON `ai_summary` (`bvid`, `cid`)")
+            }
+        }
+
+        /**
+         * v7 → v8：新增每天的真实收听时长表（日播放记录页的「当日听歌时长」）。
+         *
+         * 之前那个数是把当天播过的条目的完整时长相加；`play_history` 每个视频只记最后一次播放，
+         * 算不出真的听了多久，只能从这一版起开始记。旧的日子没有数据，页面显示「未统计」。
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `listen_day` " +
+                        "(`epochDay` INTEGER NOT NULL, `listenedMs` INTEGER NOT NULL, PRIMARY KEY(`epochDay`))",
+                )
+            }
+        }
+
+        /**
+         * v8 → v9：本地列表加自定义图标（存预设图标的 key，空串 = 默认图标）。
+         * 写法同 [MIGRATION_1_2]：带默认值加列，旧列表都是默认图标。
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlist ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
             }
         }
     }

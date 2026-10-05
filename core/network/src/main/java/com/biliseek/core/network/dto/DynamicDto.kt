@@ -2,6 +2,7 @@ package com.biliseek.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 // ── 动态（M11-C）─────────────────────────────────────────
 
@@ -106,6 +107,17 @@ data class DynamicArchive(
      * 字段缺失时不报错——展示层据此判断是否渲染 stat 行。
      */
     val stat: DynamicArchiveStat? = null,
+    /** 封面角标。普通视频是「投稿视频」，充电专属是「充电专属」。 */
+    val badge: DynamicArchiveBadge? = null,
+    @SerialName("is_charging_arc") val isChargingArc: Boolean = false,
+    /** 1 = 充电视频。 */
+    @SerialName("elec_arc_type") val elecArcType: Int = 0,
+)
+
+/** `major.archive.badge`。 */
+@Serializable
+data class DynamicArchiveBadge(
+    val text: String = "",
 )
 
 /** `modules.module_dynamic.major.archive.stat` —— 视频的播放量与弹幕数。 */
@@ -149,6 +161,28 @@ data class DynamicOpus(
     /** 图片 URL 列表。文档形态元素为对象 `{url,width,height,size}`；兼容旧版字符串数组。 */
     @Serializable(with = OpusPicsCompatSerializer::class)
     val pics: List<String> = emptyList(),
+    /**
+     * 正文段落（按原文顺序）。接口里没有这个字段：只在 opus/detail 的 paragraphs
+     * 归一化时由 [DynamicModulesCompatSerializer] 填，feed / web 详情始终为空。
+     */
+    @Transient
+    val blocks: List<DynamicBlock> = emptyList(),
+)
+
+/** 长图文正文的一段（opus/detail 的 paragraphs，按原文顺序）。 */
+sealed interface DynamicBlock {
+    /** 文字：相邻的文字段落已用换行合成一段。 */
+    data class Text(val text: String) : DynamicBlock
+
+    /** 一个图片段落：一张或多张（多张时 B 站按九宫格排）。 */
+    data class Images(val pics: List<DynamicPic>) : DynamicBlock
+}
+
+/** 正文里的一张图。宽高缺失时为 0。 */
+data class DynamicPic(
+    val url: String,
+    val width: Int = 0,
+    val height: Int = 0,
 )
 
 /** `major.opus.summary` —— 文档形态：`text` 为摘要全文，`rich_text_nodes` 为富文本节点。 */

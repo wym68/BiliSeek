@@ -18,6 +18,7 @@ import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +35,8 @@ import com.biliseek.designsystem.theme.BsSpacing
  * 应用内提示的统一样式：白色胶囊 + App 图标，可带一个操作按钮（如「撤销」）。
  *
  * 外观照着系统 Toast 画（Android 12 起系统 Toast 就是白底胶囊、左边一个 App 图标），
- * 让同一个 App 里的提示看起来是一家的。系统 Toast 放不了按钮，要带「撤销」的提示只能自己画。
+ * 让同一个 App 里的提示看起来是一家的。系统 Toast 放不了按钮、位置也挪不动（会压在迷你条上），
+ * 所以 App 在前台时普通提示也用它，放在迷你条上方（见 [ToastTarget]、AppShell 的提示位）。
  * 不再用 M3 默认的深色 Snackbar，也不再各页自画提示条（docs/09 共用组件）。
  * 叠在视频画面上的 HUD（手势进度、全屏错误框）不在此列：那里要的是黑底白字。
  */
@@ -95,7 +97,8 @@ fun AppToast(
 
 /**
  * [AppToast] 的 SnackbarHost 版本：给 `SnackbarHost(state) { AppToastSnackbar(it) }` 用。
- * 摆放位置由调用方决定，统一放在导航栏上方 [AppToastDefaults.BottomOffset] 处。
+ * 摆放位置由调用方决定：主界面在底部栏（迷你条 + 导航栏）上方 [AppToastDefaults.GapAboveBottomBar]，
+ * 队列面板里在 [AppToastDefaults.BottomOffset]。
  */
 @Composable
 fun AppToastSnackbar(data: SnackbarData) {
@@ -107,17 +110,32 @@ fun AppToastSnackbar(data: SnackbarData) {
     )
 }
 
-/** 尺寸与位置。按真机截图对齐系统 Toast。 */
+/** 尺寸与位置。高度按真机截图对齐系统 Toast。 */
 object AppToastDefaults {
     /** 胶囊高度，与系统 Toast 等高。 */
     val Height = 52.dp
 
     /**
-     * 提示下沿到导航栏上沿的距离：底部导航栏正上方、压在迷你播放条上，与系统 Toast 同一位置。
+     * 主界面：提示下沿到底部栏（迷你条 + 导航栏）上沿的距离。迷你条在时就在迷你条上方，不挡迷你条
+     * （用户 2026-10-04 要求）；与下拉刷新提示同距。
+     */
+    val GapAboveBottomBar = 16.dp
+
+    /** 全屏时提示下沿到屏幕底（系统导航条之上）的距离。 */
+    val FullscreenBottomOffset = 24.dp
+
+    /**
+     * 队列面板里：提示下沿到面板底（系统导航条之上）的距离。面板盖住了迷你条，沿用原来对齐系统 Toast 的位置。
      * 用法：`Modifier.align(BottomCenter).navigationBarsPadding().padding(bottom = BottomOffset)`。
      */
     val BottomOffset = 86.dp
 }
+
+/**
+ * 弹一条普通提示（App 内、不带按钮）。由 `MainActivity` 提供，走和 `transientMessage` 同一条管道；
+ * 没提供时（预览、测试）为 null，调用方自己退回系统 Toast。
+ */
+val LocalShowMessage = staticCompositionLocalOf<((String) -> Unit)?> { null }
 
 /**
  * 圆形 App 图标，仿系统 Toast 左边那个。

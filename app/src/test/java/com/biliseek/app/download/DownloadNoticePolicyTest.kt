@@ -69,4 +69,24 @@ class DownloadNoticePolicyTest {
         val after = listOf(task(1, DownloadStatus.DONE, ""))
         assertEquals("下载完成：未命名", DownloadNoticePolicy.completionMessage(before, after))
     }
+
+    // ── 多 P：一个视频的分 P 全部下完才提醒一次（用户 2026-10-04 选定）──
+
+    private fun part(id: Long, status: String, p: Int) = task(id, status, "合集 P$p 第${p}集").copy(bvid = "BVm")
+
+    @Test
+    fun `同一个视频还有分 P 在排队 下载或暂停时 先不提醒`() {
+        val before = listOf(part(1, DownloadStatus.DOWNLOADING, 1), part(2, DownloadStatus.QUEUED, 2))
+        val after = listOf(part(1, DownloadStatus.DONE, 1), part(2, DownloadStatus.DOWNLOADING, 2))
+        assertNull(DownloadNoticePolicy.completionMessage(before, after))
+        val paused = listOf(part(1, DownloadStatus.DONE, 1), part(2, DownloadStatus.PAUSED, 2))
+        assertNull(DownloadNoticePolicy.completionMessage(before, paused))
+    }
+
+    @Test
+    fun `最后一个分 P 完成时提醒一次 带分 P 数`() {
+        val before = listOf(part(1, DownloadStatus.DONE, 1), part(2, DownloadStatus.DONE, 2), part(3, DownloadStatus.DOWNLOADING, 3))
+        val after = listOf(part(1, DownloadStatus.DONE, 1), part(2, DownloadStatus.DONE, 2), part(3, DownloadStatus.DONE, 3))
+        assertEquals("下载完成：合集（共 3 个分 P）", DownloadNoticePolicy.completionMessage(before, after))
+    }
 }

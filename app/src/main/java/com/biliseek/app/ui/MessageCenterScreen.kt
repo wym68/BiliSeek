@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsLoadingState
 import com.biliseek.designsystem.component.BsErrorState
 import com.biliseek.designsystem.component.BsEmptyState
@@ -8,7 +9,6 @@ import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -121,7 +121,7 @@ fun MessageCenterScreen(
             onRefresh = onRetry,
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding(bottom = 16.dp)) {
                 when {
                     sessions.isLoading && sessions.items.isEmpty() -> item { BsLoadingState() }
                     sessions.errorMessage != null && sessions.items.isEmpty() -> item {

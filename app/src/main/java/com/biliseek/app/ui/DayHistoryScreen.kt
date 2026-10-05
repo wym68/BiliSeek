@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsTopBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,18 +29,20 @@ import java.time.format.DateTimeFormatter
 /**
  * 某天的播放记录页（M12，仿 BBPlayer `/history/[date]`）。
  *
- * 顶部统计卡：当日去重曲目数 + 总时长；下方当天播放列表，点击可播。
+ * 顶部统计卡：当日去重曲目数 + 真实收听时长（[listenedMs]，只在播放中计时；开始统计之前的日子没有数据，
+ * 显示「未统计」——不再拿条目的完整时长相加充数）；下方当天播放列表，点击可播。
  * 通过 [onClose] 返回（系统返回手势由调用方 BackHandler 接管）。
  */
 @Composable
 fun DayHistoryScreen(
     date: LocalDate,
     entries: List<PlayHistoryEntity>,
+    /** 这天的真实收听毫秒数；没有记录为 null。 */
+    listenedMs: Long?,
     onClose: () -> Unit,
     onEntryClick: (PlayHistoryEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val totalDurationSec = entries.sumOf { it.durationSec }
     Column(modifier.fillMaxSize()) {
         BsTopBar(title = date.format(DateTimeFormatter.ISO_LOCAL_DATE), onNavigate = onClose)
 
@@ -62,7 +65,7 @@ fun DayHistoryScreen(
             ) {
                 Text("当日听歌时长", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    formatDuration(totalDurationSec * 1000),
+                    listenedMs?.let { formatDuration(it) } ?: "未统计",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -73,7 +76,7 @@ fun DayHistoryScreen(
             }
         }
 
-        LazyColumn(Modifier.fillMaxWidth()) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = miniBarContentPadding()) {
             items(entries, key = { it.id }) { entry ->
                 Row(
                     Modifier

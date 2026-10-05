@@ -17,6 +17,8 @@ data class PlaylistEntity(
     val name: String,
     val createdAt: Long,
     val updatedAt: Long,
+    /** 自定义图标的 key（v9，见 ui/PlaylistIcons.kt）；空串 = 没选过，用默认图标。 */
+    val icon: String = "",
 )
 
 /** 一个可播放条目。以 bvid+cid 唯一标识一个分 P。 */
@@ -58,6 +60,18 @@ data class PlaylistTrackEntity(
     val playlistId: Long,
     val trackId: Long,
     val sortKey: Double,
+)
+
+/**
+ * 每天的真实收听时长（v8）：只在「正在播放」时计时，暂停、缓冲不算，按本地日期累计。
+ * `play_history` 每个视频只有一行、只记最后一次播放，算不出某天到底听了多久，所以单独记。
+ */
+@Entity(tableName = "listen_day")
+data class ListenDayEntity(
+    /** 本地日期（`LocalDate.toEpochDay()`）。 */
+    @PrimaryKey val epochDay: Long,
+    /** 这天累计的收听毫秒数。 */
+    val listenedMs: Long,
 )
 
 /** 播放历史。首页「最近播放」与续播都依赖它。 */
@@ -156,6 +170,8 @@ object DownloadStatus {
     const val DOWNLOADING = "DOWNLOADING"
     const val DONE = "DONE"
     const val FAILED = "FAILED"
+    /** 用户暂停：半成品留着，继续时从断点接着下；进程重启后仍是暂停。 */
+    const val PAUSED = "PAUSED"
 
     /** 中断 / 失败后可重试的状态。 */
     val RETRYABLE = setOf(QUEUED, FAILED)

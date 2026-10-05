@@ -1,5 +1,7 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.ui.components.miniBarContentPadding
+import com.biliseek.designsystem.component.BsLoadMoreFooter
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,9 +22,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ThumbUp
@@ -50,8 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -66,6 +68,7 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicType
 import com.biliseek.core.network.LoginState
+import com.biliseek.core.network.dto.DynamicBlock
 import com.biliseek.core.network.dto.FollowingUp
 
 /**
@@ -193,7 +196,7 @@ fun DynamicScreen(
                 }
 
                 else -> {
-                    LazyColumn(Modifier.fillMaxSize()) {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
                         // 「最常访问」作为列表 header，随滚动向上滑走
                         if (state.upChips.isNotEmpty()) {
                             item(key = "most-visited") {
@@ -213,6 +216,7 @@ fun DynamicScreen(
                                 expandState = dynamicExpand[entry.idStr],
                                 onToggleExpand = { onToggleExpand(entry) },
                                 onImageClick = { idx -> onOpenImagePreview(entry.pics.ifEmpty { listOf(entry.coverUrl).filter { it.isNotBlank() } }, idx) },
+                                onBodyImageClick = onOpenImagePreview,
                                 onRepostClick = { onOpenRepost(entry.idStr) },
                                 onCommentClick = { onOpenComment(entry) },
                                 onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
@@ -222,21 +226,16 @@ fun DynamicScreen(
                         }
                         if (state.feed.hasMore || state.feed.isLoadingMore) {
                             item(key = "footer") {
-                                if (state.feed.hasMore && !state.feed.isLoadingMore) {
+                                // 失败后不自动再来（否则会一直重打 B 站），等用户点「重试」
+                                if (shouldAutoLoadMore(state.feed.hasMore, state.feed.isLoadingMore, state.feed.errorMessage)) {
                                     LaunchedEffect(state.feedOffset) { onLoadMore() }
                                 }
-                                Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
-                                    if (state.feed.isLoadingMore) {
-                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    } else if (state.feed.errorMessage != null) {
-                                        Text(
-                                            state.feed.errorMessage,
-                                            style = MaterialTheme.typography.labelSmall,
-                                        )
-                                    } else {
-                                        Text("加载中…", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
+                                BsLoadMoreFooter(
+                                    isLoadingMore = state.feed.isLoadingMore,
+                                    errorMessage = state.feed.errorMessage,
+                                    onRetry = onLoadMore,
+                                    endText = "加载中…",
+                                )
                             }
                         }
                     }
@@ -278,8 +277,9 @@ private fun DynamicFilterBar(
                     }
                 },
             ) {
+                // 信封：与消息中心里「私信」入口同一个图标
                 Icon(
-                    imageVector = Icons.Filled.Notifications,
+                    imageVector = Icons.Filled.Email,
                     contentDescription = "消息",
                 )
             }
@@ -392,6 +392,8 @@ internal fun DynamicCard(
     expandState: DynamicExpandState? = null,
     onToggleExpand: () -> Unit = {},
     onImageClick: (Int) -> Unit = {},
+    /** 展开后正文里的图被点开：正文全部图片（按顺序）+ 点的是第几张。 */
+    onBodyImageClick: (List<String>, Int) -> Unit = { _, _ -> },
     onRepostClick: () -> Unit = {},
     onCommentClick: () -> Unit = {},
     onLikeClick: () -> Unit = {},
@@ -423,7 +425,17 @@ internal fun DynamicCard(
             }
         }
 
-        if (entry.descText.isNotBlank()) {
+        // 长图文展开后按原文段落画（图文穿插）；没拉到段落时仍是整段文字
+        val body = expandedBody(expandState)
+        if (body.isNotEmpty()) {
+            DynamicBody(
+                body = body,
+                emotes = entry.emotes + expandState?.entry?.emotes.orEmpty(),
+                onImageClick = onBodyImageClick,
+                onCollapse = onToggleExpand,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else if (entry.descText.isNotBlank()) {
             DynamicDescText(
                 text = entry.descText,
                 emotes = entry.emotes,
@@ -476,6 +488,10 @@ internal fun DynamicCard(
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop,
                     )
+                    // 充电专属：封面右上角粉色「充电」；限时免费：绿色「限免」（ChargeBadgePolicy）
+                    chargeBadge(video)?.let { badge ->
+                        CoverBadgeLabel(badge, small = false, modifier = Modifier.align(Alignment.TopEnd))
+                    }
                     if (video.durationText.isNotBlank()) {
                         // 深底白字。不能用主题里的 onSurface / onScrim：
                         // 亮色主题下 onSurface 接近黑，与 scrim 同色，文本不可见。
@@ -520,6 +536,8 @@ internal fun DynamicCard(
                     }
                 }
             }
+        } else if (bodyImageUrls(body).isNotEmpty()) {
+            // 图已在展开的正文段落里按原位置显示，不再重复画动态流的预览图
         } else if (entry.pics.size > 1) {
             // 多图图文动态：用 DrawGrid
             com.biliseek.app.ui.components.DrawGrid(
@@ -583,7 +601,8 @@ internal fun DynamicCard(
 
 /**
  * 动态正文：折叠态最多 3 行，溢出时右下角叠一个可点的"…展开"；
- * 展开态按 [expandState] 显示 loading / 完整正文+"收起" / 失败+重试。
+ * 展开态按 [expandState] 显示 loading / 完整正文 + 下方"收起" / 失败+重试。
+ * 正文长按可选中复制；单击正文不收起，只有"收起"收起。
  */
 @Composable
 private fun DynamicDescText(
@@ -599,7 +618,9 @@ private fun DynamicDescText(
     if (expandState?.expanded == true) {
         when {
             expandState.error != null -> Column(modifier) {
-                RichText(source, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                SelectionContainer {
+                    RichText(source, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
                 Text(
                     "加载失败，点击重试",
                     style = MaterialTheme.typography.labelSmall,
@@ -608,7 +629,9 @@ private fun DynamicDescText(
                 )
             }
             expandState.entry == null -> Column(modifier) {
-                RichText(source, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                SelectionContainer {
+                    RichText(source, style = style, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
                 CircularProgressIndicator(
                     Modifier.padding(top = 4.dp).size(14.dp),
                     strokeWidth = 2.dp,
@@ -616,20 +639,19 @@ private fun DynamicDescText(
             }
             else -> {
                 val full = expandState.entry
-                val primary = MaterialTheme.colorScheme.primary
-                RichText(
-                    RichTextSource(
-                        text = full.descText.ifBlank { text },
-                        emotes = emotes + full.emotes,
-                        topics = true,
-                    ),
-                    style = style,
-                    modifier = modifier.clickable(onClick = onToggleExpand),
-                    suffix = {
-                        append("  ")
-                        withStyle(SpanStyle(color = primary)) { append("收起") }
-                    },
-                )
+                Column(modifier) {
+                    SelectionContainer {
+                        RichText(
+                            RichTextSource(
+                                text = full.descText.ifBlank { text },
+                                emotes = emotes + full.emotes,
+                                topics = true,
+                            ),
+                            style = style,
+                        )
+                    }
+                    CollapseLink(onToggleExpand, Modifier.align(Alignment.End))
+                }
             }
         }
         return
@@ -637,13 +659,15 @@ private fun DynamicDescText(
 
     var overflowing by remember(text) { mutableStateOf(false) }
     Box(modifier) {
-        RichText(
-            source,
-            style = style,
-            maxLines = 3,
-            overflow = TextOverflow.Clip,
-            onTextLayout = { result -> overflowing = result.hasVisualOverflow },
-        )
+        SelectionContainer {
+            RichText(
+                source,
+                style = style,
+                maxLines = 3,
+                overflow = TextOverflow.Clip,
+                onTextLayout = { result -> overflowing = result.hasVisualOverflow },
+            )
+        }
         if (overflowing) {
             Surface(
                 color = MaterialTheme.colorScheme.background,
@@ -658,4 +682,71 @@ private fun DynamicDescText(
             }
         }
     }
+}
+
+/**
+ * 长图文展开后的正文：按原文顺序画文字段落与图片（opus/detail 的 paragraphs）。
+ * 一段一张图铺满宽度、按原图比例（[inlineImageAspect]：特别长的图裁到约一屏，点开看全图）；
+ * 一段多张图用九宫格。文字长按可选中复制；单击不收起，只有末尾"收起"收起。
+ */
+@Composable
+private fun DynamicBody(
+    body: List<DynamicBlock>,
+    emotes: Map<String, com.biliseek.core.network.dto.Emote>,
+    onImageClick: (List<String>, Int) -> Unit,
+    onCollapse: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val style = MaterialTheme.typography.bodyMedium
+    val urls = remember(body) { bodyImageUrls(body) }
+    val offsets = remember(body) { bodyImageOffsets(body) }
+    Column(modifier) {
+        SelectionContainer {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                body.forEachIndexed { index, block ->
+                    when (block) {
+                        is DynamicBlock.Text -> RichText(
+                            RichTextSource(text = block.text, emotes = emotes, topics = true),
+                            style = style,
+                        )
+                        is DynamicBlock.Images -> if (block.pics.size == 1) {
+                            val pic = block.pics.single()
+                            AsyncImage(
+                                model = pic.url,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(inlineImageAspect(pic.width, pic.height))
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable { onImageClick(urls, offsets[index]) },
+                                contentScale = ContentScale.Crop,
+                                alignment = Alignment.TopCenter,
+                            )
+                        } else {
+                            com.biliseek.app.ui.components.DrawGrid(
+                                pics = block.pics.map { it.url },
+                                onImageClick = { i -> onImageClick(urls, offsets[index] + i) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        CollapseLink(onCollapse, Modifier.align(Alignment.End))
+    }
+}
+
+/** 展开态末尾的"收起"：单独一行靠右，与折叠态的"…展开"对称；不在可选中的文字里，复制时不会带上。 */
+@Composable
+private fun CollapseLink(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Text(
+        "收起",
+        modifier
+            .padding(top = 4.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }

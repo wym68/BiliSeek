@@ -37,6 +37,7 @@ import com.biliseek.app.summary.EndpointDraft
 import com.biliseek.app.summary.EndpointSlot
 import com.biliseek.app.summary.EndpointView
 import com.biliseek.app.summary.StyleChoice
+import com.biliseek.app.ui.components.LocalMiniBarInset
 import com.biliseek.core.ai.provider.ProviderCatalog
 import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.component.BsTopBar
@@ -88,7 +89,8 @@ fun AiSettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = BsSpacing.lg)
-                .padding(bottom = BsSpacing.xl),
+                // 底部再让出迷你条（它盖在页面最下面）
+                .padding(bottom = BsSpacing.xl + LocalMiniBarInset.current),
             verticalArrangement = Arrangement.spacedBy(BsSpacing.lg),
         ) {
             SettingsGroup("总结模型") {

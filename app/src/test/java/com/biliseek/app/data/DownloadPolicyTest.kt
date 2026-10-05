@@ -2,6 +2,7 @@ package com.biliseek.app.data
 
 import com.biliseek.core.player.OfflineMedia
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -108,5 +109,59 @@ class DownloadPolicyTest {
     fun `文件引用为空也算 Miss`() {
         val empty = doneRow(audioFile = "", videoFile = "")
         assertTrue(resolveOfflineHit(empty, fileExists = { true }) is OfflineLookupResult.Miss)
+    }
+
+    // ── 下载中途断开：从断点接着下（2026-10-04 视频下载失败 unexpected end of stream）──
+
+    @Test
+    fun `这一轮写进了新数据 没进展计数清零 否则加一`() {
+        assertEquals(0, nextStalledCount(current = 2, madeProgress = true))
+        assertEquals(1, nextStalledCount(current = 0, madeProgress = false))
+        assertEquals(3, nextStalledCount(current = 2, madeProgress = false))
+    }
+
+    @Test
+    fun `连接断开接着下 连续三次没进展或 HTTP 状态错误不再续`() {
+        assertTrue(shouldResumeDownload(isHttpStatusError = false, stalledCount = 0))
+        assertTrue(shouldResumeDownload(isHttpStatusError = false, stalledCount = 2))
+        assertFalse(shouldResumeDownload(isHttpStatusError = false, stalledCount = 3))
+        assertFalse(shouldResumeDownload(isHttpStatusError = true, stalledCount = 0))
+    }
+
+    @Test
+    fun `从 Content-Range 取总长度`() {
+        assertEquals(1000L, contentRangeTotal("bytes 100-999/1000"))
+        assertNull(contentRangeTotal("bytes 100-999/*"))
+        assertNull(contentRangeTotal(null))
+        assertNull(contentRangeTotal("乱写的"))
+    }
+
+    @Test
+    fun `半成品记的总长度和这次对不上 说明换了文件 要丢掉重下`() {
+        assertTrue(isPartialStale(recordedTotal = 1000, responseTotal = 2000))
+        assertFalse(isPartialStale(recordedTotal = 1000, responseTotal = 1000))
+        // 任一边不知道总长度时无从比较，照常续传
+        assertFalse(isPartialStale(recordedTotal = null, responseTotal = 2000))
+        assertFalse(isPartialStale(recordedTotal = 1000, responseTotal = null))
+    }
+
+    @Test
+    fun `合成缓冲区按最大帧大小 至少 1MB 放不下翻倍 最多 64MB`() {
+        assertEquals(1 shl 20, sampleBufferSize(maxInputSize = null))
+        assertEquals(1 shl 20, sampleBufferSize(maxInputSize = 65_536))
+        assertEquals(3_000_000, sampleBufferSize(maxInputSize = 3_000_000))
+        assertEquals(2 shl 20, grownSampleBufferSize(current = 1 shl 20))
+        assertEquals(64 shl 20, grownSampleBufferSize(current = 40 shl 20))
+        assertNull(grownSampleBufferSize(current = 64 shl 20))
+    }
+
+    @Test
+    fun `暂停时的进度按已下的部分算 有一段不知道总长就不显示百分比`() {
+        assertEquals(0.5f, stagedProgress(listOf(50L to 100L)), 0.001f)
+        // 视频：音轨下完、视频轨下了一半
+        assertEquals(0.75f, stagedProgress(listOf(100L to 100L, 50L to 100L)), 0.001f)
+        // 视频轨还没开始下（不知道总长）
+        assertEquals(0f, stagedProgress(listOf(100L to 100L, 0L to null)), 0.001f)
+        assertEquals(0f, stagedProgress(emptyList()), 0.001f)
     }
 }

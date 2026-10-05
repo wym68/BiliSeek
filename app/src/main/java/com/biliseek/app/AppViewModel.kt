@@ -26,6 +26,7 @@ import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.toBitmap
+import com.biliseek.core.player.PlaybackMode
 import com.biliseek.core.player.PlaybackPreferences
 import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlayerConnection
@@ -33,7 +34,9 @@ import com.biliseek.core.player.PresentationMode
 import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.BiliSeekDatabase
 import com.biliseek.app.data.DefaultPresentation
+import com.biliseek.app.ui.shouldAutoWatchOnPlayerPage
 import com.biliseek.app.data.LibraryRepository
+import com.biliseek.app.data.ListenTimeTracker
 import com.biliseek.app.data.PlayHistoryEntity
 import com.biliseek.app.data.PlaylistEntity
 import com.biliseek.app.data.PlaylistTrack
@@ -46,6 +49,7 @@ import com.biliseek.app.data.TrackListId
 import com.biliseek.app.comment.CommentThreadController
 import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
+import com.biliseek.app.chart.ChartController
 import com.biliseek.app.upspace.UpSpaceController
 import com.biliseek.app.search.SearchController
 import com.biliseek.app.data.RemoteListState
@@ -55,6 +59,7 @@ import com.biliseek.core.network.DynamicItemType
 import com.biliseek.core.network.dto.FollowingUp
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -63,6 +68,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -193,6 +199,8 @@ data class FavoriteTrack(
     val coverUrl: String,
     val durationSec: Long,
     val author: String,
+    /** UP 主编号；三点菜单的「查看UP主」要用。 */
+    val authorMid: Long = 0,
 )
 
 /** 收藏夹目录同步状态。 */
@@ -288,9 +296,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings: StateFlow<AppSettings> = settingsStore.state
 
-    /** 下载任务列表（含进度 / 失败可重试）。 */
+    /** 「已下载」页右滑 / 三点「删除」后先藏起来的记录（撤销期内不显示，过期才真删）。 */
+    private val hiddenDownloads = MutableStateFlow<Set<Long>>(emptySet())
+
+    /** 下载任务列表（含进度 / 失败可重试）；撤销期内删掉的不显示。 */
     val downloadTasks: StateFlow<List<com.biliseek.app.download.DownloadTask>> =
-        downloadManager.tasks
+        combine(downloadManager.tasks, hiddenDownloads) { tasks, hidden ->
+            if (hidden.isEmpty()) tasks else tasks.filterNot { it.id in hidden }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, downloadManager.tasks.value)
 
     val authState = network.authGate.state
     val loginState: StateFlow<LoginState> = network.loginManager.state
@@ -338,16 +351,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         network = summaryManager.network,
         emitMessage = ::emitMessage,
     )
-
-
-    /**
-     * 「已开始播放」事件。UI 据此切到播放页。
-     *
-     * 不能在点击时无条件切页：点到多 P 视频时应留在列表展开分 P，
-     * 只有真正起播了才跳转。
-     */
-    private val _playbackStarted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val playbackStarted: SharedFlow<Unit> = _playbackStarted.asSharedFlow()
 
     /** 瞬时提示（Ch3 批量操作成功等）。UI 侧 collect 后弹 Toast。 */
     private val _transientMessage = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -408,6 +411,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settingsStore.setMiniBarStyle(style)
     }
 
+    /** 设置页改深色模式：落库后 MainActivity 订阅 settings.themeMode 即时换主题。 */
+    fun setThemeMode(mode: com.biliseek.app.data.ThemeMode) = viewModelScope.launch {
+        settingsStore.setThemeMode(mode)
+    }
+
     // ── 表情（面板 + 进程级字典）：见 EmoteController ──
 
     val emotes: com.biliseek.app.emote.EmoteController = com.biliseek.app.emote.EmoteController(
@@ -453,10 +461,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val playlists = library.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** playlistId → 条目数。加入列表弹窗的歌单行显示用。 */
-    val playlistTrackCounts = library.observePlaylistTrackCounts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
     val recentPlays = library.observeRecent()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -489,7 +493,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         playList = { items, startIndex, loadMore ->
             viewModelScope.launch {
                 connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
-                _playbackStarted.tryEmit(Unit)
+            }
+        },
+        notify = { emitMessage(it) },
+    )
+
+    // ── 首页榜单（每周必看 / 入站必刷 / 热歌榜）：见 ChartController ──
+
+    val charts: ChartController = ChartController(
+        scope = viewModelScope,
+        repository = network.repository,
+        playList = { items, startIndex, loadMore ->
+            viewModelScope.launch {
+                connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
             }
         },
     )
@@ -511,6 +527,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 日历史页那天的真实收听时长；那天没有记录（开始统计之前）为 null。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val dayListenedMs: StateFlow<Long?> = _dayHistoryDate
+        .flatMapLatest { date ->
+            if (date == null) flowOf(null) else library.observeListenedMs(date.toEpochDay())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 真实收听时长：只在正在播放时计时，按本地日期落库（日历史页的「当日听歌时长」）。 */
+    private val listenTimeTracker = ListenTimeTracker(
+        scope = viewModelScope,
+        isPlaying = connection.state.map { it.isPlaying },
+        record = { library.addListenedTime(it.epochDay, it.ms) },
+    )
 
     fun openDayHistory(date: LocalDate) { _dayHistoryDate.value = date }
     fun closeDayHistory() { _dayHistoryDate.value = null }
@@ -578,7 +609,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             },
                             startIndex = 0,
                         )
-                        _playbackStarted.tryEmit(Unit)
                     }
                 }
                 .onFailure { /* 失败静默：取流层会有自己的错误呈现 */ }
@@ -620,17 +650,42 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         .flatMapLatest { p -> if (p == null) flowOf(emptyList()) else library.observeTracks(p.id) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    fun createPlaylist(name: String) = viewModelScope.launch { library.createPlaylist(name) }
-    fun renamePlaylist(id: Long, name: String) = viewModelScope.launch { library.renamePlaylist(id, name) }
+    fun createPlaylist(name: String, icon: String) = viewModelScope.launch { library.createPlaylist(name, icon) }
+
+    /** 改列表的名字和图标；正开着这个列表时，内页标题跟着更新。 */
+    fun editPlaylist(id: Long, name: String, icon: String) = viewModelScope.launch {
+        library.editPlaylist(id, name, icon)
+        _openedPlaylist.value?.takeIf { it.id == id }?.let { _openedPlaylist.value = it.copy(name = name, icon = icon) }
+    }
     fun deletePlaylist(id: Long) = viewModelScope.launch {
         library.deletePlaylist(id)
         if (_openedPlaylist.value?.id == id) _openedPlaylist.value = null
     }
     fun openPlaylist(p: PlaylistEntity) { _openedPlaylist.value = p }
     fun closePlaylist() { _openedPlaylist.value = null }
-    fun removeFromPlaylist(trackId: Long) = viewModelScope.launch {
-        _openedPlaylist.value?.let { library.removeFromPlaylist(it.id, trackId) }
+    /** 从开着的本地列表移除一条（右滑 / 三点菜单「删除」）。本地数据直接移除，撤销时按原 sortKey 放回。 */
+    fun removeFromPlaylist(item: PlaylistTrack) {
+        val playlist = _openedPlaylist.value ?: return
+        viewModelScope.launch {
+            library.removeFromPlaylist(playlist.id, item.track.id)
+            lastPlaylistRemoval = PlaylistRemoval(playlist.id, item.track.id, item.sortKey)
+            _playlistRemovalNotice.tryEmit("已从「${playlist.name}」移除")
+        }
     }
+
+    /** 撤销最近一次从本地列表的移除（与队列、远程列表一样，只有最近一次能撤销）。 */
+    fun undoPlaylistRemoval() {
+        val removal = lastPlaylistRemoval ?: return
+        lastPlaylistRemoval = null
+        viewModelScope.launch { library.restoreToPlaylist(removal.playlistId, removal.trackId, removal.sortKey) }
+    }
+
+    private data class PlaylistRemoval(val playlistId: Long, val trackId: Long, val sortKey: Double)
+    private var lastPlaylistRemoval: PlaylistRemoval? = null
+
+    /** 「已从…移除」：UI 弹带「撤销」的提示，点了调 [undoPlaylistRemoval]。 */
+    private val _playlistRemovalNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val playlistRemovalNotice: SharedFlow<String> = _playlistRemovalNotice.asSharedFlow()
 
     // ── Ch3：复选模式与批量操作 ──────────────────────────
 
@@ -868,15 +923,22 @@ return pages.map { p ->
         }
     }
 
-    fun createPlaylistAndAdd(name: String) {
+    fun createPlaylistAndAdd(name: String, icon: String) {
         val tracks = _pendingBatchAdd.value ?: return
         _pendingBatchAdd.value = null
         if (name.isBlank()) return
         viewModelScope.launch {
-            val id = library.createPlaylist(name)
+            val id = library.createPlaylist(name, icon)
             tracks.forEach { library.addToPlaylist(id, it) }
             emitMessage("已加入 ${tracks.size} 项到歌单")
         }
+    }
+
+    /** 「加入列表」弹窗最上面的「稍后再看」：交给 [RemoteLibraryController.addToWatchLater]。 */
+    fun confirmAddToWatchLater() {
+        val tracks = _pendingBatchAdd.value ?: return
+        _pendingBatchAdd.value = null
+        remoteLibrary.addToWatchLater(tracks.map { it.bvid })
     }
 
     // ── B 站收藏夹：加入 / 新建 / 编辑 / 删除 ──
@@ -960,6 +1022,7 @@ return pages.map { p ->
             network.repository.editFavoriteFolder(mediaId, newTitle)
                 .onSuccess {
                     emitMessage("已修改收藏夹")
+                    remoteLibrary.renameOpenedFavorite(mediaId, newTitle)
                     remoteLibrary.syncFavoriteFolders()
                 }
                 .onFailure { emitMessage("编辑失败：${it.message ?: "未知错误"}") }
@@ -1272,6 +1335,7 @@ return pages.map { p ->
         play = ::play,
         // 新一轮搜索收起多 P 面板（原先是搜索第 1 页时顺手清掉 SearchUiState.pages）
         onNewSearch = { _pagePanel.value = PagePanelState() },
+        openEraPage = charts::openEraPage,
     )
 
     /** 多 P 面板（搜索页内展开的分 P 列表）。 */
@@ -1396,7 +1460,6 @@ return pages.map { p ->
                 },
                 startIndex = index,
             )
-            _playbackStarted.tryEmit(Unit)
         }
     }
 
@@ -1420,7 +1483,6 @@ return pages.map { p ->
                 },
                 startIndex = startIndex,
             )
-            _playbackStarted.tryEmit(Unit)
         }
     }
 
@@ -1442,10 +1504,11 @@ return pages.map { p ->
     /** 设置页直接选列表播放模式（与播放页按钮是同一个值）。 */
     fun setPlayMode(mode: com.biliseek.core.player.PlayMode) = connection.setPlayMode(mode)
 
-    fun cyclePlayMode() {
-        val modes = com.biliseek.core.player.PlayMode.entries
-        val next = modes[(modes.indexOf(connection.state.value.playMode) + 1) % modes.size]
+    /** 切到下一个播放模式，返回新模式（界面拿它弹提示）。 */
+    fun cyclePlayMode(): com.biliseek.core.player.PlayMode {
+        val next = com.biliseek.app.ui.nextPlayMode(connection.state.value.playMode)
         connection.setPlayMode(next)
+        return next
     }
 
     fun onEnterBackground() = connection.onEnterBackground()
@@ -1473,6 +1536,69 @@ return pages.map { p ->
     fun clearFailedDownloads() = downloadManager.clearFailed()
 
     /**
+     * 「已下载」页已完成条目右滑 / 三点「删除」（一条，或多 P 组的全部分 P）：先从列表拿掉，
+     * 提示里可撤销，过 [DOWNLOAD_REMOVAL_COMMIT_MS] 才真的删（同稍后再看、收藏夹）。[deleteFile] 同 [deleteDownload]。
+     */
+    fun removeDownloads(tasks: List<com.biliseek.app.download.DownloadTask>, deleteFile: Boolean) {
+        if (tasks.isEmpty()) return
+        val ids = tasks.map { it.id }.toSet()
+        hiddenDownloads.value = hiddenDownloads.value + ids
+        val job = viewModelScope.launch {
+            kotlinx.coroutines.delay(DOWNLOAD_REMOVAL_COMMIT_MS)
+            ids.forEach { downloadManager.delete(it, deleteFile) }
+        }
+        lastDownloadRemoval = PendingDownloadRemoval(ids, job)
+        val first = tasks.first()
+        _downloadRemovalNotice.tryEmit(
+            if (tasks.size > 1) {
+                "已删除「${com.biliseek.app.download.splitPartTitle(first.title).first}」（${tasks.size} 个分 P）"
+            } else {
+                "已删除「${first.title.ifBlank { "未命名" }}」"
+            },
+        )
+    }
+
+    /** 撤销最近一次「已下载」页的删除：还没提交就放回列表。 */
+    fun undoDownloadRemoval() {
+        val removal = lastDownloadRemoval ?: return
+        lastDownloadRemoval = null
+        removal.job.cancel()
+        hiddenDownloads.value = hiddenDownloads.value - removal.ids
+    }
+
+    private class PendingDownloadRemoval(val ids: Set<Long>, val job: Job)
+    private var lastDownloadRemoval: PendingDownloadRemoval? = null
+    private val _downloadRemovalNotice = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val downloadRemovalNotice: SharedFlow<String> = _downloadRemovalNotice.asSharedFlow()
+
+    /** 多 P 组的分 P 页点一条：从这一 P 开始播，其余已下载的分 P 作为一块临时条目进队列（同点本地列表）。 */
+    fun playDownloadGroup(parts: List<com.biliseek.app.download.DownloadTask>, startIndex: Int) {
+        if (parts.isEmpty()) return
+        viewModelScope.launch {
+            connection.playFromContext(
+                parts.map {
+                    PlaybackRequest.Bili(
+                        bvid = it.bvid,
+                        cid = it.cid.takeIf { c -> c > 0 },
+                        title = it.title,
+                        coverUrl = it.coverUrl,
+                        author = it.author,
+                        durationSec = it.durationSec,
+                    )
+                },
+                startIndex = startIndex,
+            )
+        }
+    }
+
+    /** 「已下载」页下载中段：暂停 / 继续一条，全部暂停 / 全部继续 / 全部取消。 */
+    fun pauseDownload(id: Long) = downloadManager.pause(id)
+    fun resumeDownload(id: Long) = downloadManager.resume(id)
+    fun pauseAllDownloads() = downloadManager.pauseAll()
+    fun resumeAllDownloads() = downloadManager.resumeAll()
+    fun cancelAllDownloads() = downloadManager.cancelAll()
+
+    /**
      * 删除下载。公共 / SAF 时由 UI 弹窗决定是否连源文件一起删，
      * 见 [com.biliseek.app.download.DownloadManager.delete]。
      */
@@ -1487,6 +1613,20 @@ return pages.map { p ->
                 title = task.title,
                 coverUrl = task.coverUrl,
                 author = task.author,
+            ),
+        )
+    }
+
+    /** 「AI 总结」列表一行右侧的播放键：播这份总结对应的视频（这一 P）。 */
+    fun playSummaryVideo(group: com.biliseek.app.summary.SummaryGroup) {
+        play(
+            PlaybackRequest.Bili(
+                bvid = group.bvid,
+                cid = group.cid.takeIf { it > 0 },
+                title = group.title,
+                coverUrl = group.coverUrl,
+                author = group.author,
+                durationSec = group.durationMs / 1000,
             ),
         )
     }
@@ -1584,11 +1724,27 @@ return pages.map { p ->
 
     fun dismissVideoBlocked() { _videoBlocked.value = null }
 
-    /** 起播后是否应自动进看模式。「记住上次」开着且上次在看时才为真。 */
-    fun shouldAutoEnterVideo(): Boolean {
+    /**
+     * 离开播放页、回到迷你播放条时自动切成听：撤掉画面。
+     * 不写回「上次在看」——这不是用户在播放页上的选择（见 PlayerPagePolicy）。
+     */
+    fun leaveToListen() {
+        connection.setPresentation(PresentationMode.NONE, null)
+    }
+
+    /** 打开播放页时：「起播模式：记住上次」开着、上次离开播放页时在看，就自动切回看。 */
+    fun onPlayerPageShown(surfaceView: SurfaceView?) {
         val s = settingsStore.current
-        return s.defaultPresentation == DefaultPresentation.REMEMBER_LAST &&
-            s.lastPresentationWasVideo
+        val state = connection.state.value
+        if (shouldAutoWatchOnPlayerPage(
+                s.defaultPresentation,
+                s.lastPresentationWasVideo,
+                state.presentation,
+                hasMedia = state.mode != PlaybackMode.IDLE,
+            )
+        ) {
+            requestPresentation(PresentationMode.INLINE, surfaceView, automatic = true)
+        }
     }
 
     /** 当前有可用网络（只问系统，不发请求）。 */
@@ -1638,7 +1794,6 @@ return pages.map { p ->
     fun play(request: PlaybackRequest) {
         viewModelScope.launch {
             connection.play(request)
-            _playbackStarted.tryEmit(Unit)
             // 播放即访问：最常访问排序用。authorMid 未填的旧路径（播放历史/收藏夹）跳过。
             if (request is com.biliseek.core.player.PlaybackRequest.Bili && request.authorMid > 0) {
                 recordUpVisit(request.authorMid)
@@ -1694,6 +1849,13 @@ return pages.map { p ->
         session = session,
         emitMessage = ::emitMessage,
     )
+
+    init {
+        // 2026-10-05 去掉了「已充电」角标：删掉它存在本地的 UP 名单（DataStore biliseek_charged_ups），删过之后是空操作
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            java.io.File(app.filesDir, "datastore/biliseek_charged_ups.preferences_pb").delete()
+        }
+    }
 
     /** 播放页视频互动栏（点赞 / 投币 / 收藏 / 三连）。 */
     val videoInteraction = com.biliseek.app.interaction.VideoInteractionController(
@@ -1917,7 +2079,7 @@ return pages.map { p ->
     }
 
     /**
-     * 播放页"添加到列表"：拼一个 [SearchVideo] 复用搜索页同款链路
+     * 播放页"加入列表"：拼一个 [SearchVideo] 复用搜索页同款链路
      * （[startSingleAction] 判断单P/多P，落地到 [AddToListPickerDialog]，
      * 一个弹窗里同时可选 B站收藏夹 / 本地歌单，不需要另外做"合并"）。
      */
@@ -1940,7 +2102,7 @@ return pages.map { p ->
     }
 
     /**
-     * 播放页"查看作者"：优先用队列条目自带的 authorMid（搜索起播必有）；
+     * 播放页"查看UP主"：优先用队列条目自带的 authorMid（搜索起播必有）；
      * 缺失时（历史记录/收藏夹/本地播放列表起播，未必带 authorMid）现查一次
      * 视频详情兜底。返回 true 才应该真正触发导航。
      */
@@ -1963,3 +2125,7 @@ return pages.map { p ->
         return true
     }
 }
+
+/** 「已下载」页删除的提交延迟：比撤销提示多留 1 秒（同 RemoteLibraryController）。 */
+private const val DOWNLOAD_REMOVAL_COMMIT_MS = com.biliseek.app.remote.RemoteLibraryController.REMOVAL_UNDO_MS + 1_000L
+

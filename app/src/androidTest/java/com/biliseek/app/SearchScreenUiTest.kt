@@ -66,6 +66,18 @@ class SearchScreenUiTest {
         compose.onNodeWithText("重试").assertDoesNotExist()
     }
 
+    // ── 链接展开后既不是视频也不是活动页 ──────────────────
+
+    @Test
+    fun 链接不是视频时显示明确提示_且无重试按钮() {
+        setSearch(state(keyword = "https://b23.tv/AbCd123", error = SearchError.NotVideo))
+
+        compose.onNodeWithText("这个链接不是视频").assertIsDisplayed()
+        compose.onNodeWithText("粘贴 BV 号或视频链接可以直接播放，也可以换个关键词搜索").assertIsDisplayed()
+        // 重试还是同一个链接，按钮只会让人误以为是加载失败
+        compose.onNodeWithText("重试").assertDoesNotExist()
+    }
+
     // ── 错误分类 ──────────────────────────────────────────
 
     @Test

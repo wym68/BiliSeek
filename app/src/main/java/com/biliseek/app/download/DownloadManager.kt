@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.MediaCodec
 import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Environment
@@ -25,6 +26,14 @@ import com.biliseek.app.data.clampDownloadConcurrency
 import com.biliseek.app.data.downloadResolveDelayMs
 import com.biliseek.app.data.DOWNLOAD_RESOLVE_MIN_INTERVAL_MS
 import com.biliseek.app.data.resolveRangeHeader
+import com.biliseek.app.data.MAX_STALLED_RESUMES
+import com.biliseek.app.data.contentRangeTotal
+import com.biliseek.app.data.grownSampleBufferSize
+import com.biliseek.app.data.isPartialStale
+import com.biliseek.app.data.nextStalledCount
+import com.biliseek.app.data.sampleBufferSize
+import com.biliseek.app.data.shouldResumeDownload
+import com.biliseek.app.data.stagedProgress
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.AudioQuality
 import com.biliseek.core.player.DownloadSource
@@ -63,10 +72,13 @@ data class DownloadTask(
     val progress: Float,
     val error: String,
     val fileSize: Long,
+    /** 秒；三点菜单映射成搜索结果时要用。 */
+    val durationSec: Long = 0,
 ) {
     val isDone: Boolean get() = status == DownloadStatus.DONE
     val isFailed: Boolean get() = status == DownloadStatus.FAILED
     val isActive: Boolean get() = status == DownloadStatus.DOWNLOADING || status == DownloadStatus.QUEUED
+    val isPaused: Boolean get() = status == DownloadStatus.PAUSED
 }
 
 /** 一次下载请求。cid 可空——取流时会解析出真实 cid。 */
@@ -95,6 +107,9 @@ data class DownloadRequest(
  * 中断恢复：进程被杀后行停留在 QUEUED / DOWNLOADING，App 再启动时
  * [resumePending] 把它们捞回来续传（.part 文件 + Range 头）。
  */
+/** HTTP 状态不对（403 / 404 …）：不是传输中断，不续传。 */
+private class HttpStatusException(code: Int) : IOException("HTTP $code")
+
 class DownloadManager private constructor(private val app: Application) {
 
     private val db = BiliSeekDatabase.get(app)
@@ -105,6 +120,8 @@ class DownloadManager private constructor(private val app: Application) {
     private val resolveMutex = Mutex()
     /** 正在执行的任务（id → 子协程），取消下载用。 */
     private val runningJobs = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Job>()
+    /** 正在暂停的任务：子协程被取消时据此标「暂停」、留半成品，而不是当成删除清掉。 */
+    private val pausing: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private var lastResolveAt: Long? = null
     private val processingRef = AtomicReference(false)
 
@@ -196,14 +213,22 @@ class DownloadManager private constructor(private val app: Application) {
         }
     }
 
-    /** 清除全部失败记录。失败的任务没有成品文件，只删记录。 */
+    /** 清除全部失败记录。失败的任务没有成品文件，删记录和留着续传用的半成品。 */
     fun clearFailed() {
         scope.launch {
             queueMutex.withLock {
-                dao.byStatus(DownloadStatus.FAILED).forEach { dao.deleteById(it.id) }
+                dao.byStatus(DownloadStatus.FAILED).forEach {
+                    deleteStaging(it)
+                    dao.deleteById(it.id)
+                }
                 refreshTasks()
             }
         }
+    }
+
+    /** 没下完的记录留着续传用的半成品（cacheDir 里），删记录时一起清。 */
+    private fun deleteStaging(row: DownloadEntity) {
+        if (row.status != DownloadStatus.DONE) stagingRoot(row.bvid, row.cid).deleteRecursively()
     }
 
     /** 重试一条失败 / 中断的下载。 */
@@ -216,6 +241,80 @@ class DownloadManager private constructor(private val app: Application) {
                 dao.upsert(row.copy(status = DownloadStatus.QUEUED, error = ""))
                 refreshTasks()
                 startService()
+            }
+        }
+    }
+
+    // ── 暂停 / 继续 / 全部取消（设计稿：2026-10-04-download-improvements）──────────
+
+    /** 暂停一条：在下的中断传输、半成品留着（标暂停在子协程收尾时做，见 processOne）；排队的直接标暂停。 */
+    fun pause(id: Long) {
+        scope.launch { queueMutex.withLock { pauseLocked(id) } }
+    }
+
+    /** 全部暂停：在下的和排队的都暂停。 */
+    fun pauseAll() {
+        scope.launch {
+            queueMutex.withLock {
+                dao.all().filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED }
+                    .forEach { pauseLocked(it.id) }
+            }
+        }
+    }
+
+    private suspend fun pauseLocked(id: Long) {
+        val row = dao.all().firstOrNull { it.id == id } ?: return
+        val job = runningJobs[id]
+        if (job != null) {
+            pausing += id
+            job.cancel()
+        } else if (row.status == DownloadStatus.QUEUED || row.status == DownloadStatus.DOWNLOADING) {
+            dao.upsert(row.copy(status = DownloadStatus.PAUSED, error = ""))
+            refreshTasks()
+        }
+    }
+
+    /** 继续一条暂停的：改回排队，轮到时从断点接着下。 */
+    fun resume(id: Long) {
+        scope.launch {
+            queueMutex.withLock {
+                val row = dao.all().firstOrNull { it.id == id } ?: return@withLock
+                if (row.status != DownloadStatus.PAUSED) return@withLock
+                dao.upsert(row.copy(status = DownloadStatus.QUEUED, error = ""))
+                refreshTasks()
+                startService()
+            }
+        }
+    }
+
+    /** 全部继续。 */
+    fun resumeAll() {
+        scope.launch {
+            queueMutex.withLock {
+                val paused = dao.byStatus(DownloadStatus.PAUSED)
+                if (paused.isEmpty()) return@withLock
+                paused.forEach { dao.upsert(it.copy(status = DownloadStatus.QUEUED, error = "")) }
+                refreshTasks()
+                startService()
+            }
+        }
+    }
+
+    /** 全部取消：在下、排队、暂停的记录连同半成品一起删掉（界面先确认）。 */
+    fun cancelAll() {
+        scope.launch {
+            queueMutex.withLock {
+                val pending = dao.all().filter {
+                    it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED ||
+                        it.status == DownloadStatus.PAUSED
+                }
+                pending.forEach { row ->
+                    pausing -= row.id
+                    runningJobs[row.id]?.cancel()
+                    deleteStaging(row)
+                    dao.deleteById(row.id)
+                }
+                refreshTasks()
             }
         }
     }
@@ -234,6 +333,7 @@ class DownloadManager private constructor(private val app: Application) {
             queueMutex.withLock {
                 val row = dao.all().firstOrNull { it.id == id } ?: return@withLock
                 if (row.location == DownloadLocation.PRIVATE || deleteFile) deleteFiles(row)
+                deleteStaging(row)
                 dao.deleteById(id)
                 refreshTasks()
             }
@@ -317,6 +417,8 @@ class DownloadManager private constructor(private val app: Application) {
             } finally {
                 runningJobs.remove(row.id)
                 activeTasks.remove(row.id)
+                // 点暂停时任务恰好已经下完：留下的暂停标记作废
+                pausing.remove(row.id)
             }
         }
     }
@@ -378,18 +480,33 @@ class DownloadManager private constructor(private val app: Application) {
                 )
             }
             dao.upsert(doneRow)
+            // 半成品旁边记总长度的 .total 等零碎文件一起清掉
+            stagingRoot(row.bvid, row.cid).deleteRecursively()
             val done = doneRow.toTask(status = DownloadStatus.DONE, progress = 1f)
             activeTasks.remove(row.id)
             refreshTasks()
             notify(service, done)
         } catch (e: kotlinx.coroutines.CancellationException) {
-            // 用户取消：表行已由 delete() 删掉，这里只清半成品，不标失败
-            stagingRoot(row.bvid, row.cid).deleteRecursively()
+            if (pausing.remove(row.id)) {
+                // 暂停：半成品留着，继续时从断点接着下。协程已被取消，写库要放在 NonCancellable 里
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    queueMutex.withLock {
+                        if (dao.find(row.bvid, row.cid)?.id == row.id) {
+                            dao.upsert(row.copy(status = DownloadStatus.PAUSED, error = ""))
+                        }
+                    }
+                    activeTasks.remove(row.id)
+                    refreshTasks()
+                }
+            } else {
+                // 用户取消：表行已由 delete() 删掉，这里只清半成品，不标失败
+                stagingRoot(row.bvid, row.cid).deleteRecursively()
+            }
             throw e
         } catch (e: Exception) {
             android.util.Log.w(TAG, "下载失败：${e.message}", e)
-            // 不留半成品：mux 失败 / 下载中断都清掉 staging 目录
-            stagingRoot(row.bvid, row.cid).deleteRecursively()
+            // 半成品留着：点「重试」时从断点接着下（总长度对不上会自动从头下，见 transferOnce）；
+            // 删除记录 / 清除失败记录时再清（deleteStaging）
             val failedRow = row.copy(
                 status = DownloadStatus.FAILED,
                 error = "下载失败：${e.message ?: "未知错误"}",
@@ -444,7 +561,13 @@ class DownloadManager private constructor(private val app: Application) {
         row.copy(cid = cid)
     }
 
-    /** 单条流（只音频 / 视频轨）：流式写盘 + Range 断点续传。 */
+    /**
+     * 单条流（只音频 / 视频轨）：流式写盘 + Range 断点续传。
+     *
+     * 下到一半连接被断开（视频文件大，常见 `unexpected end of stream`）时，用同一个地址从已写的位置接着下，
+     * 连续 [MAX_STALLED_RESUMES] 次没有新数据才算失败；HTTP 状态错误（403 / 404 …）直接失败
+     * （设计稿：2026-10-04-download-improvements）。不重新请求取流接口。
+     */
     private suspend fun downloadToFile(
         url: String,
         dest: File,
@@ -452,6 +575,34 @@ class DownloadManager private constructor(private val app: Application) {
         service: DownloadService,
     ) {
         dest.parentFile?.mkdirs()
+        var stalled = 0
+        while (true) {
+            val before = dest.length()
+            try {
+                transferOnce(url, dest, row, service)
+                return
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                stalled = nextStalledCount(stalled, madeProgress = dest.length() > before)
+                if (!shouldResumeDownload(e is HttpStatusException, stalled)) throw e
+                android.util.Log.w(TAG, "下载中断，从 ${dest.length()} 字节接着下：${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 一次传输：有半成品就带 Range 接着写。第一次拿到总长度时记在半成品旁边（`.total`），
+     * 续传（断线、暂停后继续、进程被杀后恢复）时总长度对不上就说明换了文件，丢掉半成品从头下。
+     */
+    private suspend fun transferOnce(
+        url: String,
+        dest: File,
+        row: DownloadEntity,
+        service: DownloadService,
+    ) {
+        val totalFile = File(dest.path + ".total")
+        val recordedTotal = totalFile.takeIf { it.exists() }?.readText()?.trim()?.toLongOrNull()
         val existing = dest.length()
         val call = http.newCall(
             Request.Builder()
@@ -460,11 +611,28 @@ class DownloadManager private constructor(private val app: Application) {
                 .build(),
         )
         call.execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val body = response.body ?: throw IOException("空响应体")
+            if (response.code == 416 && existing > 0) {
+                // 续传位置已到文件末尾：之前其实已经下全了
+                if (recordedTotal != null && existing >= recordedTotal) return
+                dest.delete()
+                totalFile.delete()
+                throw IOException("续传位置不对，从头下载")
+            }
+            if (!response.isSuccessful) throw HttpStatusException(response.code)
+            val body = response.body
             val append = response.code == 206
+            val responseTotal = if (append) {
+                contentRangeTotal(response.header("Content-Range"))
+            } else {
+                body.contentLength().takeIf { it > 0 }
+            }
+            if (append && isPartialStale(recordedTotal, responseTotal)) {
+                dest.delete()
+                totalFile.delete()
+                throw IOException("文件变了，从头下载")
+            }
             if (!append) dest.delete() // 服务器忽略了 Range，从头写
-            val trackTotal = body.contentLength()
+            responseTotal?.let { totalFile.writeText(it.toString()) }
             var written = if (append) existing else 0L
             var lastNotify = 0L
             java.io.FileOutputStream(dest, append).use { out ->
@@ -480,7 +648,7 @@ class DownloadManager private constructor(private val app: Application) {
                         val now = System.currentTimeMillis()
                         if (now - lastNotify >= NOTIFY_INTERVAL_MS) {
                             lastNotify = now
-                            val total = if (trackTotal > 0) trackTotal + existing else 0L
+                            val total = responseTotal ?: 0L
                             val progress = if (total > 0) written.toFloat() / total else 0f
                             notifyProgress(row, progress.coerceIn(0f, 1f), service)
                         }
@@ -549,13 +717,26 @@ class DownloadManager private constructor(private val app: Application) {
         val extractor = MediaExtractor()
         extractor.setDataSource(file.absolutePath)
         extractor.selectTrack(0)
-        val buffer = ByteBuffer.allocate(BUFFER_SIZE)
+        // 高码率视频的关键帧常超过 64KB：按轨道的最大帧大小分配，至少 1MB（sampleBufferSize）
+        val format = extractor.getTrackFormat(0)
+        val maxInput = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+            format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+        } else {
+            null
+        }
+        var buffer = ByteBuffer.allocate(sampleBufferSize(maxInput))
         val info = MediaCodec.BufferInfo()
         // muxer 要求同轨样本时间戳严格递增，B 站文件偶有重复/倒挂，丢掉即可
         var lastTimeUs = Long.MIN_VALUE
         try {
             while (true) {
-                val size = extractor.readSampleData(buffer, 0)
+                val size = try {
+                    extractor.readSampleData(buffer, 0)
+                } catch (e: IllegalArgumentException) {
+                    // 这一帧比缓冲区还大：翻倍后重读同一帧（读失败时 extractor 不前进）
+                    buffer = ByteBuffer.allocate(grownSampleBufferSize(buffer.capacity()) ?: throw e)
+                    continue
+                }
                 if (size < 0) break
                 val timeUs = extractor.sampleTime
                 if (timeUs > lastTimeUs) {
@@ -815,6 +996,7 @@ class DownloadManager private constructor(private val app: Application) {
         status = status,
         progress = progress,
         error = error,
+        durationSec = durationSec,
         fileSize = fileSize,
     )
 
@@ -852,10 +1034,26 @@ class DownloadManager private constructor(private val app: Application) {
                         content = row.content,
                         location = row.location,
                     )
+                } else if (row.status == DownloadStatus.PAUSED) {
+                    row.toTask(row.status, pausedProgress(row))
                 } else {
                     row.toTask(row.status, 0f)
                 }
             }
+    }
+
+    /** 暂停的任务按半成品算进度（「已暂停 · 45%」）：只音频一段，视频是音轨、视频轨两段。 */
+    private fun pausedProgress(row: DownloadEntity): Float {
+        val files = if (row.content == DownloadContent.VIDEO) {
+            listOf(stagingPart(row.bvid, row.cid, "audio"), stagingPart(row.bvid, row.cid, "video"))
+        } else {
+            listOf(stagingFile(row.bvid, row.cid, row.content))
+        }
+        return stagedProgress(
+            files.map { f ->
+                f.length() to File(f.path + ".total").takeIf { it.exists() }?.readText()?.trim()?.toLongOrNull()
+            },
+        )
     }
 
     private fun startService() {

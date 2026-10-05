@@ -34,6 +34,8 @@ class FullscreenGestureCallbacks(
     val onSeek: (Long) -> Unit,
     val onSetSpeed: (Float) -> Unit,
     val onHud: (GestureHud?) -> Unit,
+    /** 长按开始加速的那一下（震动）。 */
+    val onSpeedBoosted: () -> Unit = {},
 )
 
 /**
@@ -41,7 +43,7 @@ class FullscreenGestureCallbacks(
  *
  * - 单击：显示 / 隐藏控制层（锁定时只显示解锁按钮）
  * - 双击：播放 / 暂停
- * - 长按：临时加速，松手恢复（见 [resolveLongPressSpeed]）
+ * - 长按：播放中临时加速，松手恢复（见 [LongPressSpeedBoost]，播放页小框同一套）
  * - 横向拖：调进度，松手才 seek——拖动过程中只预览，不然每一帧都在 seek
  * - 左半屏纵向拖：亮度（只改本窗口，退出全屏恢复）
  * - 右半屏纵向拖：媒体音量
@@ -58,34 +60,12 @@ fun Modifier.fullscreenGestures(
     callbacks: FullscreenGestureCallbacks,
 ): Modifier = this
     .pointerInput(locked) {
-        var speedBeforeLongPress: Float? = null
+        val boost = LongPressSpeedBoost(state, callbacks.onSetSpeed, callbacks.onHud, callbacks.onSpeedBoosted)
         detectTapGestures(
             onTap = { callbacks.onTap() },
             onDoubleTap = if (locked) null else { _ -> callbacks.onDoubleTap() },
-            onLongPress = if (locked) {
-                null
-            } else {
-                { _ ->
-                    val current = state.value
-                    resolveLongPressSpeed(
-                        currentSpeed = current.speed,
-                        losslessActive = current.audioQuality ==
-                            com.biliseek.core.player.AudioQuality.LOSSLESS,
-                    )?.let { boosted ->
-                        speedBeforeLongPress = current.speed
-                        callbacks.onSetSpeed(boosted)
-                        callbacks.onHud(GestureHud.Speed(boosted))
-                    }
-                }
-            },
-            onPress = {
-                tryAwaitRelease()
-                speedBeforeLongPress?.let { original ->
-                    callbacks.onSetSpeed(original)
-                    callbacks.onHud(null)
-                }
-                speedBeforeLongPress = null
-            },
+            onLongPress = if (locked) null else { _ -> boost.onLongPress() },
+            onPress = { boost.awaitRelease(this) },
         )
     }
     .pointerInput(locked) {

@@ -1,9 +1,7 @@
 package com.biliseek.app.ui
 
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.biliseek.designsystem.component.BsConfirmDialog
 
 /**
  * 移动网络下切看被拦住时的询问框。
@@ -13,13 +11,12 @@ import androidx.compose.runtime.Composable
  */
 @Composable
 fun MeteredVideoDialog(onConfirmOnce: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("当前是移动网络") },
-        text = {
-            Text("设置里关闭了「移动网络下默认允许看视频」。视频流量大约是音频的一百倍以上。")
-        },
-        confirmButton = { TextButton(onClick = onConfirmOnce) { Text("这次就看") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("继续只听") } },
+    BsConfirmDialog(
+        title = "当前是移动网络",
+        text = "设置里关闭了「移动网络下默认允许看视频」。视频流量大约是音频的一百倍以上。",
+        confirmLabel = "这次就看",
+        dismissLabel = "继续只听",
+        onConfirm = onConfirmOnce,
+        onDismiss = onDismiss,
     )
 }

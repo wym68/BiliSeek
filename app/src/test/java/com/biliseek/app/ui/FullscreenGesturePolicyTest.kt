@@ -102,4 +102,11 @@ class FullscreenGesturePolicyTest {
         assertNull(resolveLongPressSpeed(3.0f, losslessActive = false))
         assertNull(resolveLongPressSpeed(1.5f, losslessActive = true))
     }
+
+    @Test
+    fun `暂停时长按不加速`() {
+        // 用户 2026-10-04：「正在播放内容时」长按才 2 倍速（播放页小框、全屏一致）
+        assertNull(resolveLongPressSpeed(1.0f, losslessActive = false, isPlaying = false))
+        assertEquals(2.0f, resolveLongPressSpeed(1.0f, losslessActive = false, isPlaying = true))
+    }
 }

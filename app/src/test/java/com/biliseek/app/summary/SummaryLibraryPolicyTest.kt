@@ -92,4 +92,17 @@ class SummaryLibraryPolicyTest {
         val message = SummaryLibraryPolicy.clearAllMessage(groups)
         assertTrue(message, message.contains("2 个视频") && message.contains("3 个总结版本") && message.contains("2.0 MB"))
     }
+
+    @Test
+    fun `右滑删除后撤销期内不显示 总占用跟着减`() {
+        fun g(bvid: String, size: Long) = SummaryGroup(
+            bvid = bvid, cid = 1, title = bvid, pageTitle = "", author = "", coverUrl = "", durationMs = 0,
+            versionCount = 1, doneCount = 1, state = SummaryGroupState.READY, updatedAt = 0, sizeBytes = size,
+        )
+        val state = SummaryLibraryState(listOf(g("BVa", 100), g("BVb", 50)), totalBytes = 150)
+        val visible = SummaryLibraryPolicy.withoutHidden(state, setOf(SummaryLibraryPolicy.key(g("BVa", 100))))
+        assertEquals(listOf("BVb"), visible.groups.map { it.bvid })
+        assertEquals(50L, visible.totalBytes)
+        assertEquals(state, SummaryLibraryPolicy.withoutHidden(state, emptySet()))
+    }
 }

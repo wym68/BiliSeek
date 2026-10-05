@@ -33,13 +33,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
@@ -90,29 +95,43 @@ fun MiniPlayer(
                 label = "minibar-reveal",
             ) { isRevealed ->
                 if (isRevealed) {
-                    Column {
-                        MiniBarHandle(
-                            onDrag = { dragAmount ->
-                                if (dragAmount > HANDLE_DRAG_THRESHOLD) revealed = false
-                            },
-                        )
+                    // 拖进度时的目标位置（松手后跳到哪），显示在时间文字里
+                    var scrubMs by remember { mutableStateOf<Long?>(null) }
+                    val currentOnExpand by rememberUpdatedState(onExpand)
+                    // 整条迷你条上竖着滑：往上打开播放页，往下收起（顶部没有横杠了，见 MiniBarPolicy）
+                    Column(
+                        Modifier.pointerInput(Unit) {
+                            var totalPx = 0f
+                            var fired = false
+                            detectVerticalDragGestures(
+                                onDragStart = {
+                                    totalPx = 0f
+                                    fired = false
+                                },
+                            ) { _, dragAmount ->
+                                totalPx += dragAmount
+                                if (!fired) {
+                                    when (resolveMiniBarSwipe(totalPx.toDp().value)) {
+                                        MiniBarSwipe.EXPAND -> { fired = true; currentOnExpand() }
+                                        MiniBarSwipe.COLLAPSE -> { fired = true; revealed = false }
+                                        null -> Unit
+                                    }
+                                }
+                            }
+                        },
+                    ) {
                         com.biliseek.app.ui.components.DraggableProgressBar(
                             positionMs = state.positionMs,
                             durationMs = state.durationMs,
                             onSeek = onSeek,
-                            height = 2.dp,
+                            onScrub = { scrubMs = it },
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clickable(onClick = onExpand)
-                                .pointerInput(Unit) {
-                                    detectVerticalDragGestures { _, dragAmount ->
-                                        if (dragAmount < -DRAG_THRESHOLD) onExpand()
-                                    }
-                                }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -124,10 +143,20 @@ fun MiniPlayer(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                val primary = MaterialTheme.colorScheme.primary
                                 Text(
-                                    formatDuration(state.positionMs) + " / " +
-                                        formatDuration(state.durationMs) +
-                                        if (state.presentation != PresentationMode.NONE) " · 看" else " · 听",
+                                    buildAnnotatedString {
+                                        val scrub = scrubMs
+                                        if (scrub != null) {
+                                            withStyle(SpanStyle(color = primary, fontWeight = FontWeight.SemiBold)) {
+                                                append(formatDuration(scrub))
+                                            }
+                                        } else {
+                                            append(formatDuration(state.positionMs))
+                                        }
+                                        append(" / " + formatDuration(state.durationMs))
+                                        append(if (state.presentation != PresentationMode.NONE) " · 看" else " · 听")
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }
@@ -175,5 +204,4 @@ private fun MiniBarHandle(onDrag: (Float) -> Unit, modifier: Modifier = Modifier
     }
 }
 
-private const val DRAG_THRESHOLD = 8f
 private const val HANDLE_DRAG_THRESHOLD = 24f

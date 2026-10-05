@@ -620,10 +620,16 @@ class PlayerConnection(private val context: Context) {
         loadedRequest = request
         pendingQualityApply = true
 
-        // 换内容即回到听。**禁轨、清 surface、复位呈现态三件事必须一起做**——
+        // 换内容即回到听（全屏例外：下一条有画面就接着全屏看）。
+        // **禁轨、清 surface、复位呈现态三件事必须一起做**——
         // 早期只做了第一件，字段还停在 INLINE，界面于是渲染一块没有画面的 SurfaceView：
         // 黑屏、不显示封面、按钮还写着「退回听」。
-        val nextPresentation = resolvePresentationOnTrackChange(presentation, sameContent = reload)
+        val nextHasVideo = !isOffline || media?.hasVideoTrack == true
+        val nextPresentation = resolvePresentationOnTrackChange(
+            presentation,
+            sameContent = reload,
+            nextHasVideo = nextHasVideo,
+        )
         applyVideoTrack(enabled = shouldEnableVideoTrack(nextPresentation))
         if (nextPresentation != presentation) {
             presentation = nextPresentation

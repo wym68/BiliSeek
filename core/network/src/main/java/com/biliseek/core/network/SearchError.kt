@@ -25,6 +25,12 @@ sealed interface SearchError {
     /** `code=0` 且结果为 0 条。不是错误，但同样不能白屏。 */
     data class Empty(val keyword: String) : SearchError
 
+    /**
+     * b23 短链展开后既不是视频也不是活动页。明确告诉用户「这个链接不是视频」，
+     * 而不是退回拿链接文字去搜索。
+     */
+    data object NotVideo : SearchError
+
     /** 其他业务错误码。 */
     data class Unknown(val message: String) : SearchError
 }
@@ -41,6 +47,8 @@ val SearchError.retryable: Boolean
         SearchError.Blocked -> false
         // 重试也还是没有结果，按钮只会让人以为是加载失败
         is SearchError.Empty -> false
+        // 重试还是同一个链接，同理
+        SearchError.NotVideo -> false
         else -> true
     }
 

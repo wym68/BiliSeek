@@ -3,7 +3,6 @@ package com.biliseek.app.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.data.RemoteListState
+import com.biliseek.app.ui.components.CompactDragHandle
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.app.ui.richtext.CommentComposer
 import com.biliseek.app.ui.richtext.LocalEmotePanelHost
 import com.biliseek.app.ui.richtext.RichText
@@ -83,7 +84,7 @@ fun ReplyAtScreen(
             onRefresh = onRetry,
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding(bottom = 16.dp)) {
                 when {
                     state.isLoading && state.items.isEmpty() -> item { BsLoadingState() }
                     state.errorMessage != null && state.items.isEmpty() -> item {
@@ -114,9 +115,9 @@ fun ReplyAtScreen(
 
     val target = pendingReply
     if (target != null) {
-        ModalBottomSheet(onDismissRequest = { pendingReply = null }) {
+        ModalBottomSheet(onDismissRequest = { pendingReply = null }, dragHandle = { CompactDragHandle() }) {
             Column(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = BsSpacing.lg)) {
+                Column(Modifier.padding(start = BsSpacing.lg, end = BsSpacing.lg, top = BsSpacing.sm)) {
                     Text("回复 ${target.user?.name.orEmpty()}", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(BsSpacing.sm))
                     RichText(

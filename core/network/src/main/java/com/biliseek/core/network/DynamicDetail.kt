@@ -1,5 +1,6 @@
 package com.biliseek.core.network
 
+import com.biliseek.core.network.dto.DynamicBlock
 import com.biliseek.core.network.dto.DynamicItem
 
 /**
@@ -41,13 +42,38 @@ internal fun shouldRequestOpusDetail(item: DynamicItem?): Boolean {
 /**
  * 候选内容评分：pics 越多、正文越长越优。
  * 长文 paragraphs 已被 [DynamicModulesCompatSerializer] 归一化进 desc/opus。
+ *
+ * 带原文段落（opus/detail）的候选总是优先（对齐 bilipai 的 10 万分加成）：
+ * feed / web 详情的 summary 是截断摘要，图片位置只剩「[图片]」占位，长度反而可能更长。
  */
 internal fun detailContentScore(item: DynamicItem): Int {
     val content = item.modules?.dynamic
     val opus = content?.major?.opus
-    if (opus != null) return opus.pics.size + (opus.summary?.text?.length ?: 0)
+    if (opus != null) {
+        if (opus.blocks.isNotEmpty()) {
+            return BLOCKS_SCORE_BONUS + opus.blocks.sumOf { block ->
+                when (block) {
+                    is DynamicBlock.Text -> block.text.length
+                    is DynamicBlock.Images -> block.pics.size
+                }
+            }
+        }
+        return opus.pics.size + (opus.summary?.text?.length ?: 0)
+    }
     return content?.desc?.text?.length ?: 0
 }
+
+private const val BLOCKS_SCORE_BONUS = 100_000
+
+/** [parseDynamicItem] 认得的动态类型。 */
+private val KNOWN_DYNAMIC_TYPES = setOf(
+    DynamicItemType.AV,
+    DynamicItemType.FORWARD,
+    DynamicItemType.DRAW,
+    DynamicItemType.ARTICLE,
+    DynamicItemType.OPUS,
+    DynamicItemType.WORD,
+)
 
 /** 从候选里选最优：优先可渲染，再按 [detailContentScore] 取最大。 */
 internal fun pickBestDetailItem(candidates: List<DynamicItem>): DynamicItem? {
@@ -58,17 +84,24 @@ internal fun pickBestDetailItem(candidates: List<DynamicItem>): DynamicItem? {
 
 /**
  * 把最优详情候选合并成展示条目（seed = feed 卡片条目）：
- * - 正文取**更长**者（detail 的 paragraphs 全文 vs feed 摘要）；
+ * - 详情的 `type` 认不出（opus/detail 可能下发数字）时按 seed 的类型解析，没有 seed 按 OPUS；
+ * - 详情带正文段落时正文以详情为准（feed 摘要含「[图片]」占位，可能反而更长）；
+ *   否则正文取**更长**者（detail 的 paragraphs 全文 vs feed 摘要）；
  * - 图片取**并集**（detail 可能只有正文没有预览图，bilipai 注：丢图是回归）；
  * - 互动数据以 feed 为准（detail 常缺 module_stat）；
  * - 视频/标题/封面缺啥补啥。
  */
 internal fun mergeDetailItem(item: DynamicItem, seed: DynamicEntry?): DynamicEntry {
-    val parsed = parseDynamicItem(item)
+    val typed = if (item.type in KNOWN_DYNAMIC_TYPES) item else item.copy(type = seed?.rawType ?: DynamicItemType.OPUS)
+    val parsed = parseDynamicItem(typed)
         ?: throw IllegalStateException("动态详情无法解析（type=${item.type}）")
     if (seed == null) return parsed
     return parsed.copy(
-        descText = listOf(parsed.descText, seed.descText).maxBy { it.length },
+        descText = if (parsed.body.isNotEmpty()) {
+            parsed.descText
+        } else {
+            listOf(parsed.descText, seed.descText).maxBy { it.length }
+        },
         pics = (parsed.pics + seed.pics).distinct(),
         coverUrl = parsed.coverUrl.ifBlank { seed.coverUrl },
         opusTitle = parsed.opusTitle.ifBlank { seed.opusTitle },

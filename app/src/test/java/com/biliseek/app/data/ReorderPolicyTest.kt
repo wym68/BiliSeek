@@ -69,19 +69,57 @@ class ReorderPolicyTest {
         assertEquals(null to null, reorderNeighbors(listOf(1024.0), from = 0, to = 0))
     }
 
-    // ── 位移换算 ──────────────────────────────────────────
+    // ── 拖动中挪格 ──────────────────────────────────────
 
     @Test
-    fun `位移换算成落点下标`() {
-        assertEquals(3, reorderTargetIndex(from = 1, deltaSlots = 2, size = 4))
-        assertEquals(0, reorderTargetIndex(from = 2, deltaSlots = -2, size = 4))
+    fun `列表里挪一项 往下往上 原处不变`() {
+        val list = listOf("a", "b", "c", "d")
+        assertEquals(listOf("a", "c", "d", "b"), list.moved(from = 1, to = 3))
+        assertEquals(listOf("d", "a", "b", "c"), list.moved(from = 3, to = 0))
+        assertEquals(list, list.moved(from = 2, to = 2))
+        // 越界不动
+        assertEquals(list, list.moved(from = 9, to = 0))
+        assertEquals(list, list.moved(from = 0, to = 9))
     }
 
-    /** 拖出列表范围要夹住，不能算出负下标或越界。 */
+    /** 行高 73（72 + 1dp 分割线），第 i 行从 73 * i 开始。 */
+    private val spans = (0 until 5).map { ItemSpan(index = it, top = 73 * it, size = 73) }
+
     @Test
-    fun `落点夹在列表范围内`() {
-        assertEquals(0, reorderTargetIndex(from = 1, deltaSlots = -99, size = 4))
-        assertEquals(3, reorderTargetIndex(from = 1, deltaSlots = 99, size = 4))
-        assertEquals(0, reorderTargetIndex(from = 0, deltaSlots = 5, size = 0))
+    fun `被拖那一行的中线落在哪一行上 那一行就是新落点`() {
+        // 第 1 行往下拖了 40：中线 73 + 40 + 36.5 = 149.5，落在第 2 行（146..219）
+        assertEquals(2, reorderSwapTarget(draggedIndex = 1, draggedTop = 113f, draggedSize = 73, visible = spans))
+        // 往上拖到第 0 行里
+        assertEquals(0, reorderSwapTarget(draggedIndex = 1, draggedTop = 30f, draggedSize = 73, visible = spans))
+    }
+
+    @Test
+    fun `中线还在自己格子里不挪`() {
+        // 往下拖了 30：中线 139.5 仍在自己的 73..146
+        assertEquals(null, reorderSwapTarget(draggedIndex = 1, draggedTop = 103f, draggedSize = 73, visible = spans))
+    }
+
+    @Test
+    fun `中线不在任何可见行上不挪`() {
+        assertEquals(null, reorderSwapTarget(draggedIndex = 4, draggedTop = 400f, draggedSize = 73, visible = spans))
+    }
+
+    // ── 边缘自动滚动 ────────────────────────────────────
+
+    @Test
+    fun `离边缘远时不滚`() {
+        assertEquals(0f, autoScrollSpeed(draggedTop = 200f, draggedBottom = 273f, viewportTop = 0f, viewportBottom = 600f, edgePx = 48f, maxSpeedPx = 800f), 0.001f)
+    }
+
+    @Test
+    fun `进了上边缘往上滚 越靠边越快 最多到上限`() {
+        assertEquals(-400f, autoScrollSpeed(draggedTop = 24f, draggedBottom = 97f, viewportTop = 0f, viewportBottom = 600f, edgePx = 48f, maxSpeedPx = 800f), 0.001f)
+        assertEquals(-800f, autoScrollSpeed(draggedTop = -30f, draggedBottom = 43f, viewportTop = 0f, viewportBottom = 600f, edgePx = 48f, maxSpeedPx = 800f), 0.001f)
+    }
+
+    @Test
+    fun `进了下边缘往下滚`() {
+        assertEquals(200f, autoScrollSpeed(draggedTop = 492f, draggedBottom = 564f, viewportTop = 0f, viewportBottom = 600f, edgePx = 48f, maxSpeedPx = 800f), 0.001f)
+        assertEquals(800f, autoScrollSpeed(draggedTop = 560f, draggedBottom = 633f, viewportTop = 0f, viewportBottom = 600f, edgePx = 48f, maxSpeedPx = 800f), 0.001f)
     }
 }

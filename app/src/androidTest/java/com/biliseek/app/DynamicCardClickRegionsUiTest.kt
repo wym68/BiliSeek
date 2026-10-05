@@ -12,6 +12,8 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.DynamicVideo
 import com.biliseek.core.network.LoginState
+import com.biliseek.core.network.dto.DynamicBlock
+import com.biliseek.core.network.dto.DynamicPic
 import com.biliseek.designsystem.theme.BiliSeekTheme
 import org.junit.Rule
 import org.junit.Test
@@ -167,5 +169,74 @@ class DynamicCardClickRegionsUiTest {
         compose.onNodeWithText(fullText, substring = true).assertIsDisplayed()
         compose.onNodeWithText("收起", substring = true).performClick()
         check(toggledIdStr == "d2") { "点收起应回调对应条目的 onToggleExpand" }
+    }
+
+    // ── 展开态：单击不收起、长图文按段落显示（§13.46）──────────────
+
+    private fun opusEntry(idStr: String) = DynamicEntry(
+        idStr = idStr,
+        authorName = "图文UP",
+        authorFace = "",
+        authorMid = 400L,
+        pubTs = 0L,
+        descText = "摘要",
+        rawType = "DYNAMIC_TYPE_OPUS",
+        video = null,
+        coverUrl = "",
+    )
+
+    private fun showExpanded(entry: DynamicEntry, state: DynamicExpandState, onToggle: (DynamicEntry) -> Unit) {
+        compose.setContent {
+            BiliSeekTheme {
+                DynamicScreen(
+                    state = DynamicUiState(feed = RemoteListState(items = listOf(entry))),
+                    session = loggedInSession,
+                    loginState = LoginState.Idle,
+                    onInit = {},
+                    onRefresh = {},
+                    onTypeFilterChange = {},
+                    onSelectUp = {},
+                    onLoadMore = {},
+                    onRetryInit = {},
+                    onEntryClick = {},
+                    onStartLogin = {},
+                    onCancelLogin = {},
+                    dynamicExpand = mapOf(entry.idStr to state),
+                    onToggleExpand = onToggle,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun 图文动态_展开后单击正文不收起() {
+        val entry = opusEntry("d3")
+        var toggled = false
+        showExpanded(entry, DynamicExpandState(expanded = true, entry = entry.copy(descText = "完整正文内容"))) { toggled = true }
+
+        compose.onNodeWithText("完整正文内容").performClick()
+        check(!toggled) { "单击展开后的正文不应收起，只有「收起」收起" }
+    }
+
+    @Test
+    fun 长图文_展开后按段落显示文字_点收起回调() {
+        val entry = opusEntry("d4")
+        val detail = entry.copy(
+            descText = "第一段\n第二段",
+            body = listOf(
+                DynamicBlock.Text("第一段"),
+                // 本地不存在的地址：测试不碰 B 站图床
+                DynamicBlock.Images(listOf(DynamicPic("file:///nonexistent/a.jpg", 1200, 800))),
+                DynamicBlock.Text("第二段"),
+            ),
+        )
+        var toggledIdStr: String? = null
+        showExpanded(entry, DynamicExpandState(expanded = true, entry = detail)) { toggledIdStr = it.idStr }
+
+        compose.onNodeWithText("第一段").assertIsDisplayed()
+        compose.onNodeWithText("第二段").assertIsDisplayed()
+        compose.onNodeWithText("摘要").assertDoesNotExist()
+        compose.onNodeWithText("收起").performClick()
+        check(toggledIdStr == "d4") { "点收起应回调对应条目的 onToggleExpand" }
     }
 }

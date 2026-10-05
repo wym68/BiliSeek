@@ -51,6 +51,16 @@ object SummaryLibraryPolicy {
     private const val DONE = "DONE"
     private const val FAILED = "FAILED"
 
+    /** 一条视频（的这一 P）的总结在列表里的键。 */
+    fun key(group: SummaryGroup): String = "${group.bvid}_${group.cid}"
+
+    /** 右滑删除后、撤销期内不显示的条目拿掉，总占用跟着减（[SummaryLibrary.requestDelete]）。 */
+    fun withoutHidden(state: SummaryLibraryState, hidden: Set<String>): SummaryLibraryState {
+        if (hidden.isEmpty()) return state
+        val groups = state.groups.filterNot { key(it) in hidden }
+        return SummaryLibraryState(groups, groups.sumOf { it.sizeBytes })
+    }
+
     /** 同一 (bvid, cid) 的各版本合成一条；标题、封面等取最新的一个版本；按最近更新排序。 */
     fun group(rows: List<SummaryRowInfo>): List<SummaryGroup> =
         rows.groupBy { it.bvid to it.cid }.map { (_, versions) ->

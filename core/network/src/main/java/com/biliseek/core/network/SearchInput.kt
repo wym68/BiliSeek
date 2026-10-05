@@ -13,33 +13,52 @@ sealed interface SearchIntent {
 
     /** b23.tv 短链，需展开后再解析 */
     data class ShortLink(val url: String) : SearchIntent
+
+    /**
+     * B 站活动页（`blackboard/era`）：列出页面里的视频。
+     * 网址已规整成不带分享参数的 `https://www.bilibili.com/blackboard/era/<id>.html`。
+     */
+    data class EraPage(val url: String) : SearchIntent
 }
 
 private val BVID = Regex("BV[0-9A-Za-z]{10}")
-private val AVID = Regex("(?:^|/|av)(\\d{1,12})(?:$|/|\\?)", RegexOption.IGNORE_CASE)
+
+/** 整段输入就是 av 号：`av170001`（不分大小写）。纯数字、别的写法都不算。 */
+private val AV_ONLY = Regex("^av(\\d{1,12})$", RegexOption.IGNORE_CASE)
+
+/** 视频页网址里的 av 号：`…/video/av170001`，后面可以跟 `/`、`?`、`.html`。 */
+private val AV_IN_URL = Regex("/video/av(\\d{1,12})(?![0-9A-Za-z])", RegexOption.IGNORE_CASE)
+
 private val B23 = Regex("https?://b23\\.tv/[0-9A-Za-z]+")
+
+/** B 站活动页：`bilibili.com/blackboard/era/<id>.html`。分享参数（`?…`）不要，规整成 https 的 www 站。 */
+private val ERA_PAGE = Regex(
+    "https?://(?:www\\.|m\\.)?bilibili\\.com/blackboard/era/([0-9A-Za-z_-]+)\\.html",
+    RegexOption.IGNORE_CASE,
+)
 
 /**
  * 解析搜索框输入。
  *
- * 「搜索即入口」意味着用户会往里粘链接。支持 BV / AV / b23.tv 短链直达，
- * 否则退回关键词搜索。
+ * 「搜索即入口」意味着用户会往里粘链接。支持 BV / AV / b23.tv 短链 / 活动页网址直达，
+ * 否则退回关键词搜索。优先级：b23 短链 → 活动页 → BV 号 → av 号 → 关键词。
+ * 活动页放在 BV 号前面：活动页网址的参数里可能带 BV 号字样，仍应按活动页处理。
  */
 fun parseSearchInput(raw: String): SearchIntent {
     val input = raw.trim()
     if (input.isEmpty()) return SearchIntent.Keyword("")
 
     B23.find(input)?.let { return SearchIntent.ShortLink(it.value) }
+    ERA_PAGE.find(input)?.let {
+        return SearchIntent.EraPage("https://www.bilibili.com/blackboard/era/${it.groupValues[1]}.html")
+    }
     BVID.find(input)?.let { return SearchIntent.Video(it.value) }
 
-    // av 号：形如 av123456 或含 /av123456/ 的链接
-    if (input.contains("av", ignoreCase = true) || input.all { it.isDigit() }) {
-        AVID.find(input)?.let { match ->
-            match.groupValues[1].toLongOrNull()?.takeIf { it > 0 }?.let {
-                return SearchIntent.VideoAid(it)
-            }
-        }
-    }
+    // av 号：只认整段输入就是 av170001，或视频页网址里的 /video/av170001。
+    // 纯数字、链接里别的 /数字/ 都不算——搜「2024」不该去播 av2024，UP 的 …/12345/favlist 也不是 av12345。
+    (AV_ONLY.find(input) ?: AV_IN_URL.find(input))
+        ?.groupValues?.get(1)?.toLongOrNull()?.takeIf { it > 0 }
+        ?.let { return SearchIntent.VideoAid(it) }
 
     return SearchIntent.Keyword(input)
 }

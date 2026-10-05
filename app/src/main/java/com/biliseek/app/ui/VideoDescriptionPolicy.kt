@@ -41,9 +41,6 @@ sealed interface DescLinkTarget {
  */
 object VideoDescriptionPolicy {
 
-    /** 收起时显示的行数。 */
-    const val COLLAPSED_LINES = 4
-
     private val URL_PREFIXES = listOf("https://", "http://")
     private val BILI_VIDEO_URL =
         Regex("^https?://(?:www\\.|m\\.)?bilibili\\.com/video/(BV[0-9A-Za-z]{10}|av\\d{1,12})(?:[/?#].*)?$", RegexOption.IGNORE_CASE)

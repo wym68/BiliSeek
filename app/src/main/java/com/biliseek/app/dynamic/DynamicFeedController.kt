@@ -16,8 +16,12 @@ import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.dto.FollowingUp
 import com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -113,12 +117,15 @@ class DynamicFeedController(
     /**
      * 按 UP 筛选：null = 回关注流，非 null = 只看该 UP。切换同样重置游标。
      *
-     * 再点已选中的 UP = 取消筛选（与 B 站 App 行为一致）。
+     * 再点已选中的 UP = 取消筛选（与 B 站 App 行为一致）。选中 / 取消都发一条提示（[filterNotice]）。
      */
     fun selectDynamicUp(up: FollowingUp?) {
         val cur = _dynamic.value
-        val targetMid = if (up != null && cur.selectedUpMid == up.mid) null else up?.mid
-        if (cur.selectedUpMid == targetMid) return
+        val change = resolveUpFilterChange(cur.selectedUpMid, up) ?: return
+        val targetMid = when (change) {
+            is UpFilterChange.Select -> change.up.mid
+            UpFilterChange.Clear -> null
+        }
         _dynamic.value = cur.copy(
             selectedUpMid = targetMid,
             feed = RemoteListState.empty(),
@@ -126,8 +133,19 @@ class DynamicFeedController(
         )
         loadDynamicPage(offset = "")
         // 筛选本身就是一次「访问」：计入最常访问（取消筛选不计）。
-        if (up != null && targetMid != null) recordUpVisit(up.mid)
+        if (targetMid != null) recordUpVisit(targetMid)
+        _filterNotice.tryEmit(upFilterNotice(change))
     }
+
+    /**
+     * 按 UP 筛选后的提示文字（选中 / 取消各一条，筛选没变化不发）。
+     * 不走全局消息管道：那条逐条排队，连点头像时提示会滞后；这里缓冲 1、满了丢最旧的，宿主只显示最新一条。
+     */
+    private val _filterNotice = MutableSharedFlow<String>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val filterNotice: SharedFlow<String> = _filterNotice.asSharedFlow()
 
     /** 强制刷新关注列表（无视缓存），关注/取关成功后调用。 */
     fun refreshUpChips() = scope.launch {

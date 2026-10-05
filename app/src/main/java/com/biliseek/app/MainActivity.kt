@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,10 +31,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.ui.AppShell
+import com.biliseek.app.ui.ChartScreen
 import com.biliseek.app.ui.DayHistoryScreen
 import com.biliseek.app.ui.Destination
 import com.biliseek.app.ui.DownloadDialog
@@ -55,7 +60,9 @@ import com.biliseek.app.ui.AddToListPickerDialog
 import com.biliseek.app.ui.PlayerExpansion
 import com.biliseek.app.ui.SettingsScreen
 import com.biliseek.app.ui.UpSpaceScreen
+import com.biliseek.app.ui.VideoMenuActions
 import com.biliseek.app.ui.WatchLaterScreen
+import com.biliseek.app.ui.playModeLabel
 import com.biliseek.core.network.sharedTextFrom
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.SearchUser
@@ -64,6 +71,41 @@ import com.biliseek.designsystem.theme.BiliSeekTheme
 
 /** 队列「撤销」提示的停留时长（docs/10）。 */
 private const val QUEUE_UNDO_SNACKBAR_MS = 4_000L
+
+/**
+ * 弹一条带「撤销」的提示，返回用户有没有点「撤销」。
+ *
+ * 队列变动、远程列表移除、本地列表移除共用主界面的提示位：先收起别的提示，免得新提示排队、把撤销时间耗掉。
+ * 停留 [timeoutMs] 后自动消失——不用 SnackbarDuration.Short：带按钮时它会被无障碍设置拉长；
+ * 用 Indefinite + 超时取消，取消时提示随之消失。
+ */
+private suspend fun androidx.compose.material3.SnackbarHostState.showUndo(message: String, timeoutMs: Long): Boolean {
+    currentSnackbarData?.dismiss()
+    val result = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+        showSnackbar(
+            message = message,
+            actionLabel = "撤销",
+            duration = androidx.compose.material3.SnackbarDuration.Indefinite,
+        )
+    }
+    return result == androidx.compose.material3.SnackbarResult.ActionPerformed
+}
+
+/**
+ * 弹一条普通提示（App 内、不带按钮），停留 [TOAST_MS]（同系统 Toast 的短提示）。
+ *
+ * 新的普通提示替换正在显示的普通提示（连点只留最新一条）；带「撤销」的提示正在显示时先等它结束，
+ * 免得把撤销的机会顶掉（如删除后正好有下载完成）。反过来，带「撤销」的提示会顶掉普通提示（见 [showUndo]）。
+ */
+private suspend fun androidx.compose.material3.SnackbarHostState.showToast(message: String) {
+    currentSnackbarData?.takeIf { it.visuals.actionLabel == null }?.dismiss()
+    androidx.compose.runtime.snapshotFlow { currentSnackbarData }.first { it == null }
+    kotlinx.coroutines.withTimeoutOrNull(TOAST_MS) {
+        showSnackbar(message = message, duration = androidx.compose.material3.SnackbarDuration.Indefinite)
+    }
+}
+
+private const val TOAST_MS = 2_000L
 
 class MainActivity : ComponentActivity() {
 
@@ -108,6 +150,15 @@ class MainActivity : ComponentActivity() {
     /** 等权限就绪后入队的下载（仅 API 26–28 + 公共媒体库路径）。 */
     private var pendingStorageDownload: List<com.biliseek.app.download.DownloadRequest>? = null
 
+    /**
+     * 「先取消上一条再弹」的系统 Toast 的上一条：未登录点头像、动态页按 UP 筛选的提示共用。
+     * 留着引用，弹新的之前先取消上一个，连点时不会排队弹多次。
+     */
+    private var replacingToast: android.widget.Toast? = null
+
+    /** Activity 自己发的普通提示（筛选、播放模式、请先登录、登录面板），和 `viewModel.transientMessage` 合成一条管道。 */
+    private val appMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -116,11 +167,31 @@ class MainActivity : ComponentActivity() {
         handleSummaryIntent(intent)
 
         setContent {
-            BiliSeekTheme {
+            // 深色模式：设置里可选跟随系统 / 浅色 / 深色（见 ThemePolicy）；状态栏、导航条图标颜色跟着变
+            val themeMode by remember { viewModel.settings.map { it.themeMode }.distinctUntilChanged() }
+                .collectAsState(initial = viewModel.settings.value.themeMode)
+            val darkTheme = com.biliseek.app.ui.resolveDarkTheme(themeMode, isSystemInDarkTheme())
+            androidx.compose.runtime.DisposableEffect(darkTheme) {
+                enableEdgeToEdge(
+                    statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                    ) { darkTheme },
+                    // 遮罩色同 enableEdgeToEdge 的默认值（三键导航时才看得到），只是深浅改按设置判断
+                    navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                        android.graphics.Color.argb(0xE6, 0xFF, 0xFF, 0xFF),
+                        android.graphics.Color.argb(0x80, 0x1B, 0x1B, 0x1B),
+                    ) { darkTheme },
+                )
+                onDispose {}
+            }
+            BiliSeekTheme(darkTheme = darkTheme) {
                 // 表情：进程级字典（富文本兜底）+ 表情面板宿主（评论输入栏用）
                 val emoteDictionary by viewModel.emotes.dictionary.collectAsState()
                 val emotePanel by viewModel.emotes.panel.collectAsState()
+                val showMessage = remember { { msg: String -> showReplacingToast(msg) } }
                 androidx.compose.runtime.CompositionLocalProvider(
+                    com.biliseek.app.ui.components.LocalShowMessage provides showMessage,
                     com.biliseek.app.ui.richtext.LocalEmoteDictionary provides emoteDictionary,
                     com.biliseek.app.ui.richtext.LocalEmotePanelHost provides com.biliseek.app.ui.richtext.EmotePanelHost(
                         state = emotePanel,
@@ -134,7 +205,6 @@ class MainActivity : ComponentActivity() {
                 val loginState by viewModel.loginState.collectAsState()
                 val session by viewModel.session.collectAsState()
                 val playlists by viewModel.playlists.collectAsState()
-                val playlistTrackCounts by viewModel.playlistTrackCounts.collectAsState()
                 val openedPlaylist by viewModel.openedPlaylist.collectAsState()
                 val openedTracks by viewModel.openedTracks.collectAsState()
                 val searchHistory by viewModel.search.history.collectAsState()
@@ -146,7 +216,9 @@ class MainActivity : ComponentActivity() {
                 val upSpace by viewModel.upSpace.state.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayHistory by viewModel.dayHistory.collectAsState()
+                val dayListenedMs by viewModel.dayListenedMs.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
+                val chart by viewModel.charts.opened.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
                 val deletingFavoriteMediaId by viewModel.deletingFavoriteMediaId.collectAsState()
                 val selectionMode by viewModel.selectionMode.collectAsState()
@@ -190,7 +262,7 @@ class MainActivity : ComponentActivity() {
                     download = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.Download) },
                     summarize = { viewModel.startDynamicSingleAction(it, com.biliseek.app.PendingAction.Summarize) },
                 )
-                // 程序化 tab 切换（首页快捷入口「近期歌单」→ 列表 tab）。
+                // 程序化 tab 切换（如「去设置」→ 设置 tab）。
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // UP 空间页导航信号：AppShell 收到后 push UP_SPACE destination。
                 val openUpSpaceRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
@@ -205,6 +277,19 @@ class MainActivity : ComponentActivity() {
                     )
                     openUpSpaceRequests.tryEmit(Unit)
                 }
+                // 视频条目三点菜单（榜单 / 收藏夹 / 稍后再看 / 合集）：七项全部复用搜索结果那套动作
+                val videoMenuActions = VideoMenuActions(
+                    addToPlaylist = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                    appendToQueue = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                    playNext = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                    viewUp = { video ->
+                        viewModel.openUpSpace(SearchUser(mid = video.mid, uname = video.author))
+                        openUpSpaceRequests.tryEmit(Unit)
+                    },
+                    copyLink = { video -> copyToClipboard(viewModel.videoUrl(video)) },
+                    download = { viewModel.startSingleAction(it, com.biliseek.app.PendingAction.Download) },
+                    summarize = viewModel::summarizeVideo,
+                )
                 // 关注列表页导航信号：AppShell 收到后 push FOLLOWING_LIST destination。
                 val openFollowingListRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
                 // 启动 / 从后台返回时刷新未读小红点。
@@ -279,16 +364,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 起播即展开播放器，让用户看到当前在放什么。
-                // 跳转本身由 AppShell 负责（player 是 nav destination），
-                // 这里只做看模式的「记住上次」默认开启。
-                LaunchedEffect(Unit) {
-                    viewModel.playbackStarted.collect {
-                        if (viewModel.shouldAutoEnterVideo()) {
-                            viewModel.requestPresentation(PresentationMode.INLINE, surfaceView, automatic = true)
-                        }
-                    }
-                }
+                // 「起播模式：记住上次」不在起播时进看（那时多半不在播放页，画面没有地方显示），
+                // 改在打开播放页时生效：AppShell 进入播放页时调 onPlayerPageShown（见 PlayerPagePolicy）。
 
                 // 可撤销的队列变动（docs/10）：清空、右滑删除、点击替换掉整张列表。
                 // 队列面板开着时显示在面板里（面板是独立窗口，会挡住主界面的 Snackbar）。
@@ -300,25 +377,66 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) {
                     viewModel.queueUndo.collectLatest { msg ->
                         val host = if (viewModel.queueSheetOpen.value) queueSheetSnackbar else queueSnackbar
-                        val result = kotlinx.coroutines.withTimeoutOrNull(QUEUE_UNDO_SNACKBAR_MS) {
-                            host.showSnackbar(
-                                message = msg,
-                                actionLabel = "撤销",
-                                duration = androidx.compose.material3.SnackbarDuration.Indefinite,
-                            )
+                        if (host.showUndo(msg, QUEUE_UNDO_SNACKBAR_MS)) viewModel.undoQueueChange()
+                    }
+                }
+                // 稍后再看 / 收藏夹里移除条目（右滑、三点菜单「删除」）：与队列撤销同一个提示位。
+                // 提示消失后控制器才真正提交，所以点「撤销」不用再发请求；只有最近一次能撤销
+                LaunchedEffect(Unit) {
+                    viewModel.remoteLibrary.removalNotice.collectLatest { msg ->
+                        if (queueSnackbar.showUndo(msg, com.biliseek.app.remote.RemoteLibraryController.REMOVAL_UNDO_MS)) {
+                            viewModel.remoteLibrary.undoRemoval()
                         }
-                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
-                            viewModel.undoQueueChange()
+                    }
+                }
+                // 本地列表里移除条目：本地数据已经移除，点「撤销」按原位置放回
+                LaunchedEffect(Unit) {
+                    viewModel.playlistRemovalNotice.collectLatest { msg ->
+                        if (queueSnackbar.showUndo(msg, QUEUE_UNDO_SNACKBAR_MS)) viewModel.undoPlaylistRemoval()
+                    }
+                }
+                // 「已下载」页删除：先藏起来，点「撤销」放回；过几秒才真删文件
+                LaunchedEffect(Unit) {
+                    viewModel.downloadRemovalNotice.collectLatest { msg ->
+                        if (queueSnackbar.showUndo(msg, com.biliseek.app.remote.RemoteLibraryController.REMOVAL_UNDO_MS)) {
+                            viewModel.undoDownloadRemoval()
+                        }
+                    }
+                }
+                // 「AI 总结」页右滑删除：同上，过几秒才真删总结文件
+                LaunchedEffect(Unit) {
+                    viewModel.summaryLibrary.removalNotice.collectLatest { msg ->
+                        if (queueSnackbar.showUndo(msg, com.biliseek.app.remote.RemoteLibraryController.REMOVAL_UNDO_MS)) {
+                            viewModel.summaryLibrary.undoDelete()
                         }
                     }
                 }
                 val queueSwipeHintShown by viewModel.queueSwipeHintShown.collectAsState()
 
-                // Ch3：批量操作成功的瞬时提示。Android Toast——简单可靠、与现有 UI 解耦。
+                // 普通提示（不带按钮：批量操作结果、链接已复制、下载完成、筛选、播放模式……）：
+                // 前台一律用 App 内的提示，放在迷你条上方——系统 Toast 的位置挪不动、会压在迷你条上（用户 2026-10-04 要求）。
+                // 队列面板开着时显示在面板里；App 在后台 / 小窗里，或别的弹层 / 弹窗盖着主界面时，
+                // App 内的提示看不到，照旧系统 Toast。
+                // collectLatest：新的替换旧的（设计稿 docs/superpowers/specs/2026-10-04-toast-above-minibar-design.md）
                 LaunchedEffect(Unit) {
-                    viewModel.transientMessage.collect { msg ->
-                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    kotlinx.coroutines.flow.merge(viewModel.transientMessage, appMessages).collectLatest { msg ->
+                        val target = com.biliseek.app.ui.components.resolveToastTarget(
+                            foreground = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED),
+                            inPip = inPipState.value,
+                            queueSheetOpen = viewModel.queueSheetOpen.value,
+                            mainWindowFocused = hasWindowFocus(),
+                        )
+                        when (target) {
+                            com.biliseek.app.ui.components.ToastTarget.MAIN -> queueSnackbar.showToast(msg)
+                            com.biliseek.app.ui.components.ToastTarget.QUEUE_SHEET -> queueSheetSnackbar.showToast(msg)
+                            com.biliseek.app.ui.components.ToastTarget.SYSTEM -> showSystemToast(msg)
+                        }
                     }
+                }
+
+                // 动态页按 UP 筛选的提示：选中 / 取消各一条，连点时新的替换上一条（不排队）
+                LaunchedEffect(Unit) {
+                    viewModel.dynamics.filterNotice.collect { showReplacingToast(it) }
                 }
 
                 // 已登录且目录从未同步过 → 自动拉一次收藏夹目录（音乐库分区秒开）
@@ -349,7 +467,6 @@ class MainActivity : ComponentActivity() {
                     onEnterPip = { enterPip() },
                     playback = playback,
                     expansion = expansion,
-                    playbackStarted = viewModel.playbackStarted,
                     tabSwitchRequests = tabSwitchRequests,
                     openUpSpaceRequests = openUpSpaceRequests,
                     openFollowingListRequests = openFollowingListRequests,
@@ -383,14 +500,17 @@ class MainActivity : ComponentActivity() {
                     },
                     onTogglePlayPause = viewModel.connection::togglePlayPause,
                     onPresentationChange = viewModel::requestPresentation,
+                    onLeaveToListen = viewModel::leaveToListen,
+                    onPlayerPageShown = { viewModel.onPlayerPageShown(surfaceView) },
                     onSkipNext = viewModel::skipNext,
                     onSkipPrevious = viewModel::skipPrevious,
-                    onCyclePlayMode = viewModel::cyclePlayMode,
+                    onCyclePlayMode = { showReplacingToast(playModeLabel(viewModel.cyclePlayMode())) },
                     onSeek = viewModel::seekTo,
                     onSetSpeed = viewModel::setSpeed,
                     onSetSleepTimer = viewModel::setSleepTimer,
                     onRetryPlayback = viewModel::retryPlayback,
                     onOpenQueue = viewModel::openQueueSheet,
+                    onQueueSkipTo = viewModel::queueSkipTo,
                     onOpenComments = viewModel::openPlayerComment,
                     videoInteraction = videoInteraction,
                     videoActionHandlers = remember {
@@ -483,15 +603,32 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     searchContent = {
+                        // 外部分享链接会触发搜索：榜单页不能盖住结果页
+                        LaunchedEffect(search.keyword) {
+                            if (search.keyword.isNotBlank()) viewModel.charts.close()
+                        }
                         val dayDate = dayHistoryDate
+                        val openedChart = chart
                         if (dayDate != null) {
                             // 日历史页（M12）：从首页热力图点入，返回手势收起到首页
                             BackHandler(onBack = viewModel::closeDayHistory)
                             DayHistoryScreen(
                                 date = dayDate,
                                 entries = dayHistory,
+                                listenedMs = dayListenedMs,
                                 onClose = viewModel::closeDayHistory,
                                 onEntryClick = viewModel::playDayHistoryEntry,
+                            )
+                        } else if (openedChart != null) {
+                            // 榜单页：从首页快捷入口点入，返回手势收起到首页
+                            BackHandler(onBack = viewModel.charts::close)
+                            ChartScreen(
+                                state = openedChart,
+                                onClose = viewModel.charts::close,
+                                onRetry = viewModel.charts::retry,
+                                onItemClick = viewModel.charts::play,
+                                onIssueSelect = viewModel.charts::selectIssue,
+                                videoActions = videoMenuActions,
                             )
                         } else {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
@@ -567,7 +704,7 @@ class MainActivity : ComponentActivity() {
                             onHistoryClick = viewModel.search::searchKeyword,
                             onDeleteHistory = viewModel.search::deleteSearchKeyword,
                             onClearHistory = viewModel.search::clearSearchHistory,
-                            onAvatarClick = openOwnSpace,
+                            onAvatarClick = { if (session.isLoggedIn) openOwnSpace() else showLoginHint() },
                             session = session,
                             emptyContent = {
                                 if (showEmptyState) {
@@ -578,12 +715,7 @@ class MainActivity : ComponentActivity() {
                                         onDeleteKeyword = viewModel.search::deleteSearchKeyword,
                                         onClearHistory = viewModel.search::clearSearchHistory,
                                         onDayClick = { date -> viewModel.openDayHistory(date) },
-                                        onOpenWatchLater = {
-                                            tabSwitchRequests.tryEmit(Destination.LIBRARY)
-                                            viewModel.remoteLibrary.openWatchLater()
-                                        },
-                                        onOpenRecentPlaylists = { tabSwitchRequests.tryEmit(Destination.LIBRARY) },
-                                        isLoggedIn = session.isLoggedIn,
+                                        onOpenChart = viewModel.charts::open,
                                         // 搜索历史改为聚焦时才弹出，未聚焦首页不直接显示
                                         showSearchHistory = false,
                                     )
@@ -599,7 +731,8 @@ class MainActivity : ComponentActivity() {
                                 state = summaryLibraryState,
                                 onClose = { summariesOpen = false },
                                 onOpen = { viewModel.summary.openReader(it.bvid, it.cid) },
-                                onDelete = { viewModel.summaryLibrary.delete(it.bvid, it.cid) },
+                                onPlay = viewModel::playSummaryVideo,
+                                onDelete = viewModel.summaryLibrary::requestDelete,
                                 onClearAll = viewModel.summaryLibrary::clearAll,
                             )
                         } else if (downloadsOpen) {
@@ -613,6 +746,14 @@ class MainActivity : ComponentActivity() {
                                 onDelete = viewModel::deleteDownload,
                                 onRetryAllFailed = viewModel::retryAllFailedDownloads,
                                 onClearFailed = viewModel::clearFailedDownloads,
+                                onPause = viewModel::pauseDownload,
+                                onResume = viewModel::resumeDownload,
+                                onPauseAll = viewModel::pauseAllDownloads,
+                                onResumeAll = viewModel::resumeAllDownloads,
+                                onCancelAll = viewModel::cancelAllDownloads,
+                                onRemoveDone = viewModel::removeDownloads,
+                                onPlayGroup = viewModel::playDownloadGroup,
+                                videoActions = videoMenuActions,
                             )
                         } else {
                             LibraryScreen(
@@ -623,14 +764,13 @@ class MainActivity : ComponentActivity() {
                                 onOpen = viewModel::openPlaylist,
                                 onClose = viewModel::closePlaylist,
                                 onDelete = viewModel::deletePlaylist,
-                                onRename = viewModel::renamePlaylist,
+                                onEdit = viewModel::editPlaylist,
                                 onTrackClick = viewModel::playTrack,
                                 onTrackRemove = viewModel::removeFromPlaylist,
                                 onTrackReorder = viewModel::reorderTrack,
                                 downloads = downloadTasks,
                                 onOpenDownloads = { downloadsOpen = true },
                                 summaryCount = summaryLibraryState.groups.size,
-                                summaryBytes = summaryLibraryState.totalBytes,
                                 onOpenSummaries = { summariesOpen = true },
                                 favoriteFolders = favoriteFolders,
                                 favoriteSync = favoriteSync,
@@ -645,6 +785,7 @@ class MainActivity : ComponentActivity() {
                                 onDeleteFavoriteFolder = viewModel::deleteFavoriteFolder,
                                 onFavoriteTrackClick = viewModel.remoteLibrary::playFavoriteTrack,
                                 onFavoriteLoadMore = viewModel.remoteLibrary::loadFavoritePage,
+                                onRemoveFavoriteTrack = viewModel.remoteLibrary::removeFavoriteTrack,
                                 onStartLogin = viewModel::startLogin,
                                 onCancelLogin = viewModel::cancelLogin,
                                 watchLaterContent = watchLater,
@@ -652,6 +793,7 @@ class MainActivity : ComponentActivity() {
                                 onCloseWatchLater = viewModel.remoteLibrary::closeWatchLater,
                                 onWatchLaterRetry = viewModel.remoteLibrary::retryWatchLater,
                                 onWatchLaterItemClick = viewModel.remoteLibrary::playWatchLaterItem,
+                                onRemoveWatchLaterItem = viewModel.remoteLibrary::removeWatchLaterItem,
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = openedSeries,
@@ -662,6 +804,8 @@ class MainActivity : ComponentActivity() {
                                 onCollectedLoadMore = viewModel.remoteLibrary::loadCollectedList,
                                 onSeriesLoadMore = viewModel.remoteLibrary::loadSeriesPage,
                                 onPlaySeriesArchive = viewModel.remoteLibrary::playSeriesArchive,
+                                onUnsubscribeSeries = viewModel.remoteLibrary::unsubscribeOpenedSeries,
+                                videoActions = videoMenuActions,
                             )
                         }
                     },
@@ -695,6 +839,7 @@ class MainActivity : ComponentActivity() {
                             settings = settings,
                             onDefaultPresentationChange = viewModel::setDefaultPresentation,
                             onMiniBarStyleChange = viewModel::setMiniBarStyle,
+                            onThemeModeChange = viewModel::setThemeMode,
                             onAllowVideoOnMeteredChange = viewModel::setAllowVideoOnMetered,
                             onAudioQualityChange = viewModel::setAudioQuality,
                             onVideoQualityWifiChange = viewModel::setVideoQualityWifi,
@@ -873,12 +1018,12 @@ class MainActivity : ComponentActivity() {
                 pendingBatchAdd?.let {
                     AddToListPickerDialog(
                         playlists = playlists,
-                        playlistTrackCounts = playlistTrackCounts,
                         favoriteFolders = favoriteFolders,
                         isLoggedIn = session.isLoggedIn,
+                        onPickWatchLater = viewModel::confirmAddToWatchLater,
                         onPickPlaylist = viewModel::confirmAddToPlaylist,
                         onCreatePlaylist = viewModel::createPlaylistAndAdd,
-                        onRenamePlaylist = viewModel::renamePlaylist,
+                        onRenamePlaylist = viewModel::editPlaylist,
                         onDeletePlaylist = viewModel::deletePlaylist,
                         onPickFavorite = viewModel::confirmAddToFavoriteFolder,
                         onCreateFavorite = viewModel::createFavoriteFolderAndAdd,
@@ -1078,6 +1223,21 @@ class MainActivity : ComponentActivity() {
     private fun copyToClipboard(text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("BiliSeek", text))
+    }
+
+    private fun showLoginHint() = showReplacingToast("请在设置中登录")
+
+    /** 弹一条普通提示：走和 `transientMessage` 同一条管道（前台是 App 内提示、在迷你条上方），新的替换旧的。 */
+    private fun showReplacingToast(text: String) {
+        appMessages.tryEmit(text)
+    }
+
+    /** 弹一条系统 Toast（App 在后台 / 小窗里时用）；先取消上一条，所以连点只显示最新的。 */
+    private fun showSystemToast(text: String) {
+        replacingToast?.cancel()
+        replacingToast = android.widget.Toast
+            .makeText(this, text, android.widget.Toast.LENGTH_SHORT)
+            .also { it.show() }
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.biliseek.app.ui.components
 
+import com.biliseek.app.ui.shouldAutoLoadMore
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,7 +82,7 @@ fun DynamicCommentDialog(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val actions = RichTextActions(onMention = onOpenUser)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, dragHandle = { CompactDragHandle() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
             Row(
                 Modifier.fillMaxWidth().padding(start = BsSpacing.lg, end = BsSpacing.xs),
@@ -127,12 +128,14 @@ fun DynamicCommentDialog(
                     }
                     if (comments.hasMore || comments.isLoadingMore) {
                         item(key = "comment_footer") {
-                            if (comments.hasMore && !comments.isLoadingMore) {
+                            // 失败后不自动再来（否则会一直重打 B 站），等用户点「重试」
+                            if (shouldAutoLoadMore(comments.hasMore, comments.isLoadingMore, comments.errorMessage)) {
                                 LaunchedEffect(comments.items.size) { onLoadMore() }
                             }
+                            // 没失败就一直转圈（自动加载紧接着就会开始）；失败了显示原因和「重试」
                             BsLoadMoreFooter(
-                                isLoadingMore = true,
-                                errorMessage = null,
+                                isLoadingMore = comments.errorMessage == null,
+                                errorMessage = comments.errorMessage,
                                 onRetry = onLoadMore,
                             )
                         }

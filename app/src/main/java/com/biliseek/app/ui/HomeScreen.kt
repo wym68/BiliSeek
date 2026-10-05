@@ -2,8 +2,10 @@ package com.biliseek.app.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Leaderboard
+import androidx.compose.material.icons.outlined.Podcasts
+import androidx.compose.material.icons.outlined.Whatshot
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,8 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.chart.ChartKind
 import com.biliseek.app.data.SearchHistoryEntity
-import java.time.DayOfWeek
+import com.biliseek.app.ui.components.HomeSlogan
+import com.biliseek.app.ui.components.LocalMiniBarInset
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -47,13 +51,14 @@ import java.util.Locale
 /**
  * 首页空状态。
  *
- * 「没有推荐」不等于「空屏」——展示的全是**用户自己的行为数据**：
- * 搜索历史、播放热力图、快捷入口。无算法、无个性化推荐，不破坏产品身份。
+ * 「没有推荐」不等于「空屏」——展示的以**用户自己的行为数据**为主：搜索历史、播放热力图；
+ * 快捷入口是官方榜单（每周必看 / 入站必刷 / 热歌榜 / 热门播客），全站同一份，不需要登录。
+ * 无算法、无个性化推荐，不破坏产品身份。
  *
  * [showSearchHistory]：搜索历史改为「聚焦搜索框时才弹出」（M11 真机反馈），
  * 未聚焦时首页不直接显示历史，避免占版面。
  *
- * M12：不再展示「最近播放」竖排列表——快捷入口的「近期歌单」承担了进列表页的职责。
+ * M12：不再展示「最近播放」竖排列表。
  */
 @Composable
 fun HomeEmptyState(
@@ -65,12 +70,8 @@ fun HomeEmptyState(
     onClearHistory: () -> Unit,
     /** 点热力图某天 → 打开该日的播放记录页。 */
     onDayClick: (LocalDate) -> Unit = {},
-    /** 快捷入口「稍后再看」。登录后才显示。 */
-    onOpenWatchLater: () -> Unit = {},
-    /** 快捷入口「近期歌单」→ 跳底部列表 tab。 */
-    onOpenRecentPlaylists: () -> Unit = {},
-    /** 是否已登录（决定「稍后再看」入口是否显示）。 */
-    isLoggedIn: Boolean = false,
+    /** 点快捷入口里的榜单卡片 → 打开对应的榜单页。 */
+    onOpenChart: (ChartKind) -> Unit = {},
     modifier: Modifier = Modifier,
     showSearchHistory: Boolean = true,
 ) {
@@ -78,19 +79,14 @@ fun HomeEmptyState(
         modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 8.dp),
+            // 底部再让出迷你条（它盖在页面最下面）
+            .padding(top = 8.dp, bottom = 8.dp + LocalMiniBarInset.current),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // 全新用户引导：无搜索历史且无播放数据时顶部显示 slogan。
         // 不再 return 跳过后续内容——快捷入口始终可用（M12）。
         if (searchHistory.isEmpty() && heatmap.isEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(32.dp)) {
-                Text("Seek and you shall find.", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "搜索全 B 站，默认只听。想看画面时一键切换。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            HomeSlogan()
         }
 
         if (showSearchHistory && searchHistory.isNotEmpty()) {
@@ -106,24 +102,34 @@ fun HomeEmptyState(
             Section(title = "播放热力") { WeeklyHeatGrid(heatmap, onDayClick) }
         }
 
-        // 快捷入口：稍后再看（需登录）+ 近期歌单（跳列表 tab）
+        // 快捷入口：官方榜单（每周必看 / 入站必刷 / 热歌榜 / 热门播客），不需要登录
         Section(title = "快捷入口") {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 QuickEntryCard(
-                    icon = Icons.Outlined.Schedule,
-                    label = "稍后再看",
-                    onClick = onOpenWatchLater,
-                    visible = isLoggedIn,
+                    icon = Icons.Outlined.CalendarMonth,
+                    label = ChartKind.WEEKLY.title,
+                    onClick = { onOpenChart(ChartKind.WEEKLY) },
                     modifier = Modifier.weight(1f),
                 )
                 QuickEntryCard(
-                    icon = Icons.Outlined.LibraryMusic,
-                    label = "近期歌单",
-                    onClick = onOpenRecentPlaylists,
-                    visible = true,
+                    icon = Icons.Outlined.Whatshot,
+                    label = ChartKind.PRECIOUS.title,
+                    onClick = { onOpenChart(ChartKind.PRECIOUS) },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntryCard(
+                    icon = Icons.Outlined.Leaderboard,
+                    label = ChartKind.HOT_SONGS.title,
+                    onClick = { onOpenChart(ChartKind.HOT_SONGS) },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickEntryCard(
+                    icon = Icons.Outlined.Podcasts,
+                    label = ChartKind.PODCAST.title,
+                    onClick = { onOpenChart(ChartKind.PODCAST) },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -137,10 +143,8 @@ private fun QuickEntryCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
-    visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (!visible) return
     Column(
         modifier
             .clip(RoundedCornerShape(12.dp))
@@ -232,7 +236,7 @@ private fun Section(
  * - **星期侧边栏**：左侧固定「Sun/Mon/.../Sat」英文 ddd 简写，不随列滚动
  * - **周日开头**（BBPlayer `weekStartsOn=0`）：列内 7 行从周日排到周六
  * - **格子 18dp / 间距 4dp / 圆角 4dp**（BBPlayer 主页参数 `cellSize=18, cellGap=4, cellRadius=4`）
- * - 未来格子渲染为底色（列高对齐，BBPlayer 同款），仍可点（打开空日页）
+ * - 只显示到今天：今天之后的格子不画（留同样大小的空位，列高不变）；日期排法见 HeatmapPolicy
  * - 今天：主色描边；有记录：4 级色阶透明度
  *
  * 横向滚动到今天（BBPlayer `initialScrollEnd`，同步无动画版本 `scrollToItem`）。
@@ -247,15 +251,6 @@ private fun WeeklyHeatGrid(
     val base = MaterialTheme.colorScheme.surfaceVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val today = LocalDate.now()
-    // 今天所在周的周日作为右边界（对齐 BBPlayer weekStartsOn=0）
-    val weekEnd = today.with(DayOfWeek.SUNDAY)
-    val weekStart = weekEnd.minusWeeks((weeks - 1).toLong())
-
-    // 行序：周日 → 周六（BBPlayer 同款）
-    val rows = listOf(
-        DayOfWeek.SUNDAY, DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
-        DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY,
-    )
     // 星期侧边栏标签：英文 ddd 简写（对齐 BBPlayer `sidebarTextFormat='ddd'`）
     val weekdayLabels = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
     // 月份表头格式：英文 MMM 简写（对齐 BBPlayer `headerTextFormat='MMM'`）。Locale.ENGLISH
@@ -297,7 +292,8 @@ private fun WeeklyHeatGrid(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(weeks) { weekOffset ->
-                val weekStartDate = weekStart.plusWeeks(weekOffset.toLong())
+                // 这一列的第一天（周日）；行序周日 → 周六（BBPlayer weekStartsOn=0）
+                val weekStartDate = heatmapCellDate(today, weeks, weekOffset, row = 0)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     // 月份表头：跨入新月份才显示（BBPlayer renderHeader 同逻辑）。
                     // 不设宽度约束让文字自然宽（"Aug" 窄于格子 18dp，不会掉宽列），
@@ -321,22 +317,27 @@ private fun WeeklyHeatGrid(
                         }
                     }
 
-                    rows.forEach { dow ->
-                        val date = weekStartDate.with(dow)
-                        val count = counts[date] ?: 0
-                        val alpha = heatmapLevelAlpha(count)
-                        Box(
-                            Modifier
-                                .size(18.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (alpha > 0f) primary.copy(alpha = alpha) else base)
-                                .then(
-                                    if (date == today) {
-                                        Modifier.border(1.dp, primary, RoundedCornerShape(4.dp))
-                                    } else Modifier,
-                                )
-                                .clickable { onDayClick(date) },
-                        )
+                    for (row in 0..6) {
+                        val date = heatmapCellDate(today, weeks, weekOffset, row)
+                        if (!heatmapCellShown(date, today)) {
+                            // 今天之后的格子不画，留出同样大小的空位
+                            Spacer(Modifier.size(18.dp))
+                        } else {
+                            val count = counts[date] ?: 0
+                            val alpha = heatmapLevelAlpha(count)
+                            Box(
+                                Modifier
+                                    .size(18.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (alpha > 0f) primary.copy(alpha = alpha) else base)
+                                    .then(
+                                        if (date == today) {
+                                            Modifier.border(1.dp, primary, RoundedCornerShape(4.dp))
+                                        } else Modifier,
+                                    )
+                                    .clickable { onDayClick(date) },
+                            )
+                        }
                     }
                 }
             }

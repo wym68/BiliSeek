@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
@@ -60,6 +61,7 @@ import com.biliseek.app.data.MiniBarStyle
 import com.biliseek.app.data.VideoQualityDefaults
 import com.biliseek.app.data.DOWNLOAD_CONCURRENCY_CHOICES
 import com.biliseek.app.data.MAX_DOWNLOAD_CONCURRENCY
+import com.biliseek.app.ui.components.LocalMiniBarInset
 import com.biliseek.app.ui.components.SettingsChoice
 import com.biliseek.app.ui.components.SettingsChoiceSheet
 import com.biliseek.app.ui.components.SettingsDivider
@@ -78,7 +80,7 @@ import com.biliseek.designsystem.theme.BsSpacing
 
 /** 设置页当前打开的弹层。 */
 private enum class SettingsSheetKind {
-    LOGIN, PRESENTATION, PLAY_MODE, DANMAKU, AUDIO_QUALITY, VIDEO_QUALITY_WIFI, VIDEO_QUALITY_METERED, MINI_BAR, LICENSE,
+    LOGIN, PRESENTATION, PLAY_MODE, DANMAKU, AUDIO_QUALITY, VIDEO_QUALITY_WIFI, VIDEO_QUALITY_METERED, MINI_BAR, THEME, LICENSE,
     DOWNLOAD_CONCURRENCY,
 }
 
@@ -102,6 +104,7 @@ fun SettingsScreen(
     accountContent: @Composable () -> Unit,
     // Ch5
     onMiniBarStyleChange: (MiniBarStyle) -> Unit = {},
+    onThemeModeChange: (com.biliseek.app.data.ThemeMode) -> Unit = {},
     onVideoQualityWifiChange: (Int) -> Unit = {},
     onVideoQualityMeteredChange: (Int) -> Unit = {},
     // AI 总结（工单 AI-3）
@@ -135,7 +138,8 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = BsSpacing.lg)
-                .padding(bottom = BsSpacing.xl),
+                // 底部再让出迷你条（它盖在页面最下面）
+                .padding(bottom = BsSpacing.xl + LocalMiniBarInset.current),
             verticalArrangement = Arrangement.spacedBy(BsSpacing.lg),
         ) {
             AccountCard(
@@ -217,6 +221,12 @@ fun SettingsScreen(
             }
 
             SettingsGroup("界面") {
+                SettingsRow(
+                    title = "深色模式",
+                    icon = Icons.Outlined.DarkMode,
+                    value = themeChoices.first { it.value == settings.themeMode }.label,
+                    onClick = { sheet = SettingsSheetKind.THEME },
+                )
                 SettingsRow(
                     title = "迷你播放器样式",
                     icon = Icons.Outlined.PictureInPictureAlt,
@@ -323,6 +333,13 @@ fun SettingsScreen(
             onSelect = onMiniBarStyleChange,
             onDismiss = dismiss,
         )
+        SettingsSheetKind.THEME -> SettingsChoiceSheet(
+            title = "深色模式",
+            choices = themeChoices,
+            selected = settings.themeMode,
+            onSelect = onThemeModeChange,
+            onDismiss = dismiss,
+        )
         SettingsSheetKind.DOWNLOAD_CONCURRENCY -> SettingsChoiceSheet(
             title = "同时下载数",
             note = "下载走 B 站视频服务器，不经过业务接口；同时下得越多越占带宽，边下边听时可能卡顿",
@@ -355,17 +372,17 @@ private const val VIDEO_QUALITY_NOTE =
 
 private val presentationChoices = listOf(
     SettingsChoice(DefaultPresentation.AUDIO_ONLY, "默认只听", "每次起播都先进纯音频模式"),
-    SettingsChoice(DefaultPresentation.REMEMBER_LAST, "记住上次", "上次在看模式，下次起播直接进看模式"),
+    SettingsChoice(DefaultPresentation.REMEMBER_LAST, "记住上次", "上次离开播放页时在看，下次打开播放页直接进看模式"),
 )
 
 private fun presentationLabel(value: DefaultPresentation): String =
     presentationChoices.firstOrNull { it.value == value }?.label.orEmpty()
 
 private val playModeChoices = listOf(
-    SettingsChoice(PlayMode.SEQUENTIAL, "顺序播放", "按列表顺序播，播完最后一首停止"),
-    SettingsChoice(PlayMode.REPEAT_ALL, "列表循环", "播完最后一首回到第一首"),
-    SettingsChoice(PlayMode.REPEAT_ONE, "单曲循环", "一直重复当前这一首"),
-    SettingsChoice(PlayMode.SHUFFLE, "随机播放", "在列表里随机挑下一首"),
+    SettingsChoice(PlayMode.SEQUENTIAL, playModeLabel(PlayMode.SEQUENTIAL), "按列表顺序播，播完最后一首停止"),
+    SettingsChoice(PlayMode.REPEAT_ALL, playModeLabel(PlayMode.REPEAT_ALL), "播完最后一首回到第一首"),
+    SettingsChoice(PlayMode.REPEAT_ONE, playModeLabel(PlayMode.REPEAT_ONE), "一直重复当前这一首"),
+    SettingsChoice(PlayMode.SHUFFLE, playModeLabel(PlayMode.SHUFFLE), "在列表里随机挑下一首"),
 )
 
 private val audioQualityChoices = listOf(
@@ -390,6 +407,12 @@ private val downloadConcurrencyChoices = DOWNLOAD_CONCURRENCY_CHOICES.map { n ->
         },
     )
 }
+
+private val themeChoices = listOf(
+    SettingsChoice(com.biliseek.app.data.ThemeMode.SYSTEM, "跟随系统", "系统切换深浅色时跟着变（默认）"),
+    SettingsChoice(com.biliseek.app.data.ThemeMode.LIGHT, "浅色", "一直用浅色"),
+    SettingsChoice(com.biliseek.app.data.ThemeMode.DARK, "深色", "一直用深色"),
+)
 
 private val miniBarChoices = listOf(
     SettingsChoice(MiniBarStyle.FLOAT, "浮在底部", "圆角 + 阴影，悬浮在底栏上方"),

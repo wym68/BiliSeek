@@ -105,6 +105,18 @@ Kotlin API（classes.jar）与原生库 libsherpa-onnx-jni.so，未做修改。
 
 AI 总结阅读页的 Markdown 渲染。
 
+--------------------------------------------------------------------------------
+9. DM Serif Display  —  https://fonts.google.com/specimen/DM+Serif+Display  （SIL OFL 1.1）
+--------------------------------------------------------------------------------
+
+首页标题「BiliSeek」所用字体（设计：Colophon Foundry）。随 APK 分发正体与斜体两个
+原版字体文件，未做修改。字体文件自带的版权声明：
+
+  Copyright 2014 - 2017 Adobe Systems Incorporated (http://www.adobe.com/),
+  with Reserved Font Name 'Source'. Copyright 2019 Google LLC.
+
+许可证：SIL Open Font License 1.1 —— https://openfontlicense.org
+
 ================================================================================
 免责声明
 ================================================================================

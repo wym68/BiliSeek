@@ -1,26 +1,42 @@
 package com.biliseek.app
 
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DownloadContent
+import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.PlaylistEntity
 import com.biliseek.app.download.DownloadRequest
 import com.biliseek.app.ui.AddToListPickerDialog
 import com.biliseek.app.ui.DownloadDialog
 import com.biliseek.app.ui.MeteredVideoDialog
+import com.biliseek.app.ui.components.InputDialog
 import com.biliseek.app.ui.toDownloadTarget
 import com.biliseek.core.network.dto.SearchVideo
+import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.theme.BiliSeekTheme
 import org.junit.Rule
 import org.junit.Test
 
 /**
- * 三个对话框的交互测试：流量拦截 / 加入列表选择 / 下载确认。
+ * 对话框与弹层的交互测试：流量拦截 / 加入列表选择 / 输入弹窗 / 确认框忙碌态 / 下载确认。
  *
  * 覆盖《M12 计划》B-3 的 Dialogs 部分。
  */
@@ -60,21 +76,23 @@ class DialogsUiTest {
     private fun LoggedOutPicker(
         playlists: List<PlaylistEntity>,
         onPickPlaylist: (Long) -> Unit = {},
-        onCreatePlaylist: (String) -> Unit = {},
+        onCreatePlaylist: (String, String) -> Unit = { _, _ -> },
+        onDismiss: () -> Unit = {},
     ) {
         AddToListPickerDialog(
             playlists = playlists,
             favoriteFolders = emptyList(),
             isLoggedIn = false,
+            onPickWatchLater = {},
             onPickPlaylist = onPickPlaylist,
             onCreatePlaylist = onCreatePlaylist,
-            onRenamePlaylist = { _, _ -> },
+            onRenamePlaylist = { _, _, _ -> },
             onDeletePlaylist = {},
             onPickFavorite = {},
             onCreateFavorite = { _, _ -> },
             onEditFavorite = { _, _ -> },
             onDeleteFavorite = {},
-            onDismiss = {},
+            onDismiss = onDismiss,
         )
     }
 
@@ -90,7 +108,7 @@ class DialogsUiTest {
                         PlaylistEntity(id = 9, name = "通勤专用", createdAt = 2, updatedAt = 2),
                     ),
                     onPickPlaylist = { picked = it },
-                    onCreatePlaylist = { created = it },
+                    onCreatePlaylist = { name, _ -> created = name },
                 )
             }
         }
@@ -98,6 +116,7 @@ class DialogsUiTest {
         compose.onNodeWithText("我的歌单").assertIsDisplayed()
         compose.onNodeWithText("通勤专用").assertIsDisplayed()
         compose.onNodeWithText("B站收藏夹").assertDoesNotExist()
+        compose.onNodeWithText("稍后再看").assertDoesNotExist()
         compose.onNodeWithText("通勤专用").performClick()
         check(picked == 9L) { "点击歌单未回调正确的 id" }
         check(created == null)
@@ -113,6 +132,142 @@ class DialogsUiTest {
 
         compose.onNodeWithText("新建歌单并加入").assertIsDisplayed()
         compose.onNodeWithText("歌单名").assertIsDisplayed()
+    }
+
+    @Test
+    fun 加入列表_收藏夹行只显示名字不显示数量() {
+        compose.setContent {
+            BiliSeekTheme {
+                AddToListPickerDialog(
+                    playlists = listOf(PlaylistEntity(id = 7, name = "我的歌单", createdAt = 1, updatedAt = 1)),
+                    favoriteFolders = listOf(
+                        FavoriteFolderEntity(mediaId = 1, title = "默认收藏夹", coverUrl = "", mediaCount = 3, syncedAt = 1),
+                        FavoriteFolderEntity(mediaId = 2, title = "音乐", coverUrl = "", mediaCount = 12, syncedAt = 1),
+                    ),
+                    isLoggedIn = true,
+                    onPickWatchLater = {},
+                    onPickPlaylist = {},
+                    onCreatePlaylist = { _, _ -> },
+                    onRenamePlaylist = { _, _, _ -> },
+                    onDeletePlaylist = {},
+                    onPickFavorite = {},
+                    onCreateFavorite = { _, _ -> },
+                    onEditFavorite = { _, _ -> },
+                    onDeleteFavorite = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        compose.onNodeWithText("B站收藏夹").assertIsDisplayed()
+        compose.onNodeWithText("默认收藏夹").assertIsDisplayed()
+        compose.onNodeWithText("音乐").assertIsDisplayed()
+        compose.onNodeWithText("个内容", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun 加入列表_登录后最上面是稍后再看_点了回调() {
+        var pickedWatchLater = false
+        compose.setContent {
+            BiliSeekTheme {
+                AddToListPickerDialog(
+                    playlists = listOf(PlaylistEntity(id = 7, name = "我的歌单", createdAt = 1, updatedAt = 1)),
+                    favoriteFolders = listOf(
+                        FavoriteFolderEntity(mediaId = 1, title = "默认收藏夹", coverUrl = "", mediaCount = 3, syncedAt = 1),
+                    ),
+                    isLoggedIn = true,
+                    onPickWatchLater = { pickedWatchLater = true },
+                    onPickPlaylist = {},
+                    onCreatePlaylist = { _, _ -> },
+                    onRenamePlaylist = { _, _, _ -> },
+                    onDeletePlaylist = {},
+                    onPickFavorite = {},
+                    onCreateFavorite = { _, _ -> },
+                    onEditFavorite = { _, _ -> },
+                    onDeleteFavorite = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        val watchLaterTop = compose.onNodeWithText("稍后再看").assertIsDisplayed().getUnclippedBoundsInRoot().top
+        val localTop = compose.onNodeWithText("本地歌单").getUnclippedBoundsInRoot().top
+        check(watchLaterTop < localTop) { "稍后再看应在本地歌单分区之上" }
+        compose.onNodeWithText("稍后再看").performClick()
+        check(pickedWatchLater) { "点稍后再看未回调" }
+    }
+
+    @Test
+    fun 加入列表_点取消关闭() {
+        var dismissed = false
+        compose.setContent {
+            BiliSeekTheme {
+                LoggedOutPicker(
+                    playlists = listOf(PlaylistEntity(id = 7, name = "我的歌单", createdAt = 1, updatedAt = 1)),
+                    onDismiss = { dismissed = true },
+                )
+            }
+        }
+
+        compose.onNodeWithText("取消").performClick()
+        check(dismissed) { "点「取消」没有关闭加入列表" }
+    }
+
+    // ── 输入弹窗（新建 / 重命名）────────────────────────────
+
+    @Test
+    fun 输入弹窗_名字为空时确认键不可点_填了之后带出文字() {
+        var confirmed: String? = null
+        compose.setContent {
+            BiliSeekTheme {
+                var name by remember { mutableStateOf("") }
+                InputDialog(
+                    title = "新建歌单",
+                    confirmLabel = "创建",
+                    confirmEnabled = name.isNotBlank(),
+                    onConfirm = { confirmed = name },
+                    onDismiss = {},
+                ) { focus ->
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("歌单名") },
+                        modifier = Modifier.focusRequester(focus),
+                    )
+                }
+            }
+        }
+
+        compose.onNodeWithText("新建歌单").assertIsDisplayed()
+        compose.onNodeWithText("创建").assertIsNotEnabled()
+        compose.onNode(hasSetTextAction()).performTextInput("通勤专用")
+        compose.onNodeWithText("创建").assertIsEnabled().performClick()
+        check(confirmed == "通勤专用") { "确认没有带出输入的文字：$confirmed" }
+    }
+
+    // ── 确认框的忙碌态（删除收藏夹要清空视频，过程中不可操作）────────
+
+    @Test
+    fun 确认框_忙碌时显示处理中且按钮不可点() {
+        var confirmed = false
+        var dismissed = false
+        compose.setContent {
+            BiliSeekTheme {
+                BsConfirmDialog(
+                    title = "删除收藏夹",
+                    text = "确定删除「音乐」？",
+                    confirmLabel = "删除",
+                    onConfirm = { confirmed = true },
+                    onDismiss = { dismissed = true },
+                    destructive = true,
+                    busy = true,
+                )
+            }
+        }
+
+        compose.onNodeWithText("处理中…").assertIsDisplayed()
+        compose.onNodeWithText("取消").assertIsNotEnabled()
+        check(!confirmed && !dismissed)
     }
 
     // ── 下载确认（M9 E-4 内容二选一 + 位置三选一）──────────

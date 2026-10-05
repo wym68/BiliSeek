@@ -33,6 +33,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.layout.widthIn
+import com.biliseek.core.player.PlaybackRequest
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
@@ -52,7 +60,6 @@ import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -137,6 +144,8 @@ fun FullscreenPlayerOverlay(
     onEnterPip: () -> Unit,
     modifier: Modifier = Modifier,
     isInPip: Boolean = false,
+    /** 播放列表面板里点一项：跳到队列里那一首（全屏继续看）。 */
+    onSkipTo: (Int) -> Unit = {},
     onSetSpeed: (Float) -> Unit = {},
     onSetSleepTimer: (Long) -> Unit = {},
     onRetryPlayback: () -> Unit = {},
@@ -307,6 +316,7 @@ fun FullscreenPlayerOverlay(
                                 },
                                 onSetSpeed = onSetSpeed,
                                 onHud = { hud = it },
+                                onSpeedBoosted = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
                             ),
                         )
                     },
@@ -496,6 +506,15 @@ fun FullscreenPlayerOverlay(
                                 openPanel(FullscreenPanelType.AUDIO)
                             }
                         }
+                        val queueButton: @Composable () -> Unit = {
+                            IconButton(onClick = { openPanel(FullscreenPanelType.QUEUE) }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.QueueMusic,
+                                    contentDescription = "播放列表",
+                                    tint = Color.White,
+                                )
+                            }
+                        }
                         val transportControls: @Composable () -> Unit = {
                             PlayerControlBar(
                                 isPlaying = state.showPauseButton,
@@ -544,6 +563,7 @@ fun FullscreenPlayerOverlay(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     settingButtons()
+                                    queueButton()
                                 }
                             }
                         } else {
@@ -555,6 +575,7 @@ fun FullscreenPlayerOverlay(
                                 danmakuButton()
                                 Spacer(Modifier.weight(1f))
                                 settingButtons()
+                                queueButton()
                             }
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -614,6 +635,13 @@ fun FullscreenPlayerOverlay(
                         endOfTrack = state.sleepTimerEndOfTrack,
                         onSetTimer = { closePanelThen { onSetSleepTimer(it) } },
                     )
+                    FullscreenPanelType.QUEUE -> FullscreenQueueOptions(
+                        queue = state.queue,
+                        currentIndex = state.queueIndex,
+                        onSelect = { index ->
+                            closePanelThen { if (index != state.queueIndex) onSkipTo(index) }
+                        },
+                    )
                     FullscreenPanelType.MORE -> FullscreenMoreOptions(
                         onTimer = { panel = FullscreenPanelType.TIMER },
                         onDownload = { closePanelThen(onDownload) },
@@ -663,6 +691,7 @@ private enum class FullscreenPanelType(val title: String) {
     DANMAKU("弹幕设置"),
     TIMER("定时关闭"),
     MORE("更多"),
+    QUEUE("播放列表"),
 }
 
 /** 全屏中央的加载圈 / 错误提示。 */
@@ -704,9 +733,71 @@ private fun FullscreenMoreOptions(
     Column {
         FullscreenMenuRow(Icons.Filled.Timer, "定时关闭", onTimer)
         FullscreenMenuRow(Icons.Filled.Download, "下载", onDownload)
-        FullscreenMenuRow(Icons.Filled.PlaylistAdd, "添加到列表", onAddToList)
-        FullscreenMenuRow(Icons.Filled.Share, "分享", onShare)
-        FullscreenMenuRow(Icons.Filled.Person, "查看作者", onViewAuthor)
+        FullscreenMenuRow(Icons.Filled.PlaylistAdd, "加入列表", onAddToList)
+        FullscreenMenuRow(Icons.Filled.ContentCopy, "复制链接", onShare)
+        FullscreenMenuRow(Icons.Filled.Person, "查看UP主", onViewAuthor)
+    }
+}
+
+/**
+ * 全屏播放列表：按队列顺序列出序号 + 标题，当前这一首用主色并带「正在播放」图标，打开时滚到当前这一首。
+ * 只负责「看和跳」；删除、清空、撤销仍在播放页的队列面板里。
+ */
+@Composable
+private fun FullscreenQueueOptions(
+    queue: List<PlaybackRequest>,
+    currentIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    if (queue.isEmpty()) {
+        Text("播放列表是空的", style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+    val currentRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(currentIndex) { currentRequester.bringIntoView() }
+    Column {
+        queue.forEachIndexed { index, request ->
+            val isCurrent = index == currentIndex
+            val color = if (isCurrent) MaterialTheme.colorScheme.primary else LocalContentColor.current
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (isCurrent) Modifier.bringIntoViewRequester(currentRequester) else Modifier)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(Modifier.widthIn(min = 20.dp), contentAlignment = Alignment.Center) {
+                    if (isCurrent) {
+                        Icon(
+                            Icons.Filled.GraphicEq,
+                            contentDescription = "正在播放",
+                            tint = color,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    } else {
+                        Text(
+                            "${index + 1}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = LocalContentColor.current.copy(alpha = 0.6f),
+                        )
+                    }
+                }
+                Text(
+                    when (request) {
+                        is PlaybackRequest.Bili -> request.title.ifBlank { request.bvid }
+                        is PlaybackRequest.Direct -> request.title.ifBlank { request.uri }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = color,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 
@@ -726,7 +817,7 @@ private fun FullscreenMenuRow(icon: ImageVector, label: String, onClick: () -> U
     }
 }
 
-private const val AUTO_HIDE_DELAY_MS = 4000L
+private const val AUTO_HIDE_DELAY_MS = 3000L
 
 /** 屏幕边缘这么宽的一条留给系统手势（侧边返回、边缘唤出系统栏）。 */
 private val GESTURE_EDGE = 24.dp

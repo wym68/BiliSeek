@@ -4,7 +4,10 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.ui.graphics.Color
+import com.biliseek.app.ui.components.LocalMiniBarInset
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.theme.BsShapes
+import com.biliseek.app.ui.components.BiliSeekWordmark
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -66,7 +69,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -162,7 +164,7 @@ fun SearchScreen(
     onHistoryClick: (String) -> Unit = {},
     onDeleteHistory: (String) -> Unit = {},
     onClearHistory: () -> Unit = {},
-    /** 头像点击（跳转登录账户 UP 主页）。 */
+    /** 头像点击。头像始终可点：已登录进自己的 UP 主页，未登录提示去设置登录（均由调用方处理）。 */
     onAvatarClick: () -> Unit = {},
     /** 登录态（标题栏显示账号名与头像，BBPlayer 主页风格）。 */
     session: BiliSession = BiliSession.EMPTY,
@@ -292,12 +294,7 @@ fun SearchScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            "BiliSeek",
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                            ),
-                        )
+                        BiliSeekWordmark()
                         // 当前小时（每分钟 tick 一次，保证跨午 / 跨晚自然切换）
                         val hour by produceState(initialValue = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
                             while (true) {
@@ -324,7 +321,7 @@ fun SearchScreen(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .clickable(enabled = session.isLoggedIn) { onAvatarClick() }
+                            .clickable { onAvatarClick() }
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop,
                     )
@@ -400,7 +397,10 @@ fun SearchScreen(
                         }
                     } else {
                         Column(
-                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(bottom = LocalMiniBarInset.current),
                         ) {
                             SearchHistorySection(
                                 searchHistory = searchHistory,
@@ -477,6 +477,7 @@ fun SearchScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth().nestedScroll(collapseConnection),
+            contentPadding = miniBarContentPadding(),
         ) {
             // 筛选条作为 header item，随结果一起滚动（红框跟着划走）
             // pages 非空已在上方提前 return，不会到这里
@@ -692,7 +693,7 @@ private fun UserResults(
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
                 items(state.users, key = { it.mid }) { user ->
                     UserRow(user, onClick = { onUserClick(user) })
                     HorizontalDivider()
@@ -803,6 +804,7 @@ private fun errorMessage(error: SearchError): String = when (error) {
     SearchError.NotActivated -> "设备凭据尚未激活，搜索暂时拿不到结果"
     is SearchError.Network -> "网络不可用"
     is SearchError.Empty -> "没有找到「${error.keyword}」"
+    SearchError.NotVideo -> "这个链接不是视频"
     is SearchError.Unknown -> "搜索失败：${error.message}"
 }
 
@@ -810,6 +812,7 @@ private fun errorHint(error: SearchError): String? = when (error) {
     // 明确告诉用户「等」，而不是留一个能戳的按钮
     SearchError.Blocked -> "请过几分钟再试，反复重试会让拦截时间变长"
     is SearchError.Empty -> "换个关键词，或粘贴 BV 号 / 链接直达"
+    SearchError.NotVideo -> "粘贴 BV 号或视频链接可以直接播放，也可以换个关键词搜索"
     is SearchError.Network -> error.message.takeIf { it.isNotBlank() }
     else -> null
 }
@@ -835,10 +838,10 @@ private fun ResultRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 封面 64dp 宽（16:9）：够辨认即可，把空间让给标题与元信息（M11 真机反馈）
+        // 搜索结果不标充电角标：搜索接口不带充电信息（2026-10-05，见 ChargeBadgePolicy）
         CoverThumbnail(
             url = normalizeCoverUrl(video.pic),
             width = 64.dp,
-            badge = if (video.badgePay) "充电" else null,
         )
         Column(
             Modifier.weight(1f),
@@ -945,7 +948,7 @@ private fun MultiPagePanel(
                 TextButton(onClick = onDismiss) { Text("返回结果") }
             }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
             items(state.pages, key = { it.cid }) { entry ->
                 val selected = entry.cid in selectedCids
                 Row(

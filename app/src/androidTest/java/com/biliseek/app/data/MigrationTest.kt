@@ -295,6 +295,62 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate7To8_新增收听时长表且不动播放历史() {
+        helper.createDatabase(TEST_DB, 7).use { db ->
+            db.execSQL(
+                "INSERT INTO play_history (bvid, cid, title, author, coverUrl, durationSec, positionMs, playedAt) " +
+                    "VALUES ('BV1x', 10, 't', 'a', '', 240, 1000, 1)",
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            8,
+            true,
+            BiliSeekDatabase.MIGRATION_7_8,
+        )
+
+        db.query("SELECT COUNT(*) FROM play_history").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("迁移后播放历史丢失", 1L, cursor.getLong(0))
+        }
+        // 与 ListenDayDao 同样的两步累加
+        db.execSQL("INSERT OR IGNORE INTO listen_day (epochDay, listenedMs) VALUES (20365, 0)")
+        db.execSQL("UPDATE listen_day SET listenedMs = listenedMs + 65000 WHERE epochDay = 20365")
+        db.execSQL("INSERT OR IGNORE INTO listen_day (epochDay, listenedMs) VALUES (20365, 0)")
+        db.execSQL("UPDATE listen_day SET listenedMs = listenedMs + 5000 WHERE epochDay = 20365")
+        db.query("SELECT listenedMs FROM listen_day WHERE epochDay = 20365").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("同一天的收听时长没累加上", 70000L, cursor.getLong(0))
+        }
+    }
+
+    @Test
+    fun migrate8To9_本地列表加图标列且旧列表保留为默认图标() {
+        helper.createDatabase(TEST_DB, 8).use { db ->
+            db.execSQL("INSERT INTO playlist (name, createdAt, updatedAt) VALUES ('通勤', 1, 1)")
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            9,
+            true,
+            BiliSeekDatabase.MIGRATION_8_9,
+        )
+
+        db.query("SELECT name, icon FROM playlist").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("迁移后列表丢失", "通勤", cursor.getString(0))
+            assertEquals("旧列表应是默认图标（空串）", "", cursor.getString(1))
+        }
+        db.execSQL("UPDATE playlist SET icon = 'headphones' WHERE name = '通勤'")
+        db.query("SELECT icon FROM playlist WHERE name = '通勤'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("图标写不进去", "headphones", cursor.getString(0))
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,8 +19,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.designsystem.theme.BsSize
 import com.biliseek.designsystem.theme.BsSpacing
 
 /** 顶栏左侧导航按钮的样式。 */
@@ -40,6 +43,8 @@ fun BsTopBar(
     modifier: Modifier = Modifier,
     navIcon: BsNavIcon = BsNavIcon.Back,
     subtitle: String? = null,
+    /** 标题前的小图标（灰黑，与列表行的图标同色），比如本地列表的自定义图标。 */
+    titleIcon: ImageVector? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -58,6 +63,14 @@ fun BsTopBar(
             }
         } else {
             Spacer(Modifier.width(BsSpacing.md))
+        }
+        if (titleIcon != null) {
+            Icon(
+                titleIcon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = BsSpacing.xs).size(BsSize.icon),
+            )
         }
         Column(
             Modifier

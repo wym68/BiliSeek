@@ -80,4 +80,16 @@ class WatchLaterDtoTest {
         assertTrue(WatchLaterItem().bvid.isEmpty())
         assertEquals(-1L, WatchLaterItem().progress)
     }
+
+    @Test
+    fun `充电视频带 charging_pay 普通视频没有`() {
+        val data = json.decodeFromString<BiliResponse<WatchLaterData>>(
+            """{"code":0,"data":{"count":2,"list":[
+              {"aid":1,"bvid":"BV1a","title":"充电","charging_pay":{"level":1}},
+              {"aid":2,"bvid":"BV1b","title":"普通"}
+            ]}}""",
+        ).data!!
+        assertEquals(1, data.list[0].chargingPay?.level)
+        assertEquals(null, data.list[1].chargingPay)
+    }
 }

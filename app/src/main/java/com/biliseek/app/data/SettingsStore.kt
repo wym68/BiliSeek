@@ -21,14 +21,17 @@ enum class DefaultPresentation {
     /** 一律先只听。**出厂默认**——「默认只听」是产品身份，不能靠用户去关。 */
     AUDIO_ONLY,
 
-    /** 记住上次：上次在看模式，下次起播就直接进看模式。 */
+    /**
+     * 记住上次：上次离开播放页时在看，下次打开播放页就直接进看模式。
+     * 起播时不进看——那时多半不在播放页，画面没有地方显示（见 PlayerPagePolicy）。
+     */
     REMEMBER_LAST,
 }
 
 /** 用户设置。全部有出厂默认值，未设置过时按默认走。 */
 data class AppSettings(
     val defaultPresentation: DefaultPresentation = DefaultPresentation.AUDIO_ONLY,
-    /** 上次是不是在看模式。[DefaultPresentation.REMEMBER_LAST] 用。 */
+    /** 上次在播放页上选的是不是看（回到迷你播放条时自动切成听不算）。[DefaultPresentation.REMEMBER_LAST] 用。 */
     val lastPresentationWasVideo: Boolean = false,
     /** 计量网络（移动数据）下允许拉视频。默认关——视频比音频贵一个量级。 */
     val allowVideoOnMetered: Boolean = false,
@@ -40,6 +43,8 @@ data class AppSettings(
     val lastDownloadSafTreeUri: String = "",
     /** Ch5：minibar 风格（FLOAT 浮在底部上、BOTTOM 贴底）。默认 FLOAT。 */
     val miniBarStyle: MiniBarStyle = MiniBarStyle.FLOAT,
+    /** 整个 App 的深色 / 浅色 / 跟随系统（设置 → 界面 → 深色模式）。默认跟随系统。 */
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** Wi-Fi 下的默认画质（B 站 qn），0 = 自动。 */
     val videoQualityWifi: Int = VideoQualityDefaults.WIFI,
     /** 移动网络下的默认画质。默认 480P——本 App 以听为主，看也要替流量着想。 */
@@ -71,6 +76,9 @@ fun AppSettings.defaultVideoQuality(isMetered: Boolean): Int =
 
 /** minibar 风格（Ch5 §5.1.4）。 */
 enum class MiniBarStyle { FLOAT, BOTTOM }
+
+/** 深色模式：跟随系统 / 浅色 / 深色（2026-10-04 用户要求可在设置里指定）。 */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 private val Context.settingsDataStore by preferencesDataStore(name = "biliseek_settings")
 
@@ -108,6 +116,9 @@ class SettingsStore(private val context: Context) {
             miniBarStyle = p[KEY_MINI_BAR_STYLE]
                 ?.let { name -> MiniBarStyle.entries.firstOrNull { it.name == name } }
                 ?: MiniBarStyle.FLOAT,
+            themeMode = p[KEY_THEME_MODE]
+                ?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } }
+                ?: ThemeMode.SYSTEM,
             videoQualityWifi = p[KEY_VIDEO_QUALITY_WIFI] ?: VideoQualityDefaults.WIFI,
             videoQualityMetered = p[KEY_VIDEO_QUALITY_METERED] ?: VideoQualityDefaults.METERED,
             downloadConcurrency = clampDownloadConcurrency(p[KEY_DOWNLOAD_CONCURRENCY] ?: 1),
@@ -154,6 +165,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setMiniBarStyle(value: MiniBarStyle) =
         update { it.copy(miniBarStyle = value) }
 
+    suspend fun setThemeMode(value: ThemeMode) = update { it.copy(themeMode = value) }
+
     suspend fun setVideoQualityWifi(value: Int) = update { it.copy(videoQualityWifi = value) }
 
     suspend fun setVideoQualityMetered(value: Int) = update { it.copy(videoQualityMetered = value) }
@@ -176,6 +189,7 @@ class SettingsStore(private val context: Context) {
             p[KEY_DOWNLOAD_LOCATION] = next.lastDownloadLocation
             p[KEY_DOWNLOAD_SAF_TREE] = next.lastDownloadSafTreeUri
             p[KEY_MINI_BAR_STYLE] = next.miniBarStyle.name
+            p[KEY_THEME_MODE] = next.themeMode.name
             p[KEY_VIDEO_QUALITY_WIFI] = next.videoQualityWifi
             p[KEY_VIDEO_QUALITY_METERED] = next.videoQualityMetered
             p[KEY_DOWNLOAD_CONCURRENCY] = next.downloadConcurrency
@@ -208,6 +222,7 @@ class SettingsStore(private val context: Context) {
         val KEY_DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val KEY_DOWNLOAD_SAF_TREE = stringPreferencesKey("download_saf_tree")
         val KEY_MINI_BAR_STYLE = stringPreferencesKey("mini_bar_style")
+        val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
         val KEY_VIDEO_QUALITY_WIFI = intPreferencesKey("video_quality_wifi")
         val KEY_VIDEO_QUALITY_METERED = intPreferencesKey("video_quality_metered")
         val KEY_DOWNLOAD_CONCURRENCY = intPreferencesKey("download_concurrency")

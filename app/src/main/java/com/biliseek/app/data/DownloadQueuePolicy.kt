@@ -25,12 +25,13 @@ fun isReplaceableFailedRecord(
 }
 
 /**
- * 同一 (bvid, cid) 已有记录时，这次入队要不要跳过：已在排队或正在下载就跳过——
- * 再写一行会把进行中的任务顶掉（唯一索引 REPLACE 换了 id），下完写回时对不上号。
+ * 同一 (bvid, cid) 已有记录时，这次入队要不要跳过：已在排队、正在下载或暂停中就跳过——
+ * 再写一行会把进行中的任务顶掉（唯一索引 REPLACE 换了 id），下完写回时对不上号；暂停的由用户点「继续」。
  * 已完成 / 失败 / 没有记录 → 照常入队（已完成的视为重新下载）。
  */
 fun shouldSkipEnqueue(existingStatus: String?): Boolean =
-    existingStatus == DownloadStatus.QUEUED || existingStatus == DownloadStatus.DOWNLOADING
+    existingStatus == DownloadStatus.QUEUED || existingStatus == DownloadStatus.DOWNLOADING ||
+        existingStatus == DownloadStatus.PAUSED
 
 /** 下载取流（playurl）的最小间隔。批量下载时取流按这个节奏一条条来，不连发。 */
 const val DOWNLOAD_RESOLVE_MIN_INTERVAL_MS = 2_000L

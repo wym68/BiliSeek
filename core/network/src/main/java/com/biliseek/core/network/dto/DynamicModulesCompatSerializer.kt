@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
@@ -28,7 +28,8 @@ import kotlinx.serialization.encoding.Encoder
  * - `MODULE_TYPE_TITLE` 抽出标题；
  * - `MODULE_TYPE_CONTENT` 的 paragraphs 抽出正文（word/rich/formula 节点）
  *   与图片（pic.pics / pics / line.pic），归一化进 module_dynamic：
- *   desc 取更长者，图合并进 `major.opus.pics`，保留已有非 OPUS major。
+ *   desc 取更长者，图合并进 `major.opus.pics`，保留已有非 OPUS major；
+ *   同时按原文顺序收成 `major.opus.blocks`（文字段 / 图片段，展开后图文穿插用）。
  */
 object DynamicModulesCompatSerializer : KSerializer<DynamicModules> {
     override val descriptor: SerialDescriptor = DynamicModules.serializer().descriptor
@@ -54,6 +55,7 @@ object DynamicModulesCompatSerializer : KSerializer<DynamicModules> {
         var title: String? = null
         val paragraphTexts = mutableListOf<String>()
         val paragraphPics = mutableListOf<String>()
+        val blocks = mutableListOf<DynamicBlock>()
 
         for (node in array) {
             val obj = node as? JsonObject ?: continue
@@ -72,13 +74,29 @@ object DynamicModulesCompatSerializer : KSerializer<DynamicModules> {
             if (moduleType == "MODULE_TYPE_CONTENT" || content != null) {
                 (content?.get("paragraphs") as? JsonArray)?.forEach { paragraphNode ->
                     val paragraph = paragraphNode as? JsonObject ?: return@forEach
-                    extractParagraphText(paragraph).takeIf { it.isNotBlank() }?.let(paragraphTexts::add)
-                    paragraphPics += extractParagraphPics(paragraph)
+                    extractParagraphText(paragraph).takeIf { it.isNotBlank() }?.let { text ->
+                        paragraphTexts += text
+                        appendTextBlock(blocks, text)
+                    }
+                    val pics = extractParagraphPics(paragraph)
+                    if (pics.isNotEmpty()) blocks += DynamicBlock.Images(pics)
+                    paragraphPics += pics.map { it.url }
+                    extractLinePicUrl(paragraph)?.let(paragraphPics::add)
                 }
             }
         }
 
-        return normalize(author, dynamic, stat, title, paragraphTexts, paragraphPics)
+        return normalize(author, dynamic, stat, title, paragraphTexts, paragraphPics, blocks)
+    }
+
+    /** 相邻的文字段落合成一段（换行连接），和以前拼整段正文的样子一致。 */
+    private fun appendTextBlock(blocks: MutableList<DynamicBlock>, text: String) {
+        val last = blocks.lastOrNull()
+        if (last is DynamicBlock.Text) {
+            blocks[blocks.lastIndex] = DynamicBlock.Text(last.text + "\n" + text)
+        } else {
+            blocks += DynamicBlock.Text(text)
+        }
     }
 
     /** 把段落内容归一化进 module_dynamic（对齐 bilipai normalizeWithOpusModules）。 */
@@ -89,6 +107,7 @@ object DynamicModulesCompatSerializer : KSerializer<DynamicModules> {
         title: String?,
         paragraphTexts: List<String>,
         paragraphPics: List<String>,
+        blocks: List<DynamicBlock>,
     ): DynamicModules {
         val existingDesc = existingContent?.desc
         val joined = paragraphTexts.joinToString("\n")
@@ -112,6 +131,7 @@ object DynamicModulesCompatSerializer : KSerializer<DynamicModules> {
                 val mergedOpus = baseOpus.copy(
                     title = title ?: baseOpus.title,
                     pics = if (paragraphPics.isNotEmpty()) paragraphPics else baseOpus.pics,
+                    blocks = if (blocks.isNotEmpty()) blocks else baseOpus.blocks,
                 )
                 (existingMajor ?: DynamicMajor()).copy(
                     type = "MAJOR_TYPE_OPUS",
@@ -154,21 +174,27 @@ object DynamicModulesCompatSerializer : KSerializer<DynamicModules> {
         }
     }
 
-    /** 段落图片：pic.pics[] / pic.url / pics[] / line.pic。 */
-    private fun extractParagraphPics(paragraph: JsonObject): List<String> {
-        val out = mutableListOf<String>()
-        val pic = paragraph["pic"]?.let { runCatching { it.jsonObject }.getOrNull() }
-        (pic?.get("pics") as? JsonArray)?.forEach { addPicUrl(it, out) }
-        if (out.isEmpty()) pic?.get("url")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let(out::add)
-        (paragraph["pics"] as? JsonArray)?.forEach { addPicUrl(it, out) }
-        (paragraph["line"] as? JsonObject)?.get("pic")?.let { runCatching { it.jsonObject }.getOrNull() }
-            ?.let { linePic -> linePic["url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { out.add(normalizeCoverUrl(it)) } }
+    /** 段落里的内容图（带宽高）：pic.pics[] / pic.url / pics[]。 */
+    private fun extractParagraphPics(paragraph: JsonObject): List<DynamicPic> {
+        val out = mutableListOf<DynamicPic>()
+        val pic = paragraph["pic"] as? JsonObject
+        (pic?.get("pics") as? JsonArray)?.forEach { element -> parsePic(element)?.let(out::add) }
+        if (out.isEmpty()) parsePic(pic)?.let(out::add)
+        (paragraph["pics"] as? JsonArray)?.forEach { element -> parsePic(element)?.let(out::add) }
         return out
     }
 
-    private fun addPicUrl(element: JsonElement, out: MutableList<String>) {
-        (element as? JsonObject)?.get("url")?.jsonPrimitive?.contentOrNull
-            ?.takeIf { it.isNotBlank() }
-            ?.let { out.add(normalizeCoverUrl(it)) }
+    /** 分割线图（line.pic）：装饰，只进平铺的 pics，不进正文段落。 */
+    private fun extractLinePicUrl(paragraph: JsonObject): String? =
+        ((paragraph["line"] as? JsonObject)?.get("pic") as? JsonObject)?.let(::parsePic)?.url
+
+    private fun parsePic(element: JsonElement?): DynamicPic? {
+        val obj = element as? JsonObject ?: return null
+        val url = (obj["url"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+        return DynamicPic(
+            url = normalizeCoverUrl(url),
+            width = (obj["width"] as? JsonPrimitive)?.intOrNull ?: 0,
+            height = (obj["height"] as? JsonPrimitive)?.intOrNull ?: 0,
+        )
     }
 }

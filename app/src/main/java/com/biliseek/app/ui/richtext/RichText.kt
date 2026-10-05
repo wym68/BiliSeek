@@ -49,7 +49,7 @@ data class RichTextActions(
  * - 整条只有一个大表情时单独放大显示（[BsSize.emoteLarge]），与官方一致；
  * - 链接走系统 UriHandler（[LinkAnnotation.Url]），@ / 关键词走 [actions]。
  *
- * [prefix] 插在正文之前（楼中楼的「昵称：」），[suffix] 追加在正文之后（动态正文的「收起」）。
+ * [prefix] 插在正文之前（楼中楼的「昵称：」）。
  */
 @Composable
 fun RichText(
@@ -62,12 +62,11 @@ fun RichText(
     actions: RichTextActions = RichTextActions(),
     onTextLayout: (TextLayoutResult) -> Unit = {},
     prefix: (AnnotatedString.Builder.() -> Unit)? = null,
-    suffix: (AnnotatedString.Builder.() -> Unit)? = null,
 ) {
     val dictionary = LocalEmoteDictionary.current
     val segments = remember(source, dictionary) { RichTextPolicy.parse(source, dictionary) }
 
-    if (prefix == null && suffix == null && RichTextPolicy.isStandaloneLargeEmote(segments)) {
+    if (prefix == null && RichTextPolicy.isStandaloneLargeEmote(segments)) {
         Column(modifier) {
             segments.filterIsInstance<RichSegment.EmoteImage>().forEach { emote ->
                 AsyncImage(
@@ -114,7 +113,6 @@ fun RichText(
                 is RichSegment.Link -> withLink(LinkAnnotation.Url(seg.url, styles = linkStyles)) { append(seg.url) }
             }
         }
-        suffix?.invoke(this)
     }
 
     val inlineContent = remember(segments) {

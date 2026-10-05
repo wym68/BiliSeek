@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import com.biliseek.app.ui.FullscreenPlayerOverlay
 import com.biliseek.core.player.PlaybackMode
+import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.core.player.VideoQualityOption
@@ -17,7 +18,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * 全屏控制层的纯状态渲染测试（免网络）：按钮可达、面板能打开、锁定后控件消失。
+ * 全屏控制层的纯状态渲染测试（免网络）：按钮可达、面板能打开（含播放列表）、锁定后控件消失。
  */
 class FullscreenPlayerUiTest {
 
@@ -37,7 +38,11 @@ class FullscreenPlayerUiTest {
         ),
     )
 
-    private fun setOverlay(state: PlaybackState = watching, danmakuEnabled: Boolean = false) {
+    private fun setOverlay(
+        state: PlaybackState = watching,
+        danmakuEnabled: Boolean = false,
+        onSkipTo: (Int) -> Unit = {},
+    ) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         compose.setContent {
             BiliSeekTheme {
@@ -52,6 +57,7 @@ class FullscreenPlayerUiTest {
                     onSkipPrevious = {},
                     onSkipNext = {},
                     onEnterPip = {},
+                    onSkipTo = onSkipTo,
                 )
             }
         }
@@ -63,6 +69,25 @@ class FullscreenPlayerUiTest {
         compose.onNodeWithText("倍速").assertIsDisplayed()
         compose.onNodeWithText("自动").assertIsDisplayed()
         compose.onNodeWithText("音质").assertIsDisplayed()
+    }
+
+    @Test
+    fun 播放列表面板列出队列_点另一首跳过去() {
+        var skippedTo: Int? = null
+        setOverlay(
+            watching.copy(
+                queue = listOf(
+                    PlaybackRequest.Bili(bvid = "BV1a", title = "第一首"),
+                    PlaybackRequest.Bili(bvid = "BV1b", title = "第二首"),
+                ),
+                queueIndex = 0,
+            ),
+            onSkipTo = { skippedTo = it },
+        )
+        compose.onNodeWithContentDescription("播放列表").performClick()
+        compose.onNodeWithContentDescription("正在播放").assertIsDisplayed()
+        compose.onNodeWithText("第二首").assertIsDisplayed().performClick()
+        check(skippedTo == 1) { "点第二首应跳到下标 1：$skippedTo" }
     }
 
     @Test
@@ -91,6 +116,10 @@ class FullscreenPlayerUiTest {
         compose.onNodeWithContentDescription("更多").performClick()
         compose.onNodeWithText("定时关闭").assertIsDisplayed()
         compose.onNodeWithText("下载").assertIsDisplayed()
+        // 叫法与别处一致
+        compose.onNodeWithText("加入列表").assertIsDisplayed()
+        compose.onNodeWithText("复制链接").assertIsDisplayed()
+        compose.onNodeWithText("查看UP主").assertIsDisplayed()
     }
 
     @Test

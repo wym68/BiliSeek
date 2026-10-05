@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.core.network.dto.FollowingUp
 
 /**
@@ -139,7 +140,7 @@ fun FollowingListScreen(
                 )
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
                 items(filtered, key = { it.mid }) { up ->
                     Row(
                         modifier = Modifier

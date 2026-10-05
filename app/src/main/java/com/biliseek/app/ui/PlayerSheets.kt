@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -48,13 +49,10 @@ import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sms
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -72,6 +70,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -99,6 +98,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil3.compose.AsyncImage
+import com.biliseek.app.ui.components.CompactDragHandle
 import com.biliseek.core.player.PlayMode
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
@@ -111,7 +111,9 @@ import com.biliseek.designsystem.theme.CoverPalette
  * 三点菜单 ModalBottomSheet（BBPlayer `PlayerFunctionalMenu` 同款架构）。
  *
  * 调研要点：
- * - 顶部高频方块按钮（倍速/定时/下载）+ Divider + 低频列表项
+ * - 顶部方块按钮（查看UP主 / 加入列表 / 下载）+ Divider + 列表项（画质 / 音质 / 复制链接）
+ * - 倍速、定时只从播放页上的胶囊进，菜单里不重复
+ * - 一打开就完整展开：内容不到半屏，刚好显示到最后一项
  * - Curried closer：所有菜单项先 onDismiss 再执行动作（避免 sheet 动画冲突）
  * - Haptics：菜单项点击触发 LongPress
  */
@@ -120,8 +122,6 @@ import com.biliseek.designsystem.theme.CoverPalette
 internal fun PlayerMoreMenuSheet(
     state: PlaybackState,
     onDismiss: () -> Unit,
-    onSetSpeed: (Float) -> Unit,
-    onSetSleepTimer: (Long) -> Unit,
     onDownload: () -> Unit,
     onAddToList: () -> Unit,
     onViewAuthor: () -> Unit,
@@ -131,10 +131,8 @@ internal fun PlayerMoreMenuSheet(
     onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
     onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
 ) {
-    var showSpeedSheet by remember { mutableStateOf(false) }
     var showAudioSheet by remember { mutableStateOf(false) }
     var showQualitySheet by remember { mutableStateOf(false) }
-    var showTimerSheet by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
 
     fun closeThen(action: () -> Unit) {
@@ -143,12 +141,16 @@ internal fun PlayerMoreMenuSheet(
         action()
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { CompactDragHandle() },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
+                .padding(top = 8.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Row(
@@ -156,15 +158,15 @@ internal fun PlayerMoreMenuSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 MenuQuickButton(
-                    icon = Icons.Filled.Speed,
-                    label = "倍速",
-                    onClick = { showSpeedSheet = true },
+                    icon = Icons.Filled.Person,
+                    label = "查看UP主",
+                    onClick = { closeThen(onViewAuthor) },
                     modifier = Modifier.weight(1f),
                 )
                 MenuQuickButton(
-                    icon = Icons.Filled.Timer,
-                    label = "定时关闭",
-                    onClick = { showTimerSheet = true },
+                    icon = Icons.Filled.PlaylistAdd,
+                    label = "加入列表",
+                    onClick = { closeThen(onAddToList) },
                     modifier = Modifier.weight(1f),
                 )
                 MenuQuickButton(
@@ -181,20 +183,8 @@ internal fun PlayerMoreMenuSheet(
                 MenuItemRow(Icons.Filled.HighQuality, "画质") { showQualitySheet = true }
             }
             MenuItemRow(Icons.Filled.GraphicEq, "音质") { showAudioSheet = true }
-            MenuItemRow(Icons.Filled.PlaylistAdd, "添加到列表") { closeThen(onAddToList) }
-            MenuItemRow(Icons.Filled.Person, "查看作者") { closeThen(onViewAuthor) }
-            MenuItemRow(Icons.Filled.Share, "分享") { closeThen(onShare) }
+            MenuItemRow(Icons.Filled.ContentCopy, "复制链接") { closeThen(onShare) }
         }
-    }
-
-    if (showSpeedSheet) {
-        SpeedSelectionSheet(
-            currentSpeed = state.speed,
-            speedIncompatibleLossless =
-                state.qualityFallback == com.biliseek.core.player.QualityFallback.SPEED_INCOMPATIBLE,
-            onSpeedSelected = { onSetSpeed(it); showSpeedSheet = false },
-            onDismiss = { showSpeedSheet = false },
-        )
     }
 
     if (showQualitySheet) {
@@ -218,16 +208,38 @@ internal fun PlayerMoreMenuSheet(
             )
         }
     }
+}
 
-    if (showTimerSheet) {
-        TimerSelectionSheet(
-            isActive = state.sleepTimerActive,
-            remainingMs = state.sleepTimerRemainingMs,
-            endOfTrack = state.sleepTimerEndOfTrack,
-            onSetTimer = { onSetSleepTimer(it); showTimerSheet = false },
-            onDismiss = { showTimerSheet = false },
-        )
-    }
+/** 倍速弹层：选完生效并收起。从播放页的倍速胶囊打开。 */
+@Composable
+internal fun PlayerSpeedSheet(
+    state: PlaybackState,
+    onSetSpeed: (Float) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    SpeedSelectionSheet(
+        currentSpeed = state.speed,
+        speedIncompatibleLossless =
+            state.qualityFallback == com.biliseek.core.player.QualityFallback.SPEED_INCOMPATIBLE,
+        onSpeedSelected = { onSetSpeed(it); onDismiss() },
+        onDismiss = onDismiss,
+    )
+}
+
+/** 定时关闭弹层：选完生效并收起。从播放页的定时胶囊打开。 */
+@Composable
+internal fun PlayerTimerSheet(
+    state: PlaybackState,
+    onSetSleepTimer: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    TimerSelectionSheet(
+        isActive = state.sleepTimerActive,
+        remainingMs = state.sleepTimerRemainingMs,
+        endOfTrack = state.sleepTimerEndOfTrack,
+        onSetTimer = { onSetSleepTimer(it); onDismiss() },
+        onDismiss = onDismiss,
+    )
 }
 
 @Composable
@@ -279,8 +291,8 @@ private fun SpeedSelectionSheet(
     onSpeedSelected: (Float) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, dragHandle = { CompactDragHandle() }) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
             Text("倍速播放", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             SpeedOptions(currentSpeed, speedIncompatibleLossless, onSpeedSelected)
@@ -331,8 +343,8 @@ private fun TimerSelectionSheet(
     onSetTimer: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, dragHandle = { CompactDragHandle() }) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
             TimerOptions(isActive, remainingMs, endOfTrack, onSetTimer)
             Spacer(Modifier.height(16.dp))
         }
@@ -394,8 +406,8 @@ internal fun OptionsSheet(
     onDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, dragHandle = { CompactDragHandle() }) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             content()
