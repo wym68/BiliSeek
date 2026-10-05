@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
@@ -454,6 +455,15 @@ internal fun DynamicCard(
             )
         }
 
+        // 充电专属动态没充电：B 站只给锁定标题和解锁提示，画成一张锁定卡片，免得只剩头像和互动栏
+        if (entry.lockedTitle.isNotBlank() || entry.lockedHint.isNotBlank()) {
+            LockedDynamicCard(
+                title = entry.lockedTitle,
+                hint = entry.lockedHint,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
         val video = entry.video
         if (video != null) {
             // 点按播放，长按弹动作菜单。早先只挂了 clickable：长按松手也被当成一次点按，直接开播
@@ -593,6 +603,38 @@ internal fun DynamicCard(
                     count = stat.like.count.toLong(),
                     active = stat.like.status,
                     onClick = onLikeClick,
+                )
+            }
+        }
+    }
+}
+
+/** 充电专属动态的锁定卡片：闪电图标 + 标题 + 解锁提示。不放「××元充电」按钮——App 里没有充电流程。 */
+@Composable
+private fun LockedDynamicCard(title: String, hint: String, modifier: Modifier = Modifier) {
+    val pink = ChargeExclusiveBadge.color
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(pink.copy(alpha = 0.08f))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(pink.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Bolt, contentDescription = null, tint = pink, modifier = Modifier.size(22.dp))
+        }
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+            Text(title.ifBlank { "充电专属动态" }, style = MaterialTheme.typography.titleSmall)
+            if (hint.isNotBlank()) {
+                Text(
+                    hint,
+                    Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

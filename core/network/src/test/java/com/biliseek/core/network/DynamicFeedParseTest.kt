@@ -237,4 +237,85 @@ class DynamicFeedParseTest {
         assertEquals(true, video.limitedFree)
         assertEquals(false, video.chargeExclusive)
     }
+
+    @Test
+    fun `充电专属动态没充电时 major blocked 解出锁定标题与提示`() {
+        val data = json.decodeFromString<DynamicFeedData>(
+            """
+            {
+              "items": [{
+                "id_str": "lock1", "type": "DYNAMIC_TYPE_DRAW",
+                "modules": {
+                  "module_author": { "mid": 1, "name": "老猫鱼不吃鱼" },
+                  "module_dynamic": {
+                    "desc": null,
+                    "major": {
+                      "type": "MAJOR_TYPE_BLOCKED",
+                      "blocked": {
+                        "blocked_type": 1,
+                        "title": "梅友机场专属动态",
+                        "hint_message": "加入当前UP主的「30元档包月充电」即可解锁观看",
+                        "button": { "text": "30元充电", "jump_url": "https://example.invalid" }
+                      }
+                    }
+                  }
+                }
+              }]
+            }
+            """.trimIndent(),
+        )
+        val entry = parseDynamicItems(data.items).single()
+        assertEquals("梅友机场专属动态", entry.lockedTitle)
+        assertEquals("加入当前UP主的「30元档包月充电」即可解锁观看", entry.lockedHint)
+        assertEquals("", entry.descText)
+        assertTrue(entry.pics.isEmpty())
+    }
+
+    @Test
+    fun `纯文字类型的锁定动态没有文案也保留`() {
+        val data = json.decodeFromString<DynamicFeedData>(
+            """
+            {
+              "items": [{
+                "id_str": "lock2", "type": "DYNAMIC_TYPE_WORD",
+                "modules": {
+                  "module_author": { "mid": 1, "name": "UP" },
+                  "module_dynamic": { "major": { "type": "MAJOR_TYPE_BLOCKED",
+                    "blocked": { "title": "专属动态", "hint_message": "充电即可解锁观看" } } }
+                }
+              }]
+            }
+            """.trimIndent(),
+        )
+        assertEquals("专属动态", parseDynamicItems(data.items).single().lockedTitle)
+    }
+
+    @Test
+    fun `转发锁定动态取原动态的锁定提示`() {
+        val data = json.decodeFromString<DynamicFeedData>(
+            """
+            {
+              "items": [{
+                "id_str": "fwd1", "type": "DYNAMIC_TYPE_FORWARD",
+                "modules": {
+                  "module_author": { "mid": 2, "name": "转发者" },
+                  "module_dynamic": { "desc": { "text": "好看" } }
+                },
+                "orig": {
+                  "id_str": "lock3", "type": "DYNAMIC_TYPE_DRAW",
+                  "modules": {
+                    "module_author": { "mid": 1, "name": "UP" },
+                    "module_dynamic": { "major": { "type": "MAJOR_TYPE_BLOCKED",
+                      "blocked": { "title": "专属动态", "hint_message": "充电即可解锁观看" } } }
+                  }
+                }
+              }]
+            }
+            """.trimIndent(),
+        )
+        val entry = parseDynamicItems(data.items).single()
+        assertEquals("好看", entry.descText)
+        assertEquals("专属动态", entry.lockedTitle)
+        assertEquals("充电即可解锁观看", entry.lockedHint)
+    }
 }

@@ -93,6 +93,15 @@ data class DynamicMajor(
     val draw: DynamicDraw? = null,
     val article: DynamicArticle? = null,
     val opus: DynamicOpus? = null,
+    /** 充电专属动态没充电时（`MAJOR_TYPE_BLOCKED`）：只给锁定提示，不给正文。 */
+    val blocked: DynamicBlocked? = null,
+)
+
+/** `major.blocked` —— 锁定卡片的标题（「××专属动态」）与解锁提示（「加入当前UP主的…即可解锁观看」）。 */
+@Serializable
+data class DynamicBlocked(
+    val title: String = "",
+    @SerialName("hint_message") val hintMessage: String = "",
 )
 
 /** 视频投稿（DYNAMIC_TYPE_AV）。注意时长是文本（"03:27"）而非秒。 */

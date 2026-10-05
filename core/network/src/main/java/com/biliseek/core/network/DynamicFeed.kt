@@ -55,6 +55,13 @@ data class DynamicEntry(
      * 只有 opus/detail 拉到的详情才有；feed 卡片始终为空。
      */
     val body: List<com.biliseek.core.network.dto.DynamicBlock> = emptyList(),
+    /**
+     * 充电专属动态（没充电看不到正文）的锁定标题，如「××专属动态」；空串 = 不是锁定动态。
+     * 来自 `major.blocked`，转发时取 orig 的。
+     */
+    val lockedTitle: String = "",
+    /** 锁定动态的解锁提示，如「加入当前UP主的「30元档包月充电」即可解锁观看」。 */
+    val lockedHint: String = "",
 )
 
 data class DynamicVideo(
@@ -176,6 +183,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         stat = stat,
         emotes = collectDynamicEmotes(item),
         body = major?.opus?.blocks.orEmpty(),
+        lockedTitle = major?.blocked?.title.orEmpty(),
+        lockedHint = major?.blocked?.hintMessage.orEmpty(),
     )
 
     // 多图抽取：去空 src、normalizeCoverUrl
@@ -248,6 +257,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
                     else -> origPics.firstOrNull().orEmpty()
                 },
                 pics = origPics,
+                lockedTitle = origMajor?.blocked?.title.orEmpty(),
+                lockedHint = origMajor?.blocked?.hintMessage.orEmpty(),
             )
         }
 
@@ -287,8 +298,8 @@ fun parseDynamicItem(item: DynamicItem): DynamicEntry? {
         }
 
         DynamicItemType.WORD ->
-            // 旧版纯文字动态：无 major 无可播内容，仅当文案非空才保留，避免出空卡片。
-            if (descText.isNotBlank()) base else null
+            // 旧版纯文字动态：无 major 无可播内容，仅当文案非空（或是锁定动态）才保留，避免出空卡片。
+            if (descText.isNotBlank() || base.lockedTitle.isNotBlank() || base.lockedHint.isNotBlank()) base else null
 
         else -> null
     }
