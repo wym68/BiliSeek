@@ -42,7 +42,9 @@ fun HomeSlogan(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Text(
             text = "“",
-            modifier = Modifier.offset(x = (-4).dp, y = (-4).dp).clearAndSetSemantics {},
+            // 行高（120）小于字体本身高度（约 164）时，真机首行不会像浏览器那样把字形上提半个差值（约 22dp），
+            // 所以在设计稿的 −4dp 上再多上提 22dp，否则引号会压到英文行上
+            modifier = Modifier.offset(x = (-4).dp, y = (-26).dp).clearAndSetSemantics {},
             color = colors.primary.copy(alpha = 0.3f),
             style = TextStyle(
                 fontFamily = DmSerifDisplay,
