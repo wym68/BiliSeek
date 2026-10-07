@@ -465,7 +465,7 @@ fun LibraryScreen(
                                         }
                                         else -> {
                                             Text(
-                                                "还没有收藏夹，点上方「新建收藏夹」或右上角「同步」",
+                                                "还没有收藏夹，点上方「新建收藏夹」或下拉刷新",
                                                 Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                                 style = MaterialTheme.typography.bodySmall,
                                             )
@@ -776,7 +776,7 @@ private fun PlaylistDetail(
         )
         if (tracks.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("空列表。在搜索结果里长按可加入", style = MaterialTheme.typography.bodySmall)
+                Text("空列表。在视频的 ⋮ 菜单里选「加入列表」", style = MaterialTheme.typography.bodySmall)
             }
         } else {
             Text(

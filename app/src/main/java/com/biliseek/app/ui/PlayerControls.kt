@@ -22,9 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowRightAlt
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.QueueMusic
@@ -44,7 +42,6 @@ import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -190,26 +187,22 @@ internal fun CoverArea(
 }
 
 /**
- * 播放控制条：上一首 / 播放 / 下一首 + 模式切换按钮。全屏控制层在用；播放页用 [PlayerPageControlRow]。
+ * 播放控制条：上一首 / 播放 / 下一首。全屏控制层在用；播放页用 [PlayerPageControlRow]。
  *
  * 调研要点（BBPlayer 参考）：
  * - Optimistic UI：点击立即翻转本地显示状态，prop 变化自动覆盖（`remember(isPlaying)`）
- * - Haptics：传输控制 LongPress / 模式切换 Confirm
+ * - Haptics：传输控制 LongPress
  * - Skip 禁用态：!hasPrevious/hasNext 时透明度 0.38f + 不响应点击
  */
 @Composable
 internal fun PlayerControlBar(
     isPlaying: Boolean,
-    isAudioMode: Boolean,
     onTogglePlayPause: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
-    onSwitchMode: () -> Unit,
     hasPrevious: Boolean,
     hasNext: Boolean,
     modifier: Modifier = Modifier,
-    // 全屏控制层没有听/看切换的概念，复用本组件但不渲染右侧模式切换按钮。
-    showModeSwitch: Boolean = true,
     // 上一首/下一首图标颜色：全屏黑底下默认的 onSurface 太暗，调用方传白色。
     iconColor: Color = MaterialTheme.colorScheme.onSurface,
     // 全屏下默认尺寸太大太占地方，调用方可以整体传一份更小的。
@@ -228,7 +221,6 @@ internal fun PlayerControlBar(
     hapticType: HapticFeedbackType = HapticFeedbackType.LongPress,
 ) {
     var optimisticPlaying by remember(isPlaying) { mutableStateOf(isPlaying) }
-    val haptic = LocalHapticFeedback.current
 
     Row(
         modifier.then(if (fillWidth) Modifier.fillMaxWidth() else Modifier).padding(vertical = verticalPadding),
@@ -243,23 +235,6 @@ internal fun PlayerControlBar(
         }
         Spacer(Modifier.width(spacing))
         SkipButton(Icons.Filled.SkipNext, "下一首", hasNext, iconColor, buttonSize, iconSize, hapticType, onSkipNext)
-        if (showModeSwitch) {
-            Spacer(Modifier.width(16.dp))
-            TextButton(onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                onSwitchMode()
-            }) {
-                if (isAudioMode) {
-                    Icon(Icons.Filled.PlayCircle, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("看")
-                } else {
-                    Icon(Icons.Filled.Headphones, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("退回听")
-                }
-            }
-        }
     }
 }
 

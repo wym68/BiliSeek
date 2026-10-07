@@ -518,7 +518,6 @@ fun FullscreenPlayerOverlay(
                         val transportControls: @Composable () -> Unit = {
                             PlayerControlBar(
                                 isPlaying = state.showPauseButton,
-                                isAudioMode = false,
                                 onTogglePlayPause = {
                                     touch()
                                     onTogglePlayPause()
@@ -531,10 +530,8 @@ fun FullscreenPlayerOverlay(
                                     touch()
                                     onSkipNext()
                                 },
-                                onSwitchMode = {},
                                 hasPrevious = state.hasPrevious,
                                 hasNext = state.hasNext,
-                                showModeSwitch = false,
                                 iconColor = Color.White,
                                 buttonSize = 36.dp,
                                 iconSize = 22.dp,

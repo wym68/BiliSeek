@@ -32,8 +32,6 @@ class BiliNetwork private constructor(context: Context) {
         .addInterceptor(HeaderInterceptor())
         .apply {
             if (BuildConfig.DEBUG) {
-                // 充电字段调试日志：加在解压拦截器外层，拿到明文 JSON（只读，见 ChargeDebugInterceptor）
-                addInterceptor(com.biliseek.core.network.internal.ChargeDebugInterceptor())
                 // 应用拦截器：先读取原始 gzip 字节并打日志，再将 body 替换为解压后的明文，
                 // 让后续的 logging 拦截器看到可读的 JSON。
                 addInterceptor { chain ->

@@ -157,7 +157,7 @@ data class DownloadEntity(
     /** 视频文件。只下了音频时为空字符串 */
     val videoFile: String,
     val fileSize: Long,
-    /** 状态机：QUEUED / DOWNLOADING / DONE / FAILED */
+    /** 状态机：QUEUED / DOWNLOADING / PAUSED / DONE / FAILED */
     val status: String,
     /** 失败原因，仅 FAILED 时非空 */
     val error: String,
