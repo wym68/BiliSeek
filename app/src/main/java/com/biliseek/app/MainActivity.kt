@@ -419,7 +419,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val queueSwipeHintShown by viewModel.queueSwipeHintShown.collectAsState()
 
                 // 普通提示（不带按钮：批量操作结果、链接已复制、下载完成、筛选、播放模式……）：
                 // 前台一律用 App 内的提示，放在迷你条上方——系统 Toast 的位置挪不动、会压在迷你条上（用户 2026-10-04 要求）。
@@ -1192,8 +1191,6 @@ class MainActivity : ComponentActivity() {
                         onRemove = viewModel::removeFromQueue,
                         onDismiss = viewModel::closeQueueSheet,
                         snackbarHostState = queueSheetSnackbar,
-                        showSwipeHint = !queueSwipeHintShown,
-                        onSwipeHintShown = viewModel::markQueueSwipeHintShown,
                     )
                 }
 
