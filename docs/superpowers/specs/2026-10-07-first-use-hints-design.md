@@ -1,7 +1,7 @@
 # 首次使用演示：不易发现的手势放一次演示
 
 日期：2026-10-07
-范围：`app`（新增 `ui/HintPolicy.kt`、`hint/HintController.kt`、`ui/components/HintBubble.kt`、`ui/components/DemoFinger.kt`；改 `data/SettingsStore.kt`、`ui/components/SwipeToRemoveRow.kt`、`ui/MiniPlayer.kt`、`ui/components/DraggableProgressBar.kt`、`ui/DynamicScreen.kt`、`SearchScreen.kt`、`ui/UpSpaceScreen.kt`、各列表页、`ui/SettingsScreen.kt`）。`core/*` 不改。
+范围：`app`（新增 `hint/HintPolicy.kt`、`hint/HintStore.kt`、`hint/HintController.kt`、`ui/components/HintDemo.kt`、`ui/components/HintBubble.kt`、`ui/components/DemoFinger.kt`、`ui/components/LongPressHint.kt`；改 `data/SettingsStore.kt`（去掉旧的队列演示记录）、`ui/components/SwipeToRemoveRow.kt`、`ui/MiniPlayer.kt`、`ui/components/DraggableProgressBar.kt`、`ui/DynamicScreen.kt`、`SearchScreen.kt`、`ui/UpSpaceScreen.kt`、各列表页、`ui/SettingsScreen.kt`）。`core/*` 不改。
 
 ## 背景（用户原话）
 
@@ -43,7 +43,7 @@
 - **演示全是画出来的**：不发网络请求、不 seek、不打开播放页、不弹菜单、不进多选、不改筛选。点头像的蓝圈只是画面。
 - **用户自己用过就当看过**：用户自己做了这个操作（右滑删过、上滑开过播放页、左右拖过、长按出过菜单 / 进过多选、点头像筛过），就记为已看过，不再演示。拖进度线时如果 8 还没放，同时记 8 已看过；9 照常在这次松手后放。
 - **记为已看过的时机**：演示完整放完。中途离开页面、页面被盖住，下次再放。
-- **不放的场合**：全屏、画中画、App 不在前台、有弹层 / 对话框盖着主界面时。
+- **不放的场合**：全屏、画中画、App 不在前台、有弹层 / 对话框盖着主界面时（后两种都表现为本窗口没有焦点）。
 - **列表有内容才放**；加载中、空列表、出错时等着，列表出来了再放（同一次进入内有效）。
 
 ### 3. 演示动作
@@ -59,16 +59,15 @@
 
 ### 4. 结构
 
-- `data/SettingsStore`：`queueSwipeHintShown` / `setQueueSwipeHintShown` 换成 `shownHints: StateFlow<Set<HintKey>>` + `markHintShown(key)` + `resetHints()`，仍存 `biliseek_hints`（同步读）；`SWIPE_QUEUE` 沿用 `KEY_QUEUE_SWIPE_HINT`，其余每项一个布尔键。另存 `launchSeq`（冷启动序号）和 `minibarSwipeShownAtLaunch`。
-- `ui/HintPolicy.kt`（纯函数，单测）：
-  - `enum class HintKey`（上表 13 项）。
-  - `resolveHint(candidate, shown, ctx): Boolean` —— 给定一个候选、已看过集合和上下文（`launchSeq`、`minibarSwipeShownAtLaunch`、动态页是否已在本次进入前放过 10、用户是否刚拖完进度线、是否有别的演示在放、是否满足「不放的场合」、列表是否有内容），判断现在能不能放。
-  - `keysMarkedByUserAction(action): Set<HintKey>` —— 用户自己做了什么操作就记哪些为已看过（例：拖进度线 → `{MINIBAR_DRAG}`）。
-- `hint/HintController.kt`（功能控制器，由 `AppViewModel` 组合）：`active: StateFlow<HintKey?>`、`request(key, ctx)`（过 Policy、占用「同一时间一个」）、`finish(key)`（记已看过、释放）、`cancel(key)`（离开页面，不记）、`onUserAction(action)`、`reset()`。
-- 组件：`HintBubble(text, anchorBounds, onDismiss)`（`Popup`，不拦截触摸，用 `pointerInput` 监听外部按下后消失）、`DemoFinger`（三种动作）。
-- 各控件加 `demo` 参数（为真时自己跑演示动画、放完回调 `onDemoDone`，不触发任何业务回调）：`SwipeToRemoveRow`（已有，改距离、加手指）、迷你条外层（①）、`DraggableProgressBar`（② ③）、`UpAvatarChip`（10）、动态视频行（11）、搜索 / UP 空间结果行（12 / 13）。
-- 设置页「界面」分组最后加一行「重新显示操作提示」：点了 `resetHints()`，提示「已重置，下次碰到时会再演示」（走 `LocalShowMessage`）。
-- `AppViewModel` 删去 `queueSwipeHintShown` / `markQueueSwipeHintShown`，改用 `HintController`。
+- `hint/HintPolicy.kt`（纯函数，单测）：`enum class HintKey(prefKey)`（上表 13 项；`SWIPE_QUEUE` 沿用旧键 `queue_swipe_hint_shown`）、`PersistedHints`（看过哪些、冷启动序号、①记为看过时的启动序号）、`HintState`（加上正在放的、全屏 / 画中画、本进程第几次进入动态页、⑩在哪次进入记为看过、③能不能放）；`canStartHint`、`shouldForfeitHint`（被别的演示占着、而它本来能放 → 这次进入放弃）、`startHint` / `cancelHint` / `markHintSeen` / `applyUserAction` / `resetHints`。
+- `hint/HintStore.kt`：`HintRecords` 接口 + `SharedPrefsHintRecords`（SharedPreferences `biliseek_hints`，同步读）。旧的 `SettingsStore.queueSwipeHintShown` 删除。
+- `hint/HintController.kt`（功能控制器，`AppViewModel.hints`）：`state: StateFlow<HintState>`、`onColdStart()`、`setEnvironmentBlocked()`、`enterDynamic()`、`tryStart(key)`、`finish(key)`、`cancel(key)`、`onUserAction(key)`、`onTouch()`、`reset()`。只在主线程调用；持久部分一变就写盘。
+- 界面取用：`ui/components/HintDemo.kt` 的 `LocalHints`（`MainActivity` 提供，同 `LocalShowMessage`，不经各页面参数传递）、`rememberHintDemo(key, ready)`（本窗口有焦点、`ready` 为真时尝试开始；返回 `running` 和 `finish()`；离开组合时没放完就 `cancel`）、`Modifier.hintTouchObserver()`（挂在 `AppShell` 根和队列面板根，只看不拦截）。「有弹层盖着」= 当前窗口没有焦点（队列面板自己是独立窗口，里面的演示照放）。
+- 组件：`HintBubble`（`Popup`、不抢焦点、尖角跟着锚点）、`DemoFinger` + `DemoFingerState`（显示、点按波纹、长按进度环）、`LongPressHint`（包住一行：长按演示 + 气泡，⑪⑫⑬共用）。
+- 各控件接入：`SwipeToRemoveRow(hintKey, showHint)`（距离 88dp、加手指、用户删过记为看过）、`MiniPlayer`（①）、`DraggableProgressBar`（②③，演示只改显示用的拖动状态，不调 `onSeek`）、`MostVisitedUpRow` 第一个头像（⑩）、`DynamicCard(videoHint)`（⑪）、搜索 / UP 空间结果行（⑫⑬）。
+- 设置页「界面」分组最后加一行「重新显示操作提示」：`hints.reset()`，提示「已重置，下次碰到时会再演示」（走 `LocalShowMessage`）。
+- `AppViewModel` 删去 `queueSwipeHintShown` / `markQueueSwipeHintShown`；`PlayerQueueSheet` 删去 `showSwipeHint` / `onSwipeHintShown` 参数。
+- 已知局限：没关注任何 UP（「最常访问」不出现）时⑩放不了，⑪也就一直不放。
 
 ## 不做
 
