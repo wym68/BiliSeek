@@ -1,5 +1,9 @@
 package com.biliseek.app.ui
 
+import com.biliseek.app.hint.HintKey
+import com.biliseek.app.ui.components.LocalHints
+import com.biliseek.app.ui.components.LongPressHint
+import com.biliseek.app.ui.components.MULTI_SELECT_HINT_TEXT
 import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsLoadMoreFooter
 import androidx.compose.material.icons.outlined.DynamicFeed
@@ -300,15 +304,29 @@ private fun PostsList(
         else -> {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
                 items(posts.items, key = { it.bvid }) { video ->
-                    PostRow(
-                        video = video,
-                        selected = video.bvid in selectedBvids,
-                        selectionMode = isSelection,
-                        onClick = { if (isSelection) onToggleSelection(video.bvid) else onPostClick(video) },
-                        onLongClick = { if (!isSelection) onEnterSelection(video) },
-                        onToggle = { onToggleSelection(video.bvid) },
-                        onOpenActions = { onOpenActions(video) },
-                    )
+                    val hints = LocalHints.current
+                    // 首次演示 ⑬：第一条演示长按进多选（设计稿 2026-10-07-first-use-hints）
+                    LongPressHint(
+                        key = HintKey.UPSPACE_MULTI_SELECT,
+                        text = MULTI_SELECT_HINT_TEXT,
+                        showHint = !isSelection && video.bvid == posts.items.firstOrNull()?.bvid,
+                        fingerX = POST_COVER_CENTER_X,
+                    ) {
+                        PostRow(
+                            video = video,
+                            selected = video.bvid in selectedBvids,
+                            selectionMode = isSelection,
+                            onClick = { if (isSelection) onToggleSelection(video.bvid) else onPostClick(video) },
+                            onLongClick = {
+                                if (!isSelection) {
+                                    hints?.onUserAction(HintKey.UPSPACE_MULTI_SELECT)
+                                    onEnterSelection(video)
+                                }
+                            },
+                            onToggle = { onToggleSelection(video.bvid) },
+                            onOpenActions = { onOpenActions(video) },
+                        )
+                    }
                     HorizontalDivider()
                 }
                 if (posts.hasMore || posts.isLoadingMore) {
@@ -446,3 +464,6 @@ private fun UpDynamicList(
         }
     }
 }
+
+/** 投稿行里封面（64dp 宽，左边距 16dp）的中心。 */
+private val POST_COVER_CENTER_X = 48.dp

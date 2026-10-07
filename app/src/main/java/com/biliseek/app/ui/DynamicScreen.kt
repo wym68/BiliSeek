@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -58,6 +60,16 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.biliseek.app.hint.HintKey
+import com.biliseek.app.ui.components.DemoFinger
+import com.biliseek.app.ui.components.DemoFingerDefaults
+import com.biliseek.app.ui.components.HintBubble
+import com.biliseek.app.ui.components.HintTiming
+import com.biliseek.app.ui.components.LocalHints
+import com.biliseek.app.ui.components.LongPressHint
+import com.biliseek.app.ui.components.rememberDemoFingerState
+import com.biliseek.app.ui.components.rememberHintDemo
+import kotlinx.coroutines.delay
 import com.biliseek.app.DynamicInitState
 import com.biliseek.app.DynamicUiState
 import com.biliseek.app.data.DynamicExpandState
@@ -137,6 +149,9 @@ fun DynamicScreen(
 
     // 登录后首次进入自动初始化（拉关注列表 + 第一页）
     LaunchedEffect(Unit) { onInit() }
+    // 首次演示 ⑪ 要等「另一次进入」动态页（设计稿 2026-10-07-first-use-hints）
+    val hints = LocalHints.current
+    LaunchedEffect(Unit) { hints?.enterDynamic() }
 
     PullRefreshContainer(
         isRefreshing = state.feed.isLoading && state.feed.items.isNotEmpty(),
@@ -209,6 +224,8 @@ fun DynamicScreen(
                                 )
                             }
                         }
+                        // 首次演示 ⑪ 放在第一条带视频的动态上
+                        val firstVideoId = state.feed.items.firstOrNull { it.video != null }?.idStr
                         items(state.feed.items, key = { it.idStr }) { entry ->
                             DynamicCard(
                                 entry = entry,
@@ -222,6 +239,7 @@ fun DynamicScreen(
                                 onCommentClick = { onOpenComment(entry) },
                                 onLikeClick = { onToggleLike(entry.idStr, entry.stat?.like?.status != true) },
                                 videoActions = videoActions,
+                                videoHint = entry.idStr == firstVideoId,
                             )
                             HorizontalDivider()
                         }
@@ -320,20 +338,72 @@ private fun MostVisitedUpRow(
         }
     }
 
+    // 首次演示 ⑩：手指点第一个头像两下，第一下出蓝圈、第二下消失（只是画面，不筛选）
+    val hints = LocalHints.current
+    val demo = rememberHintDemo(HintKey.DYNAMIC_UP_FILTER, ready = upChips.isNotEmpty() && selectedUpMid == null)
+    val finger = rememberDemoFingerState()
+    var demoSelected by remember { mutableStateOf(false) }
+    LaunchedEffect(demo.running) {
+        if (!demo.running) {
+            demoSelected = false
+            finger.reset()
+            return@LaunchedEffect
+        }
+        delay(HintTiming.START_DELAY_MS)
+        finger.show()
+        delay(UP_DEMO_PAUSE_MS)
+        finger.tap()
+        demoSelected = true
+        delay(UP_DEMO_SELECTED_MS)
+        finger.tap()
+        demoSelected = false
+        delay(UP_DEMO_PAUSE_MS)
+        finger.hide()
+        delay(HintTiming.BUBBLE_HOLD_MS)
+        demo.finish()
+    }
+
     // UP 头像横滑列表
     LazyRow(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items(upChips.take(10), key = { it.mid }) { up ->
-            UpAvatarChip(
-                up = up,
-                selected = selectedUpMid == up.mid,
-                onClick = { onSelectUp(up) },
-            )
+        itemsIndexed(upChips.take(10), key = { _, up -> up.mid }) { index, up ->
+            val chip = @Composable {
+                UpAvatarChip(
+                    up = up,
+                    selected = selectedUpMid == up.mid || (index == 0 && demoSelected),
+                    onClick = {
+                        hints?.onUserAction(HintKey.DYNAMIC_UP_FILTER)
+                        onSelectUp(up)
+                    },
+                )
+            }
+            if (index == 0) {
+                Box {
+                    chip()
+                    DemoFinger(
+                        finger,
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = UP_AVATAR_CENTER_Y - DemoFingerDefaults.Size / 2),
+                    )
+                    if (demo.running) HintBubble(UP_FILTER_HINT_TEXT)
+                }
+            } else {
+                chip()
+            }
         }
     }
 }
+
+// 首次演示 ⑩ 的节奏与位置
+private const val UP_DEMO_PAUSE_MS = 200L
+private const val UP_DEMO_SELECTED_MS = 900L
+
+/** 头像（40dp）中心离头像格顶边的距离。 */
+private val UP_AVATAR_CENTER_Y = 20.dp
+private const val UP_FILTER_HINT_TEXT = "点头像只看这个 UP 的动态，再点一次取消"
 
 @Composable
 private fun UpAvatarChip(
@@ -400,6 +470,8 @@ internal fun DynamicCard(
     onLikeClick: () -> Unit = {},
     /** 视频行长按弹出的动作菜单。null = 不挂长按。 */
     videoActions: DynamicVideoActions? = null,
+    /** 首次演示 ⑪：这一张的视频行演示长按（只有动态 tab 的第一张视频卡片为真）。 */
+    videoHint: Boolean = false,
 ) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Row(
@@ -481,68 +553,82 @@ internal fun DynamicCard(
                     onDismiss = { showActions = false },
                 )
             }
-            Row(
-                Modifier.padding(top = 8.dp).fillMaxWidth().combinedClickable(
-                    onClick = onClick,
-                    onLongClick = videoActions?.let { { showActions = true } },
-                ),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            val hints = LocalHints.current
+            LongPressHint(
+                key = HintKey.DYNAMIC_VIDEO_MENU,
+                text = VIDEO_MENU_HINT_TEXT,
+                showHint = videoHint && videoActions != null,
+                fingerX = VIDEO_COVER_CENTER_X,
+                modifier = Modifier.padding(top = 8.dp),
             ) {
-                Box {
-                    AsyncImage(
-                        model = video.coverUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(width = 96.dp, height = 54.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentScale = ContentScale.Crop,
-                    )
-                    // 充电专属：封面右上角粉色「充电」；限时免费：绿色「限免」（ChargeBadgePolicy）
-                    chargeBadge(video)?.let { badge ->
-                        CoverBadgeLabel(badge, small = false, modifier = Modifier.align(Alignment.TopEnd))
+                Row(
+                    Modifier.fillMaxWidth().combinedClickable(
+                        onClick = onClick,
+                        onLongClick = videoActions?.let {
+                            {
+                                hints?.onUserAction(HintKey.DYNAMIC_VIDEO_MENU)
+                                showActions = true
+                            }
+                        },
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box {
+                        AsyncImage(
+                            model = video.coverUrl,
+                            contentDescription = null,
+                            modifier = Modifier.size(width = 96.dp, height = 54.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentScale = ContentScale.Crop,
+                        )
+                        // 充电专属：封面右上角粉色「充电」；限时免费：绿色「限免」（ChargeBadgePolicy）
+                        chargeBadge(video)?.let { badge ->
+                            CoverBadgeLabel(badge, small = false, modifier = Modifier.align(Alignment.TopEnd))
+                        }
+                        if (video.durationText.isNotBlank()) {
+                            // 深底白字。不能用主题里的 onSurface / onScrim：
+                            // 亮色主题下 onSurface 接近黑，与 scrim 同色，文本不可见。
+                            // 跨主题保持黑底白字与 B 站 / 抖音 / 微信平台惯例一致。
+                            Surface(
+                                modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp),
+                                color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(3.dp),
+                            ) {
+                                Text(
+                                    video.durationText,
+                                    Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = androidx.compose.ui.graphics.Color.White,
+                                )
+                            }
+                        }
                     }
-                    if (video.durationText.isNotBlank()) {
-                        // 深底白字。不能用主题里的 onSurface / onScrim：
-                        // 亮色主题下 onSurface 接近黑，与 scrim 同色，文本不可见。
-                        // 跨主题保持黑底白字与 B 站 / 抖音 / 微信平台惯例一致。
-                        Surface(
-                            modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp),
-                            color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
-                            shape = RoundedCornerShape(3.dp),
-                        ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            video.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val hasPlay = video.playText.isNotBlank()
+                        val hasDanmaku = video.danmakuText.isNotBlank()
+                        if (hasPlay || hasDanmaku) {
+                            val parts = buildList {
+                                if (hasPlay) add("${video.playText}播放")
+                                if (hasDanmaku) add("${video.danmakuText}弹幕")
+                            }
                             Text(
-                                video.durationText,
-                                Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                parts.joinToString(" · "),
+                                Modifier.padding(top = 4.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = androidx.compose.ui.graphics.Color.White,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    }
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        video.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    val hasPlay = video.playText.isNotBlank()
-                    val hasDanmaku = video.danmakuText.isNotBlank()
-                    if (hasPlay || hasDanmaku) {
-                        val parts = buildList {
-                            if (hasPlay) add("${video.playText}播放")
-                            if (hasDanmaku) add("${video.danmakuText}弹幕")
+                        if (entry.rawType == "DYNAMIC_TYPE_FORWARD") {
+                            Text("转发动态", style = MaterialTheme.typography.labelSmall)
                         }
-                        Text(
-                            parts.joinToString(" · "),
-                            Modifier.padding(top = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (entry.rawType == "DYNAMIC_TYPE_FORWARD") {
-                        Text("转发动态", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -792,3 +878,9 @@ private fun CollapseLink(onClick: () -> Unit, modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.primary,
     )
 }
+
+// 首次演示 ⑪
+private const val VIDEO_MENU_HINT_TEXT = "长按视频：加入列表、队列或下一首播放"
+
+/** 视频行里封面（96dp 宽，从行左缘起）的中心。 */
+private val VIDEO_COVER_CENTER_X = 48.dp

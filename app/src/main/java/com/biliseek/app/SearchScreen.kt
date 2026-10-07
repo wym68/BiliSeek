@@ -4,7 +4,11 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.ui.graphics.Color
+import com.biliseek.app.hint.HintKey
+import com.biliseek.app.ui.components.LocalHints
 import com.biliseek.app.ui.components.LocalMiniBarInset
+import com.biliseek.app.ui.components.LongPressHint
+import com.biliseek.app.ui.components.MULTI_SELECT_HINT_TEXT
 import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.theme.BsShapes
 import com.biliseek.app.ui.components.BiliSeekWordmark
@@ -539,29 +543,41 @@ fun SearchScreen(
                     }
                     items(state.items, key = { it.bvid }) { video ->
                         val selected = video.bvid in selectedBvids
-                        ResultRow(
-                            video = video,
-                            onClick = {
-                                if (isSelectionMode) onToggleSelection(video.bvid)
-                                else onResultClick(video)
-                            },
-                            onLongClick = {
-                                // 复选态下长按不做事；正常态长按进入复选模式并勾选该项
-                                if (!isSelectionMode) onEnterSelection(video)
-                            },
-                            trailing = {
-                                if (isSelectionMode) {
-                                    androidx.compose.material3.Checkbox(
-                                        checked = selected,
-                                        onCheckedChange = { onToggleSelection(video.bvid) },
-                                    )
-                                } else {
-                                    androidx.compose.material3.IconButton(onClick = { actionsFor = video }) {
-                                        Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
+                        val hints = LocalHints.current
+                        // 首次演示 ⑫：第一条演示长按进多选（设计稿 2026-10-07-first-use-hints）
+                        LongPressHint(
+                            key = HintKey.SEARCH_MULTI_SELECT,
+                            text = MULTI_SELECT_HINT_TEXT,
+                            showHint = !isSelectionMode && video.bvid == state.items.firstOrNull()?.bvid,
+                            fingerX = RESULT_COVER_CENTER_X,
+                        ) {
+                            ResultRow(
+                                video = video,
+                                onClick = {
+                                    if (isSelectionMode) onToggleSelection(video.bvid)
+                                    else onResultClick(video)
+                                },
+                                onLongClick = {
+                                    // 复选态下长按不做事；正常态长按进入复选模式并勾选该项
+                                    if (!isSelectionMode) {
+                                        hints?.onUserAction(HintKey.SEARCH_MULTI_SELECT)
+                                        onEnterSelection(video)
                                     }
-                                }
-                            },
-                        )
+                                },
+                                trailing = {
+                                    if (isSelectionMode) {
+                                        androidx.compose.material3.Checkbox(
+                                            checked = selected,
+                                            onCheckedChange = { onToggleSelection(video.bvid) },
+                                        )
+                                    } else {
+                                        androidx.compose.material3.IconButton(onClick = { actionsFor = video }) {
+                                            Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
+                                        }
+                                    }
+                                },
+                            )
+                        }
                         HorizontalDivider()
                     }
                     if (state.isLoadingMore) {
@@ -1005,3 +1021,6 @@ private fun greetingForHour(hour: Int): String? = when (hour) {
     in 18..23, in 0..4 -> "晚上好"
     else -> null
 }
+
+/** 搜索结果行里封面（64dp 宽，左边距 16dp）的中心。 */
+private val RESULT_COVER_CENTER_X = 48.dp
