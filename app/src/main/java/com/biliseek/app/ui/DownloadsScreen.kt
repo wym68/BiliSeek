@@ -447,7 +447,7 @@ private fun DownloadRow(
                     Icon(Icons.Outlined.Refresh, contentDescription = "重试")
                 }
                 IconButton(onClick = { onDelete(task.id, false) }) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "删除")
+                    Icon(Icons.Outlined.Delete, contentDescription = "移除")
                 }
             }
             // 排队中 / 下载中：暂停（留着已下的部分）或取消（中断传输并清掉半成品）

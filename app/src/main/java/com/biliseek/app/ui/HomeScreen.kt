@@ -199,7 +199,7 @@ fun SearchHistorySection(
                     trailingIcon = {
                         Icon(
                             Icons.Filled.Close,
-                            contentDescription = "删除",
+                            contentDescription = "移除",
                             modifier = Modifier.size(16.dp).clickable { onDeleteKeyword(entry.keyword) },
                         )
                     },
