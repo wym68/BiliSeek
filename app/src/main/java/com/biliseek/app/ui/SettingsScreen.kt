@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.SignalCellularAlt
 import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +62,9 @@ import com.biliseek.app.data.MiniBarStyle
 import com.biliseek.app.data.VideoQualityDefaults
 import com.biliseek.app.data.DOWNLOAD_CONCURRENCY_CHOICES
 import com.biliseek.app.data.MAX_DOWNLOAD_CONCURRENCY
+import com.biliseek.app.ui.components.LocalHints
 import com.biliseek.app.ui.components.LocalMiniBarInset
+import com.biliseek.app.ui.components.LocalShowMessage
 import com.biliseek.app.ui.components.SettingsChoice
 import com.biliseek.app.ui.components.SettingsChoiceSheet
 import com.biliseek.app.ui.components.SettingsDivider
@@ -232,6 +235,18 @@ fun SettingsScreen(
                     icon = Icons.Outlined.PictureInPictureAlt,
                     value = miniBarChoices.first { it.value == settings.miniBarStyle }.label,
                     onClick = { sheet = SettingsSheetKind.MINI_BAR },
+                )
+                // 首次演示全部清掉重来（设计稿 2026-10-07-first-use-hints）
+                val hints = LocalHints.current
+                val showMessage = LocalShowMessage.current
+                SettingsRow(
+                    title = "重新显示操作提示",
+                    subtitle = "右滑移除、拖进度条等操作的演示再放一次",
+                    icon = Icons.Outlined.TouchApp,
+                    onClick = {
+                        hints?.reset()
+                        showMessage?.invoke("已重置，下次碰到时会再演示")
+                    },
                 )
             }
 

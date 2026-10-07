@@ -401,6 +401,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         connection.undoQueueChange()
     }
 
+    /** 首次使用演示（设计稿 2026-10-07-first-use-hints）。界面经 LocalHints 取用。 */
+    val hints = com.biliseek.app.hint.HintController(com.biliseek.app.hint.SharedPrefsHintRecords(app))
+
     /** 队列面板的右滑演示是否已经放过（只在第一次打开时演示一次）。 */
     val queueSwipeHintShown: StateFlow<Boolean> = settingsStore.queueSwipeHintShown
 

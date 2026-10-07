@@ -162,6 +162,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // 首次演示的「另一次启动」按冷启动计（设计稿 2026-10-07-first-use-hints）
+        if (savedInstanceState == null) viewModel.hints.onColdStart()
         ensureNotificationPermission()
         handleSharedIntent(intent)
         handleSummaryIntent(intent)
@@ -192,6 +194,7 @@ class MainActivity : ComponentActivity() {
                 val showMessage = remember { { msg: String -> showReplacingToast(msg) } }
                 androidx.compose.runtime.CompositionLocalProvider(
                     com.biliseek.app.ui.components.LocalShowMessage provides showMessage,
+                    com.biliseek.app.ui.components.LocalHints provides viewModel.hints,
                     com.biliseek.app.ui.richtext.LocalEmoteDictionary provides emoteDictionary,
                     com.biliseek.app.ui.richtext.LocalEmotePanelHost provides com.biliseek.app.ui.richtext.EmotePanelHost(
                         state = emotePanel,
@@ -345,6 +348,11 @@ class MainActivity : ComponentActivity() {
                     onDispose {
                         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     }
+                }
+
+                // 全屏 / 画中画时不开始新的首次演示
+                LaunchedEffect(expansion, isInPip) {
+                    viewModel.hints.setEnvironmentBlocked(expansion == PlayerExpansion.FULLSCREEN || isInPip)
                 }
 
                 // 弹幕只在全屏（且不在 PiP）时拉取与显示
