@@ -40,7 +40,7 @@ import com.biliseek.app.ui.components.CompactDragHandle
  *
  * 搜索结果 / 多 P 面板 / UP 空间投稿 / 动态长按的菜单共用骨架，
  * 「加入队列」= 追加到播放队列末尾；「下一首播放」= 插到当前项之后（语义由 VM 保证）。
- * 图标按动作名称对应（[iconFor]），没有对应图标的动作只显示文字；以「删除」开头的动作标红。
+ * 图标按动作名称对应（[iconFor]），没有对应图标的动作只显示文字；以「删除」或「移除」开头的动作标红。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +66,7 @@ fun ActionListSheet(
             HorizontalDivider()
             LazyColumn(Modifier.fillMaxWidth()) {
                 items(items) { (label, action) ->
-                    val destructive = label.startsWith("删除")
+                    val destructive = label.startsWith("删除") || label.startsWith("移除")
                     val tint = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     Row(
                         Modifier
@@ -103,6 +103,6 @@ private fun iconFor(label: String): ImageVector? = when (label) {
     "下载" -> Icons.Outlined.Download
     "AI 总结" -> Icons.Outlined.AutoAwesome
     "编辑", "重命名" -> Icons.Outlined.Edit
-    "删除" -> Icons.Outlined.Delete
+    "删除", "移除" -> Icons.Outlined.Delete
     else -> if (label.startsWith("删除")) Icons.Outlined.Delete else null // 删除此版本、删除全部版本…
 }

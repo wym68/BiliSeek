@@ -48,12 +48,12 @@ import com.biliseek.designsystem.theme.BsSpacing
  *
  * - 固定占屏高 70%、一打开就是完整高度、没有拖动条（标题行有「关闭」，下拉照样能关）；
  *   打开时列表定位到正在播的那一项
- * - 标题行：「播放队列 · N 首」+「清空队列」+ 关闭；下面一行常驻提示（图钉含义 + 右滑删除）
+ * - 标题行：「播放队列 · N 首」+「清空队列」+ 关闭；下面一行常驻提示（图钉含义 + 右滑移除）
  * - 每行：固定标志（图钉）、序号（01/02…）、标题（单行省略）、时长。
  *   图钉 = 用户用「加入队列」「下一首播放」加的，点击播放不会替换；没有图钉的是点击带进来的临时条目
  * - 当前播放高亮（主色 + 波形图标）
  * - 点击条目：onSkipTo(index)；点当前条目仅关闭 sheet
- * - 向右滑动删除单条；正在播的那一行滑不动
+ * - 向右滑动移除单条；正在播的那一行滑不动
  * - 首次打开时，第一条可删除的行自动右滑一段再弹回，演示一次（见 [SwipeToRemoveRow] 的首次演示）
  * - 队列为空时显示「队列为空」+ 加入方式提示
  *
@@ -113,7 +113,7 @@ fun PlayerQueueSheet(
                             modifier = Modifier.size(PIN_SIZE),
                         )
                         Text(
-                            " 手动加入，点击播放不会替换 · 右滑删除单条",
+                            " 手动加入，点击播放不会替换 · 右滑移除单条",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

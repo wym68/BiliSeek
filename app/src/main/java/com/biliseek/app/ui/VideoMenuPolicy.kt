@@ -22,13 +22,13 @@ enum class VideoMenuAction(val label: String) {
     CopyLink("复制链接"),
     Download("下载"),
     Summarize("AI 总结"),
-    /** 从当前列表移除：只有稍后再看、收藏夹内容页有（`ActionListSheet` 对「删除」开头的项自动标红配图标）。 */
-    Remove("删除"),
+    /** 从当前列表移除：只有稍后再看、收藏夹内容页有（`ActionListSheet` 对「删除」「移除」开头的项自动标红配图标）。 */
+    Remove("移除"),
 }
 
 /**
  * 菜单项，顺序同搜索结果。没有 UP 编号（≤ 0）就没法「查看UP主」，去掉这一项；
- * [removable]（宿主给了移除动作）时末尾多一项「删除」；[downloadable] 为 false（「已下载」页的条目）时没有「下载」。
+ * [removable]（宿主给了移除动作）时末尾多一项「移除」；[downloadable] 为 false（「已下载」页的条目）时没有「下载」。
  */
 fun videoMenuActions(
     authorMid: Long,

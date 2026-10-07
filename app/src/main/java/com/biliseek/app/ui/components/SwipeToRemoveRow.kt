@@ -40,14 +40,14 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * 可向右滑动删除的一行（播放队列、稍后再看、收藏夹内容页、本地列表、已下载、AI 总结列表共用）。
+ * 可向右滑动移除的一行（播放队列、稍后再看、收藏夹内容页、本地列表、已下载、AI 总结列表共用）。
  *
  * 不用 Material3 的 SwipeToDismissBox：自己控制偏移量，首次演示和手势共用同一个 [Animatable]。
- * 滑过行宽 40%（或快速甩动）松手即删除，否则弹回。
+ * 滑过行宽 40%（或快速甩动）松手即移除，否则弹回。
  * [background] 是行的底色：前景要不透明才能盖住后面的红色删除底，所以要和所在页面的底色一致。
  *
  * 首次演示（设计稿 2026-10-07-first-use-hints）：[hintKey] 是这个列表的演示，[showHint] 为真的那一行
- * 轮到时自己往右挪 88dp（露出「删除」）再弹回，画一个手指、下方气泡说明；用户在任一行自己删过就记为看过。
+ * 轮到时自己往右挪 88dp（露出「移除」）再弹回，画一个手指、下方气泡说明；用户在任一行自己删过就记为看过。
  */
 @Composable
 fun SwipeToRemoveRow(
@@ -106,7 +106,7 @@ fun SwipeToRemoveRow(
                     modifier = Modifier.size(BsSize.iconSm),
                 )
                 Text(
-                    "删除",
+                    "移除",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
@@ -151,7 +151,7 @@ fun SwipeToRemoveRow(
     }
 }
 
-/** 演示挪多远：88dp 刚好露全「删除」两个字（72dp 只露出一半）。 */
+/** 演示挪多远：88dp 刚好露全「移除」两个字（72dp 只露出一半）。 */
 private val SWIPE_HINT_NUDGE = 88.dp
 
 /** 演示手指在行里的横坐标（封面上）。 */

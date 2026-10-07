@@ -38,13 +38,13 @@ class VideoMenuPolicyTest {
     }
 
     @Test
-    fun `能从当前列表移除时末尾多一项删除，前面不变`() {
+    fun `能从当前列表移除时末尾多一项移除，前面不变`() {
         assertEquals(
-            listOf("加入列表", "加入队列", "下一首播放", "查看UP主", "复制链接", "下载", "AI 总结", "删除"),
+            listOf("加入列表", "加入队列", "下一首播放", "查看UP主", "复制链接", "下载", "AI 总结", "移除"),
             videoMenuActions(authorMid = 123, removable = true).map { it.label },
         )
         assertEquals(
-            listOf("加入列表", "加入队列", "下一首播放", "复制链接", "下载", "AI 总结", "删除"),
+            listOf("加入列表", "加入队列", "下一首播放", "复制链接", "下载", "AI 总结", "移除"),
             videoMenuActions(authorMid = 0, removable = true).map { it.label },
         )
     }
@@ -52,7 +52,7 @@ class VideoMenuPolicyTest {
     @Test
     fun `已下载的条目不再有下载，其余顺序不变`() {
         assertEquals(
-            listOf("加入列表", "加入队列", "下一首播放", "复制链接", "AI 总结", "删除"),
+            listOf("加入列表", "加入队列", "下一首播放", "复制链接", "AI 总结", "移除"),
             videoMenuActions(authorMid = 0, removable = true, downloadable = false).map { it.label },
         )
     }

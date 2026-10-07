@@ -781,7 +781,7 @@ private fun PlaylistDetail(
             }
         } else {
             Text(
-                "长按拖动排序，右滑删除",
+                "长按拖动排序，右滑移除",
                 Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.labelSmall,
             )
