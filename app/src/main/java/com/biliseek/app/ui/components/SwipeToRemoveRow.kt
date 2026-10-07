@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.hint.HintKey
+import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.designsystem.theme.BsSize
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -150,12 +151,15 @@ fun SwipeToRemoveRow(
                     .offset(x = SWIPE_HINT_FINGER_X - DemoFingerDefaults.Size / 2),
             )
         }
-        if (demo.running) HintBubble("右滑可以${actionLabel}，能撤销", pointX = SWIPE_HINT_FINGER_X)
+        if (demo.running) HintBubble("右滑可以${actionLabel}，$UNDO_SECONDS 秒内可撤销", pointX = SWIPE_HINT_FINGER_X)
     }
 }
 
 /** 演示挪多远：88dp 刚好露全两个字（「移除」/「删除」）（72dp 只露出一半）。 */
 private val SWIPE_HINT_NUDGE = 88.dp
+
+/** 气泡里写的撤销时限：撤销提示只停这么久，过了就撤销不了（各列表的撤销提示都用这个时长）。 */
+private const val UNDO_SECONDS = RemoteLibraryController.REMOVAL_UNDO_MS / 1000
 
 /** 演示手指在行里的横坐标（封面上）。 */
 private val SWIPE_HINT_FINGER_X = 48.dp

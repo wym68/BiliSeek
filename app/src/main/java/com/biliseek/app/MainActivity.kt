@@ -69,8 +69,8 @@ import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
-/** 队列「撤销」提示的停留时长（docs/10）。 */
-private const val QUEUE_UNDO_SNACKBAR_MS = 4_000L
+/** 队列「撤销」提示的停留时长（docs/10）：与列表移除的撤销提示同一时长，右滑演示气泡里写的秒数也从这里来。 */
+private const val QUEUE_UNDO_SNACKBAR_MS = com.biliseek.app.remote.RemoteLibraryController.REMOVAL_UNDO_MS
 
 /**
  * 弹一条带「撤销」的提示，返回用户有没有点「撤销」。
