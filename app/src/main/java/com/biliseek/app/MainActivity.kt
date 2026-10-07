@@ -215,8 +215,7 @@ class MainActivity : ComponentActivity() {
                 val dynamic by viewModel.dynamics.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.state.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
-                val dayHistory by viewModel.dayHistory.collectAsState()
-                val dayListenedMs by viewModel.dayListenedMs.collectAsState()
+                val dayView by viewModel.dayView.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
                 val chart by viewModel.charts.opened.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
@@ -614,8 +613,7 @@ class MainActivity : ComponentActivity() {
                             BackHandler(onBack = viewModel::closeDayHistory)
                             DayHistoryScreen(
                                 date = dayDate,
-                                entries = dayHistory,
-                                listenedMs = dayListenedMs,
+                                view = dayView,
                                 onClose = viewModel::closeDayHistory,
                                 onEntryClick = viewModel::playDayHistoryEntry,
                             )

@@ -351,6 +351,41 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate9To10_新增按视频的收听表且不动旧合计() {
+        helper.createDatabase(TEST_DB, 9).use { db ->
+            db.execSQL("INSERT INTO listen_day (epochDay, listenedMs) VALUES (20365, 70000)")
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            10,
+            true,
+            BiliSeekDatabase.MIGRATION_9_10,
+        )
+
+        db.query("SELECT listenedMs FROM listen_day WHERE epochDay = 20365").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("迁移后旧的按天合计丢失", 70000L, cursor.getLong(0))
+        }
+        // 与 ListenEntryDao 同样的两步累加
+        repeat(2) {
+            db.execSQL(
+                "INSERT OR IGNORE INTO listen_entry (epochDay, bvid, cid, listenedMs, lastListenedAt) " +
+                    "VALUES (20370, 'BV1x', 0, 0, 0)",
+            )
+            db.execSQL(
+                "UPDATE listen_entry SET listenedMs = listenedMs + 30000, lastListenedAt = ${it + 1} " +
+                    "WHERE epochDay = 20370 AND bvid = 'BV1x' AND cid = 0",
+            )
+        }
+        db.query("SELECT listenedMs, lastListenedAt FROM listen_entry").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("同一天同一视频没累加上", 60000L, cursor.getLong(0))
+            assertEquals(2L, cursor.getLong(1))
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

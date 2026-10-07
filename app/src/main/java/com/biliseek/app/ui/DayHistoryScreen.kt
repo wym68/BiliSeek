@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.data.DayView
 import com.biliseek.app.data.PlayHistoryEntity
 import com.biliseek.core.player.formatDuration
 import java.time.LocalDate
@@ -29,16 +30,15 @@ import java.time.format.DateTimeFormatter
 /**
  * 某天的播放记录页（M12，仿 BBPlayer `/history/[date]`）。
  *
- * 顶部统计卡：当日去重曲目数 + 真实收听时长（[listenedMs]，只在播放中计时；开始统计之前的日子没有数据，
- * 显示「未统计」——不再拿条目的完整时长相加充数）；下方当天播放列表，点击可播。
+ * 列表与顶部统计卡出自同一份按视频的收听明细（[DayView]）：这天听过的每个视频一行（「听了 mm:ss」），
+ * 顶部是各行之和与行数。10-07 以前没有明细的日子回退到播放历史（行内显示完整时长），时长取旧的按天合计，
+ * 也没有就显示「未统计」——不拿条目的完整时长相加充数。点击可播。
  * 通过 [onClose] 返回（系统返回手势由调用方 BackHandler 接管）。
  */
 @Composable
 fun DayHistoryScreen(
     date: LocalDate,
-    entries: List<PlayHistoryEntity>,
-    /** 这天的真实收听毫秒数；没有记录为 null。 */
-    listenedMs: Long?,
+    view: DayView,
     onClose: () -> Unit,
     onEntryClick: (PlayHistoryEntity) -> Unit,
     modifier: Modifier = Modifier,
@@ -46,7 +46,7 @@ fun DayHistoryScreen(
     Column(modifier.fillMaxSize()) {
         BsTopBar(title = date.format(DateTimeFormatter.ISO_LOCAL_DATE), onNavigate = onClose)
 
-        if (entries.isEmpty()) {
+        if (view.rows.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text("这天没有播放记录", style = MaterialTheme.typography.bodySmall)
             }
@@ -65,19 +65,20 @@ fun DayHistoryScreen(
             ) {
                 Text("当日听歌时长", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    listenedMs?.let { formatDuration(it) } ?: "未统计",
+                    view.totalMs?.let { formatDuration(it) } ?: "未统计",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    "共 ${entries.size} 首",
+                    "共 ${view.rows.size} 首",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
 
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = miniBarContentPadding()) {
-            items(entries, key = { it.id }) { entry ->
+            items(view.rows, key = { it.history.id }) { row ->
+                val entry = row.history
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -97,7 +98,8 @@ fun DayHistoryScreen(
                         Text(
                             (entry.author.ifBlank { "" }) +
                                 (if (entry.author.isNotBlank()) " · " else "") +
-                                formatDuration(entry.durationSec * 1000),
+                                (row.listenedMs?.let { "听了 ${formatDuration(it)}" }
+                                    ?: formatDuration(entry.durationSec * 1000)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

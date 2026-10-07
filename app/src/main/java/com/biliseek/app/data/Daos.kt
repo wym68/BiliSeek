@@ -117,21 +117,56 @@ interface HistoryDao {
 data class DayCount(val day: Long, val count: Int)
 
 /**
- * 每天的真实收听时长。累加分两步（先保证有这一天的行，再加），由仓库包在一个事务里：
- * minSdk 26 的 SQLite（3.18）还不支持 `INSERT … ON CONFLICT DO UPDATE`。
+ * 每天的真实收听时长（v8–v9 写入，v10 起只读）：10-07 以前的日子没有按视频的明细，靠它回退显示。
  */
 @Dao
 interface ListenDayDao {
 
-    @Query("INSERT OR IGNORE INTO listen_day (epochDay, listenedMs) VALUES (:epochDay, 0)")
-    suspend fun ensureDay(epochDay: Long)
-
-    @Query("UPDATE listen_day SET listenedMs = listenedMs + :ms WHERE epochDay = :epochDay")
-    suspend fun addListened(epochDay: Long, ms: Long)
-
     /** 某天的收听毫秒数；这天没有记录为 null。 */
     @Query("SELECT listenedMs FROM listen_day WHERE epochDay = :epochDay")
     fun observe(epochDay: Long): Flow<Long?>
+
+    /** [fromEpochDay] 起每天的旧合计（热力图回退用）。 */
+    @Query("SELECT epochDay, listenedMs AS ms FROM listen_day WHERE epochDay >= :fromEpochDay")
+    fun observeSince(fromEpochDay: Long): Flow<List<DayMs>>
+}
+
+/**
+ * 按视频、按天的收听时长。累加分两步（先保证有这一行，再加），由仓库包在一个事务里：
+ * minSdk 26 的 SQLite（3.18）还不支持 `INSERT … ON CONFLICT DO UPDATE`。
+ */
+@Dao
+interface ListenEntryDao {
+
+    @Query(
+        "INSERT OR IGNORE INTO listen_entry (epochDay, bvid, cid, listenedMs, lastListenedAt) " +
+            "VALUES (:epochDay, :bvid, :cid, 0, 0)",
+    )
+    suspend fun ensure(epochDay: Long, bvid: String, cid: Long)
+
+    @Query(
+        "UPDATE listen_entry SET listenedMs = listenedMs + :ms, lastListenedAt = :at " +
+            "WHERE epochDay = :epochDay AND bvid = :bvid AND cid = :cid",
+    )
+    suspend fun add(epochDay: Long, bvid: String, cid: Long, ms: Long, at: Long)
+
+    /** 某天听过的视频，最后听的在前。 */
+    @Query(
+        """
+        SELECT h.*, e.listenedMs AS listenedMs, e.lastListenedAt AS lastListenedAt
+        FROM listen_entry e JOIN play_history h ON h.bvid = e.bvid AND h.cid = e.cid
+        WHERE e.epochDay = :epochDay
+        ORDER BY e.lastListenedAt DESC
+        """,
+    )
+    fun observeDay(epochDay: Long): Flow<List<DayListenRow>>
+
+    /** [fromEpochDay] 起每天的合计。 */
+    @Query(
+        "SELECT epochDay, SUM(listenedMs) AS ms FROM listen_entry " +
+            "WHERE epochDay >= :fromEpochDay GROUP BY epochDay",
+    )
+    fun observeTotalsSince(fromEpochDay: Long): Flow<List<DayMs>>
 }
 
 @Dao

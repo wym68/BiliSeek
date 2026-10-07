@@ -64,7 +64,8 @@ import java.util.Locale
 fun HomeEmptyState(
     searchHistory: List<SearchHistoryEntity>,
     /** 本地日期 → 播放次数（AppViewModel 已按设备时区聚合）。 */
-    heatmap: Map<LocalDate, Int>,
+    /** 每天格子的深浅（0–1，见 [heatmapCellAlpha]）；没有的日子不涂色。 */
+    heatmap: Map<LocalDate, Float>,
     onKeywordClick: (String) -> Unit,
     onDeleteKeyword: (String) -> Unit,
     onClearHistory: () -> Unit,
@@ -243,7 +244,7 @@ private fun Section(
  */
 @Composable
 private fun WeeklyHeatGrid(
-    counts: Map<LocalDate, Int>,
+    levels: Map<LocalDate, Float>,
     onDayClick: (LocalDate) -> Unit,
     weeks: Int = 53,
 ) {
@@ -323,8 +324,7 @@ private fun WeeklyHeatGrid(
                             // 今天之后的格子不画，留出同样大小的空位
                             Spacer(Modifier.size(18.dp))
                         } else {
-                            val count = counts[date] ?: 0
-                            val alpha = heatmapLevelAlpha(count)
+                            val alpha = levels[date] ?: 0f
                             Box(
                                 Modifier
                                     .size(18.dp)
@@ -349,7 +349,7 @@ private fun WeeklyHeatGrid(
 private val HEADER_ROW_DP = 18
 
 /**
- * 热力图色阶：播放次数 → 主题色透明度。0 = 底（不涂色）。
+ * 热力图色阶：播放次数 → 主题色透明度。0 = 底（不涂色）。10-04 以前没有收听时长的日子用（见 [heatmapCellAlpha]）。
  *
  * 与 BBPlayer `cellColor` 4 级色阶同构，抽出为纯函数便于单测。
  */

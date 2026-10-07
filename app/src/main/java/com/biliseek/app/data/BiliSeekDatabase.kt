@@ -19,8 +19,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UpVisitEntity::class,
         AiSummaryEntity::class,
         ListenDayEntity::class,
+        ListenEntryEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -33,6 +34,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
     abstract fun upVisitDao(): UpVisitDao
     abstract fun aiSummaryDao(): AiSummaryDao
     abstract fun listenDayDao(): ListenDayDao
+    abstract fun listenEntryDao(): ListenEntryDao
 
     companion object {
         @Volatile
@@ -45,7 +47,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .build()
 
         /**
@@ -218,6 +220,20 @@ abstract class BiliSeekDatabase : RoomDatabase() {
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE playlist ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /**
+         * v9 → v10：按视频、按天记收听时长（listen_entry）。只建表；listen_day 保留给 10-07 以前的日子回退。
+         * 建表语句与导出的 `10.json` 一致。
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `listen_entry` (`epochDay` INTEGER NOT NULL, `bvid` TEXT NOT NULL, " +
+                        "`cid` INTEGER NOT NULL, `listenedMs` INTEGER NOT NULL, `lastListenedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`epochDay`, `bvid`, `cid`))",
+                )
             }
         }
     }

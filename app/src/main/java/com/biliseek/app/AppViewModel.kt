@@ -36,6 +36,10 @@ import com.biliseek.app.data.BiliSeekDatabase
 import com.biliseek.app.data.DefaultPresentation
 import com.biliseek.app.ui.shouldAutoWatchOnPlayerPage
 import com.biliseek.app.data.LibraryRepository
+import com.biliseek.app.data.DayView
+import com.biliseek.app.ui.heatmapCellAlpha
+import com.biliseek.app.data.ListenKey
+import com.biliseek.app.data.resolveDayView
 import com.biliseek.app.data.ListenTimeTracker
 import com.biliseek.app.data.PlayHistoryEntity
 import com.biliseek.app.data.PlaylistEntity
@@ -469,16 +473,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *
      * 旧实现用 SQL `playedAt / 86400000`（UTC 天数）——中国用户凌晨 0–7 点的
      * 播放会归到前一天。这里拉原始记录在 Kotlin 层按 `LocalDate` 分组。
+     *
+     * 值是格子深浅：有收听时长的日子按分钟分档，10-04 以前没有时长的按播放个数（[heatmapCellAlpha]）。
      */
-    val heatmap: StateFlow<Map<LocalDate, Int>> = library.observeHistorySince(
-        System.currentTimeMillis() - HEATMAP_DAYS * 24 * 3600 * 1000L,
-    )
-        .map { list ->
-            val zone = ZoneId.systemDefault()
-            list.groupingBy { Instant.ofEpochMilli(it.playedAt).atZone(zone).toLocalDate() }
-                .eachCount()
+    val heatmap: StateFlow<Map<LocalDate, Float>> = run {
+        val zone = ZoneId.systemDefault()
+        val since = System.currentTimeMillis() - HEATMAP_DAYS * 24 * 3600 * 1000L
+        val fromDay = Instant.ofEpochMilli(since).atZone(zone).toLocalDate().toEpochDay()
+        combine(
+            library.observeHistorySince(since),
+            library.observeListenTotalsSince(fromDay),
+        ) { list, totals ->
+            val counts = list.groupingBy { Instant.ofEpochMilli(it.playedAt).atZone(zone).toLocalDate() }.eachCount()
+            (counts.keys + totals.keys.map(LocalDate::ofEpochDay)).associateWith { date ->
+                heatmapCellAlpha(totals[date.toEpochDay()], counts[date] ?: 0)
+            }.filterValues { it > 0f }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // ── B 站远程列表（收藏夹 / 稍后再看 / 合集）：见 RemoteLibraryController ──
 
@@ -516,31 +527,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _dayHistoryDate = MutableStateFlow<LocalDate?>(null)
     val dayHistoryDate: StateFlow<LocalDate?> = _dayHistoryDate.asStateFlow()
 
-    /** 日历史页的播放记录（某天的本地日期范围）。 */
-    val dayHistory: StateFlow<List<PlayHistoryEntity>> = _dayHistoryDate
+    /** 日历史页内容：有按视频的收听明细用明细，否则回退到播放历史 + 旧的按天合计（[resolveDayView]）。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val dayView: StateFlow<DayView> = _dayHistoryDate
         .flatMapLatest { date ->
-            if (date == null) flowOf(emptyList())
+            if (date == null) flowOf(DayView(emptyList(), null))
             else {
                 val zone = ZoneId.systemDefault()
                 val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
-                library.observeDayHistory(start, start + 24 * 3600 * 1000L)
+                combine(
+                    library.observeDayListen(date.toEpochDay()),
+                    library.observeListenedMs(date.toEpochDay()),
+                    library.observeDayHistory(start, start + 24 * 3600 * 1000L),
+                    ::resolveDayView,
+                )
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** 日历史页那天的真实收听时长；那天没有记录（开始统计之前）为 null。 */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val dayListenedMs: StateFlow<Long?> = _dayHistoryDate
-        .flatMapLatest { date ->
-            if (date == null) flowOf(null) else library.observeListenedMs(date.toEpochDay())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DayView(emptyList(), null))
 
     /** 真实收听时长：只在正在播放时计时，按本地日期落库（日历史页的「当日听歌时长」）。 */
     private val listenTimeTracker = ListenTimeTracker(
         scope = viewModelScope,
-        isPlaying = connection.state.map { it.isPlaying },
-        record = { library.addListenedTime(it.epochDay, it.ms) },
+        playing = connection.state.map { s ->
+            if (s.isPlaying && s.bvid.isNotBlank()) ListenKey(s.bvid, s.cid) else null
+        },
+        record = { library.addListenedTime(it) },
     )
 
     fun openDayHistory(date: LocalDate) { _dayHistoryDate.value = date }

@@ -4,7 +4,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 
-// 首页播放热力图的格子日期（色阶见 HomeScreen 的 heatmapLevelAlpha）。
+// 首页播放热力图的格子日期与深浅（深浅见文件末尾的 heatmapCellAlpha）。
 //
 // 每列是「周日 → 周六」，与左侧星期标签一致；最后一列是今天所在的周。
 // 早先用 `today.with(DayOfWeek.SUNDAY)` 定最后一列：java.time 的周是周一到周日，
@@ -21,3 +21,19 @@ internal fun heatmapCellDate(today: LocalDate, weeks: Int, column: Int, row: Int
 
 /** 今天之后的格子不画：只显示到今天。 */
 internal fun heatmapCellShown(date: LocalDate, today: LocalDate): Boolean = !date.isAfter(today)
+
+/** 按当天收听时长分档：0 不涂；不足 10 分钟 0.2；10–29 分钟 0.4；30–59 分钟 0.6；60 分钟及以上 1.0。 */
+internal fun heatmapListenAlpha(listenedMs: Long): Float {
+    val minutes = listenedMs / 60_000
+    return when {
+        listenedMs <= 0 -> 0f
+        minutes < 10 -> 0.2f
+        minutes < 30 -> 0.4f
+        minutes < 60 -> 0.6f
+        else -> 1.0f
+    }
+}
+
+/** 有收听时长（[listenedMs] 非 null）按分钟分档；10-04 以前没有时长的日子按播放个数（[heatmapLevelAlpha]）。 */
+internal fun heatmapCellAlpha(listenedMs: Long?, playCount: Int): Float =
+    if (listenedMs != null) heatmapListenAlpha(listenedMs) else heatmapLevelAlpha(playCount)

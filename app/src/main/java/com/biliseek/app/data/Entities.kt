@@ -65,6 +65,7 @@ data class PlaylistTrackEntity(
 /**
  * 每天的真实收听时长（v8）：只在「正在播放」时计时，暂停、缓冲不算，按本地日期累计。
  * `play_history` 每个视频只有一行、只记最后一次播放，算不出某天到底听了多久，所以单独记。
+ * v10 起停止写入，只给 10-07 以前的日子回退用，见 [ListenEntryEntity]。
  */
 @Entity(tableName = "listen_day")
 data class ListenDayEntity(
@@ -72,6 +73,22 @@ data class ListenDayEntity(
     @PrimaryKey val epochDay: Long,
     /** 这天累计的收听毫秒数。 */
     val listenedMs: Long,
+)
+
+/**
+ * 某个视频某天的收听时长（v10）：日播放记录页的列表、当日听歌时长、热力图深浅都出自它。
+ * (bvid, cid) 与 `play_history` 同口径，展示用的标题、封面等 JOIN `play_history` 取。
+ */
+@Entity(tableName = "listen_entry", primaryKeys = ["epochDay", "bvid", "cid"])
+data class ListenEntryEntity(
+    /** 本地日期（`LocalDate.toEpochDay()`）。 */
+    val epochDay: Long,
+    val bvid: String,
+    val cid: Long,
+    /** 这天累计的收听毫秒数。 */
+    val listenedMs: Long,
+    /** 这天最后一次计入的墙钟毫秒（列表排序用）。 */
+    val lastListenedAt: Long,
 )
 
 /** 播放历史。首页「最近播放」与续播都依赖它。 */

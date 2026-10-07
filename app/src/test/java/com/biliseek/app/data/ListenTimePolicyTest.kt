@@ -43,17 +43,23 @@ class ListenTimePolicyTest {
 
     // ── 计时状态机 ───────────────────────────────
 
+    private val a = ListenKey("BV1a", 10)
+    private val b = ListenKey("BV1b", 20)
+
     @Test
     fun `播放 65 秒后停下记 65 秒`() {
         val clock = ListenClock(zone)
-        clock.start(elapsedMs = 1_000, wallMs = wallAt(10, 0, 0))
-        assertEquals(listOf(DaySlice(day.toEpochDay(), 65_000)), clock.stop(elapsedMs = 66_000))
+        clock.start(a, elapsedMs = 1_000, wallMs = wallAt(10, 0, 0))
+        assertEquals(
+            listOf(ListenSlice(a, day.toEpochDay(), 65_000, wallAt(10, 1, 5))),
+            clock.stop(elapsedMs = 66_000),
+        )
     }
 
     @Test
     fun `播放中定时结算只记上次结算之后的部分，合起来不多不少`() {
         val clock = ListenClock(zone)
-        clock.start(0, wallAt(10, 0, 0))
+        clock.start(a, 0, wallAt(10, 0, 0))
         val total = clock.tick(30_000, wallAt(10, 0, 30)) +
             clock.tick(60_000, wallAt(10, 1, 0)) +
             clock.stop(65_000)
@@ -63,9 +69,9 @@ class ListenTimePolicyTest {
     @Test
     fun `暂停的时间不算`() {
         val clock = ListenClock(zone)
-        clock.start(0, wallAt(10, 0, 0))
+        clock.start(a, 0, wallAt(10, 0, 0))
         val first = clock.stop(10_000)
-        clock.start(20_000, wallAt(10, 0, 20))
+        clock.start(a, 20_000, wallAt(10, 0, 20))
         val second = clock.stop(30_000)
         assertEquals(listOf(10_000L, 10_000L), (first + second).map { it.ms })
     }
@@ -78,19 +84,37 @@ class ListenTimePolicyTest {
     }
 
     @Test
-    fun `已经在计时再开始不重置起点`() {
+    fun `同一视频再开始不重置起点`() {
         val clock = ListenClock(zone)
-        clock.start(0, wallAt(10, 0, 0))
-        clock.start(10_000, wallAt(10, 0, 10))
+        assertTrue(clock.start(a, 0, wallAt(10, 0, 0)).isEmpty())
+        assertTrue(clock.start(a, 10_000, wallAt(10, 0, 10)).isEmpty())
         assertEquals(listOf(20_000L), clock.stop(20_000).map { it.ms })
     }
 
     @Test
-    fun `播放跨过零点时分到两天`() {
+    fun `播放中换视频先把前一段记给旧视频`() {
         val clock = ListenClock(zone)
-        clock.start(0, wallAt(23, 59, 50))
+        clock.start(a, 0, wallAt(10, 0, 0))
         assertEquals(
-            listOf(DaySlice(day.toEpochDay(), 10_000), DaySlice(day.plusDays(1).toEpochDay(), 10_000)),
+            listOf(ListenSlice(a, day.toEpochDay(), 40_000, wallAt(10, 0, 40))),
+            clock.start(b, 40_000, wallAt(10, 0, 40)),
+        )
+        assertEquals(
+            listOf(ListenSlice(b, day.toEpochDay(), 20_000, wallAt(10, 1, 0))),
+            clock.stop(60_000),
+        )
+    }
+
+    @Test
+    fun `播放跨过零点时分到两天，各段的结束时间落在各自那天`() {
+        val clock = ListenClock(zone)
+        clock.start(a, 0, wallAt(23, 59, 50))
+        val midnight = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        assertEquals(
+            listOf(
+                ListenSlice(a, day.toEpochDay(), 10_000, midnight),
+                ListenSlice(a, day.plusDays(1).toEpochDay(), 10_000, midnight + 10_000),
+            ),
             clock.stop(20_000),
         )
     }

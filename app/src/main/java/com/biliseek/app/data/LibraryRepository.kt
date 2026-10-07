@@ -2,6 +2,7 @@ package com.biliseek.app.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 /** 本地库读写。UI 层不直接碰 DAO。 */
 class LibraryRepository(private val db: BiliSeekDatabase) {
@@ -77,14 +78,23 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
 
     private val listenDays = db.listenDayDao()
 
-    /** 累计一段真实收听时长（[ListenTimeTracker] 调）。 */
-    suspend fun addListenedTime(epochDay: Long, ms: Long) {
-        if (ms <= 0) return
+    private val listenEntries = db.listenEntryDao()
+
+    /** 累计一段真实收听时长到这个视频这一天（[ListenTimeTracker] 调）。 */
+    suspend fun addListenedTime(slice: ListenSlice) {
+        if (slice.ms <= 0) return
         db.withTransaction {
-            listenDays.ensureDay(epochDay)
-            listenDays.addListened(epochDay, ms)
+            listenEntries.ensure(slice.epochDay, slice.key.bvid, slice.key.cid)
+            listenEntries.add(slice.epochDay, slice.key.bvid, slice.key.cid, slice.ms, slice.endWallMs)
         }
     }
+
+    /** 某天听过的视频（JOIN play_history），最后听的在前。 */
+    fun observeDayListen(epochDay: Long): Flow<List<DayListenRow>> = listenEntries.observeDay(epochDay)
+
+    /** [fromEpochDay] 起每天的收听合计：有明细用明细，否则用 listen_day 的旧合计。 */
+    fun observeListenTotalsSince(fromEpochDay: Long): Flow<Map<Long, Long>> =
+        combine(listenEntries.observeTotalsSince(fromEpochDay), listenDays.observeSince(fromEpochDay), ::mergeDayTotals)
 
     /** 某天的真实收听时长；这天没有记录（比如在开始统计之前）为 null。 */
     fun observeListenedMs(epochDay: Long): Flow<Long?> = listenDays.observe(epochDay)
