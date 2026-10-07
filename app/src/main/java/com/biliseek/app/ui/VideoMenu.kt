@@ -36,13 +36,15 @@ fun VideoMenuButton(onClick: () -> Unit) {
 
 /**
  * 三点菜单：标题是视频标题，项目见 [videoMenuActions]；点一项先收起菜单再执行动作（与搜索页一致）。
- * [onRemove] 非空时末尾多一项「删除」（从稍后再看 / 当前收藏夹移除）。
+ * [onRemove] 非空时末尾多一项「移除」（已下载页用 [removeLabel] 叫「删除」）。
  */
 @Composable
 fun VideoMenuSheet(
     video: SearchVideo,
     actions: VideoMenuActions,
     onRemove: (() -> Unit)? = null,
+    /** 「移除」那一项的文字；已下载页会真的删文件，传「删除」。 */
+    removeLabel: String = VideoMenuAction.Remove.label,
     /** 「已下载」页的条目传 false：已经下好了，不再有「下载」。 */
     downloadable: Boolean = true,
     onDismiss: () -> Unit,
@@ -50,7 +52,7 @@ fun VideoMenuSheet(
     ActionListSheet(
         title = stripHighlight(video.title),
         items = videoMenuActions(video.mid, removable = onRemove != null, downloadable = downloadable).map { action ->
-            action.label to {
+            (if (action == VideoMenuAction.Remove) removeLabel else action.label) to {
                 onDismiss()
                 when (action) {
                     VideoMenuAction.AddToPlaylist -> actions.addToPlaylist(video)

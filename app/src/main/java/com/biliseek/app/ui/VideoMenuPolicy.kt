@@ -22,7 +22,7 @@ enum class VideoMenuAction(val label: String) {
     CopyLink("复制链接"),
     Download("下载"),
     Summarize("AI 总结"),
-    /** 从当前列表移除：只有稍后再看、收藏夹内容页有（`ActionListSheet` 对「删除」「移除」开头的项自动标红配图标）。 */
+    /** 从当前列表移除：稍后再看、收藏夹内容页、本地列表叫「移除」，已下载页由 VideoMenuSheet 改叫「删除」（`ActionListSheet` 对「删除」「移除」开头的项自动标红配图标）。 */
     Remove("移除"),
 }
 

@@ -68,7 +68,7 @@ class SummaryLibrary(
             manager.observeEvery().first { rows -> rows.none { it.bvid == group.bvid && it.cid == group.cid } }
             hidden.value = hidden.value - key
         }
-        _removalNotice.tryEmit("已移除「${group.title.ifBlank { "未命名" }}」的总结")
+        _removalNotice.tryEmit("已删除「${group.title.ifBlank { "未命名" }}」的总结")
     }
 
     /** 撤销最近一次右滑删除：还没提交就放回列表。 */

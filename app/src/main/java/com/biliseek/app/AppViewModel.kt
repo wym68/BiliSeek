@@ -1549,9 +1549,9 @@ return pages.map { p ->
         val first = tasks.first()
         _downloadRemovalNotice.tryEmit(
             if (tasks.size > 1) {
-                "已移除「${com.biliseek.app.download.splitPartTitle(first.title).first}」（${tasks.size} 个分 P）"
+                "已删除「${com.biliseek.app.download.splitPartTitle(first.title).first}」（${tasks.size} 个分 P）"
             } else {
-                "已移除「${first.title.ifBlank { "未命名" }}」"
+                "已删除「${first.title.ifBlank { "未命名" }}」"
             },
         )
     }

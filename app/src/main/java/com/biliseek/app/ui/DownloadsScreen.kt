@@ -193,6 +193,7 @@ fun DownloadsScreen(
                             is DoneEntry.Single -> SwipeToRemoveRow(
                                 background = MaterialTheme.colorScheme.background,
                                 onRemove = { requestRemove(listOf(entry.task)) },
+                                actionLabel = "删除",
                                 hintKey = HintKey.SWIPE_DOWNLOADS,
                                 showHint = entry === doneEntries.firstOrNull(),
                             ) {
@@ -201,6 +202,7 @@ fun DownloadsScreen(
                             is DoneEntry.Group -> SwipeToRemoveRow(
                                 background = MaterialTheme.colorScheme.background,
                                 onRemove = { requestRemove(entry.parts) },
+                                actionLabel = "删除",
                                 hintKey = HintKey.SWIPE_DOWNLOADS,
                                 showHint = entry === doneEntries.firstOrNull(),
                             ) {
@@ -219,6 +221,7 @@ fun DownloadsScreen(
             task.toSearchVideo(),
             videoActions,
             onRemove = { requestRemove(listOf(task)) },
+            removeLabel = "删除",
             downloadable = false,
         ) { menuFor = null }
     }
@@ -228,6 +231,7 @@ fun DownloadsScreen(
             first.toSearchVideo().copy(title = g.title, duration = ""),
             videoActions,
             onRemove = { requestRemove(g.parts) },
+            removeLabel = "删除",
             downloadable = false,
         ) { menuForGroup = null }
     }
@@ -350,6 +354,7 @@ private fun DownloadGroupDetail(
                 SwipeToRemoveRow(
                     background = MaterialTheme.colorScheme.background,
                     onRemove = { onRemove(part) },
+                    actionLabel = "删除",
                     hintKey = HintKey.SWIPE_DOWNLOADS,
                     showHint = index == 0,
                 ) {
@@ -447,7 +452,7 @@ private fun DownloadRow(
                     Icon(Icons.Outlined.Refresh, contentDescription = "重试")
                 }
                 IconButton(onClick = { onDelete(task.id, false) }) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "移除")
+                    Icon(Icons.Outlined.Delete, contentDescription = "删除")
                 }
             }
             // 排队中 / 下载中：暂停（留着已下的部分）或取消（中断传输并清掉半成品）

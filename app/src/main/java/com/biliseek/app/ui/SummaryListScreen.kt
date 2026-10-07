@@ -83,6 +83,7 @@ fun SummaryListScreen(
                 SwipeToRemoveRow(
                     background = MaterialTheme.colorScheme.background,
                     onRemove = { onDelete(group) },
+                    actionLabel = "删除",
                     hintKey = HintKey.SWIPE_SUMMARY,
                     showHint = group === state.groups.firstOrNull(),
                 ) {
