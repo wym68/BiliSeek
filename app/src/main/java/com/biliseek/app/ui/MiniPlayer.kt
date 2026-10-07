@@ -154,8 +154,16 @@ fun MiniPlayer(
                                         totalPx += dragAmount
                                         if (!fired) {
                                             when (resolveMiniBarSwipe(totalPx.toDp().value)) {
-                                                MiniBarSwipe.EXPAND -> { fired = true; currentOnExpand() }
-                                                MiniBarSwipe.COLLAPSE -> { fired = true; revealed = false }
+                                                MiniBarSwipe.EXPAND -> {
+                                                    fired = true
+                                                    hints?.onUserAction(HintKey.MINIBAR_SWIPE)
+                                                    currentOnExpand()
+                                                }
+                                                MiniBarSwipe.COLLAPSE -> {
+                                                    fired = true
+                                                    hints?.onUserAction(HintKey.MINIBAR_SWIPE)
+                                                    revealed = false
+                                                }
                                                 null -> Unit
                                             }
                                         }

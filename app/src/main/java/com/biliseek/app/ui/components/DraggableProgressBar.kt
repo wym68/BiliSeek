@@ -129,22 +129,25 @@ fun DraggableProgressBar(
             finger.reset()
             return@LaunchedEffect
         }
-        delay(HintTiming.START_DELAY_MS)
+        // 气泡尖角一开场就指向手指起点，所以先定位再等
         val start = currentPosition
         val duration = currentDuration
         val startFraction = if (duration > 0) start.toFloat() / duration else 0f
         demoAnchorX = with(density) { barX(startFraction).toDp() }
+        delay(HintTiming.START_DELAY_MS)
         demoScrubbing = true
         finger.show()
         scrubMs = start
         currentOnScrub(start)
         for (step in 1..DRAG_DEMO_STEPS) {
             delay(DRAG_DEMO_STEP_MS)
+            if (!demoScrubbing) return@LaunchedEffect
             val target = scrubTarget(start, step, duration)
             scrubMs = target
             currentOnScrub(target)
         }
         delay(DEMO_END_PAUSE_MS)
+        if (!demoScrubbing) return@LaunchedEffect
         clearDemoScrub()
         finger.hide()
         delay(HintTiming.BUBBLE_HOLD_MS)
@@ -158,24 +161,28 @@ fun DraggableProgressBar(
             finger.reset()
             return@LaunchedEffect
         }
-        delay(HintTiming.START_DELAY_MS)
+        // 气泡尖角一开场就指向手指起点，所以先定位再等
         val duration = currentDuration
         val window = zoomWindowMs(duration)
         val pressMs = zoomPressMs(ZOOM_DEMO_FRACTION, duration)
         demoAnchorX = with(density) { barX(ZOOM_DEMO_FRACTION).toDp() }
+        delay(HintTiming.START_DELAY_MS)
         demoScrubbing = true
         finger.show()
         scrubMs = pressMs
         currentOnScrub(pressMs)
         delay(longPressMs)
+        if (!demoScrubbing) return@LaunchedEffect
         ruler = ZoomRuler(zoomStartMs(pressMs, ZOOM_DEMO_FRACTION, window), window)
         for (step in 1..ZOOM_DEMO_STEPS) {
             delay(ZOOM_DEMO_STEP_MS)
+            if (!demoScrubbing) return@LaunchedEffect
             val target = snapToStep(pressMs + step * SCRUB_STEP_MS, duration)
             scrubMs = target
             currentOnScrub(target)
         }
         delay(DEMO_END_PAUSE_MS)
+        if (!demoScrubbing) return@LaunchedEffect
         clearDemoScrub()
         finger.hide()
         delay(HintTiming.BUBBLE_HOLD_MS)
