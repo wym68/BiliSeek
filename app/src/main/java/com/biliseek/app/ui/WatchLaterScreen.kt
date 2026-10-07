@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.LoginPanel
+import com.biliseek.app.hint.HintKey
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.ui.components.SwipeToRemoveRow
 import com.biliseek.core.network.BiliSession
@@ -101,6 +102,8 @@ fun WatchLaterScreen(
                             SwipeToRemoveRow(
                                 background = MaterialTheme.colorScheme.background,
                                 onRemove = { onRemove(item) },
+                                hintKey = HintKey.SWIPE_WATCH_LATER,
+                                showHint = item.bvid == state.items.firstOrNull()?.bvid,
                             ) {
                                 Row(
                                     Modifier

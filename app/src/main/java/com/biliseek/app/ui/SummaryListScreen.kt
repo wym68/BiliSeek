@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.biliseek.app.summary.SummaryGroup
+import com.biliseek.app.hint.HintKey
 import com.biliseek.app.summary.SummaryGroupState
 import com.biliseek.app.summary.SummaryLibraryPolicy
 import com.biliseek.app.summary.SummaryLibraryState
@@ -82,6 +83,9 @@ fun SummaryListScreen(
                 SwipeToRemoveRow(
                     background = MaterialTheme.colorScheme.background,
                     onRemove = { onDelete(group) },
+                    actionLabel = "删除",
+                    hintKey = HintKey.SWIPE_SUMMARY,
+                    showHint = group === state.groups.firstOrNull(),
                 ) {
                     SummaryRow(group, onOpen = { onOpen(group) }, onPlay = { onPlay(group) })
                 }

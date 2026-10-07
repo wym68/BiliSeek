@@ -47,6 +47,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.biliseek.app.ui.components.LocalHints
+import com.biliseek.app.ui.components.hintTouchObserver
 import com.biliseek.core.player.PlaybackMode
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
@@ -423,7 +425,8 @@ fun AppShell(
     var miniBarHeightPx by remember { mutableIntStateOf(0) }
     val miniBarInset = with(LocalDensity.current) { (if (showMiniPlayer) miniBarHeightPx else 0).toDp() }
 
-    Box(Modifier.fillMaxSize()) {
+    // 首次演示中碰屏幕任何地方：演示结束（只观察，不拦截）
+    Box(Modifier.fillMaxSize().hintTouchObserver(LocalHints.current)) {
         Scaffold(
             bottomBar = {
                 NavigationBar(Modifier.onSizeChanged { navBarHeightPx = it.height }) {

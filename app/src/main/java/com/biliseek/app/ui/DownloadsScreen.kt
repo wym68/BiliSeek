@@ -52,6 +52,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.LaunchedEffect
 import com.biliseek.app.download.DoneEntry
+import com.biliseek.app.hint.HintKey
 import com.biliseek.app.download.splitPartTitle
 import com.biliseek.app.ui.components.SwipeToRemoveRow
 
@@ -192,12 +193,18 @@ fun DownloadsScreen(
                             is DoneEntry.Single -> SwipeToRemoveRow(
                                 background = MaterialTheme.colorScheme.background,
                                 onRemove = { requestRemove(listOf(entry.task)) },
+                                actionLabel = "删除",
+                                hintKey = HintKey.SWIPE_DOWNLOADS,
+                                showHint = entry === doneEntries.firstOrNull(),
                             ) {
                                 DoneRow(entry.task, onClick = { onPlay(entry.task) }, onMore = { menuFor = entry.task })
                             }
                             is DoneEntry.Group -> SwipeToRemoveRow(
                                 background = MaterialTheme.colorScheme.background,
                                 onRemove = { requestRemove(entry.parts) },
+                                actionLabel = "删除",
+                                hintKey = HintKey.SWIPE_DOWNLOADS,
+                                showHint = entry === doneEntries.firstOrNull(),
                             ) {
                                 GroupRow(entry, onClick = { openedGroup = entry.bvid }, onMore = { menuForGroup = entry })
                             }
@@ -214,6 +221,7 @@ fun DownloadsScreen(
             task.toSearchVideo(),
             videoActions,
             onRemove = { requestRemove(listOf(task)) },
+            removeLabel = "删除",
             downloadable = false,
         ) { menuFor = null }
     }
@@ -223,6 +231,7 @@ fun DownloadsScreen(
             first.toSearchVideo().copy(title = g.title, duration = ""),
             videoActions,
             onRemove = { requestRemove(g.parts) },
+            removeLabel = "删除",
             downloadable = false,
         ) { menuForGroup = null }
     }
@@ -345,6 +354,9 @@ private fun DownloadGroupDetail(
                 SwipeToRemoveRow(
                     background = MaterialTheme.colorScheme.background,
                     onRemove = { onRemove(part) },
+                    actionLabel = "删除",
+                    hintKey = HintKey.SWIPE_DOWNLOADS,
+                    showHint = index == 0,
                 ) {
                     Row(
                         Modifier

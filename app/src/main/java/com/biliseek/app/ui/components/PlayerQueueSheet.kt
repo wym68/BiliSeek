@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.hint.HintKey
 import com.biliseek.core.player.PlaybackRequest
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.formatDuration
@@ -47,13 +48,13 @@ import com.biliseek.designsystem.theme.BsSpacing
  *
  * - 固定占屏高 70%、一打开就是完整高度、没有拖动条（标题行有「关闭」，下拉照样能关）；
  *   打开时列表定位到正在播的那一项
- * - 标题行：「播放队列 · N 首」+「清空队列」+ 关闭；下面一行常驻提示（图钉含义 + 右滑删除）
+ * - 标题行：「播放队列 · N 首」+「清空队列」+ 关闭；下面一行常驻提示（图钉含义 + 右滑移除）
  * - 每行：固定标志（图钉）、序号（01/02…）、标题（单行省略）、时长。
  *   图钉 = 用户用「加入队列」「下一首播放」加的，点击播放不会替换；没有图钉的是点击带进来的临时条目
  * - 当前播放高亮（主色 + 波形图标）
  * - 点击条目：onSkipTo(index)；点当前条目仅关闭 sheet
- * - 向右滑动删除单条；正在播的那一行滑不动
- * - [showSwipeHint] 为真时，第一条可删除的行自动右滑一段再弹回，演示一次
+ * - 向右滑动移除单条；正在播的那一行滑不动
+ * - 首次打开时，第一条可删除的行自动右滑一段再弹回，演示一次（见 [SwipeToRemoveRow] 的首次演示）
  * - 队列为空时显示「队列为空」+ 加入方式提示
  *
  * 「清空队列」放在标题行而不是列表下面：列表一长，底部按钮会被挤出屏幕（早期就是这样）。
@@ -68,8 +69,6 @@ fun PlayerQueueSheet(
     onRemove: (Int) -> Unit,
     onDismiss: () -> Unit,
     snackbarHostState: SnackbarHostState,
-    showSwipeHint: Boolean = false,
-    onSwipeHintShown: () -> Unit = {},
 ) {
     val queue = state.queue
     val currentIndex = state.queueIndex
@@ -78,12 +77,8 @@ fun PlayerQueueSheet(
     // 打开时把正在播的那一项滚进视野，上方留两行上下文。只定位这一次，之后不跟着播放跳
     val firstVisible = (currentIndex - 2).coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = firstVisible)
-    // 演示放在第一条看得见、能删的行上（不是当前播放那一行）
-    val hintIndex = if (showSwipeHint) {
-        queue.indices.firstOrNull { it >= firstVisible && it != currentIndex }
-    } else {
-        null
-    }
+    // 首次演示放在第一条看得见、能删的行上（不是当前播放那一行）
+    val hintIndex = queue.indices.firstOrNull { it >= firstVisible && it != currentIndex }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         // 一打开就是完整高度：半展开状态只露出屏幕最下面一截，手指够起来别扭
@@ -92,7 +87,7 @@ fun PlayerQueueSheet(
         dragHandle = null,
     ) {
         // 固定高度：标题行永远在同一个位置，不随队列长短忽高忽低
-        Box(Modifier.fillMaxWidth().fillMaxHeight(SHEET_HEIGHT_FRACTION)) {
+        Box(Modifier.fillMaxWidth().fillMaxHeight(SHEET_HEIGHT_FRACTION).hintTouchObserver(LocalHints.current)) {
             Column(Modifier.fillMaxSize()) {
                 Row(
                     Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = BsSpacing.md),
@@ -118,7 +113,7 @@ fun PlayerQueueSheet(
                             modifier = Modifier.size(PIN_SIZE),
                         )
                         Text(
-                            " 手动加入，点击播放不会替换 · 右滑删除单条",
+                            " 手动加入，点击播放不会替换 · 右滑移除单条",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -151,8 +146,8 @@ fun PlayerQueueSheet(
                                 // 底部弹层的默认底色：前景要不透明才能盖住后面的删除底色
                                 background = MaterialTheme.colorScheme.surfaceContainerLow,
                                 enabled = !isCurrent,
-                                demo = idx == hintIndex,
-                                onDemoDone = onSwipeHintShown,
+                                hintKey = HintKey.SWIPE_QUEUE,
+                                showHint = idx == hintIndex,
                                 onRemove = { onRemove(idx) },
                             ) {
                                 QueueRow(

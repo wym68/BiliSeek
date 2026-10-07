@@ -9,6 +9,7 @@ import androidx.compose.material3.DividerDefaults
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import com.biliseek.app.ui.components.InputDialog
+import com.biliseek.app.hint.HintKey
 import com.biliseek.app.ui.components.SwipeToRemoveRow
 import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsConfirmDialog
@@ -780,7 +781,7 @@ private fun PlaylistDetail(
             }
         } else {
             Text(
-                "长按拖动排序，右滑删除",
+                "长按拖动排序，右滑移除",
                 Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.labelSmall,
             )
@@ -823,6 +824,8 @@ private fun PlaylistDetail(
                             SwipeToRemoveRow(
                                 background = lerp(scheme.background, cardColor, lift),
                                 onRemove = { onTrackRemove(item) },
+                                hintKey = HintKey.SWIPE_LOCAL_PLAYLIST,
+                                showHint = id == reorder.order.firstOrNull()?.track?.id,
                             ) {
                                 Row(
                                     Modifier
@@ -978,6 +981,8 @@ private fun FavoriteDetail(
                         SwipeToRemoveRow(
                             background = MaterialTheme.colorScheme.background,
                             onRemove = { onRemoveTrack(track) },
+                            hintKey = HintKey.SWIPE_FAVORITE,
+                            showHint = track.bvid == state.items.firstOrNull()?.bvid,
                         ) {
                             Row(
                                 Modifier

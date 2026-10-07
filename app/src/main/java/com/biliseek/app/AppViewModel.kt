@@ -405,10 +405,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         connection.undoQueueChange()
     }
 
-    /** 队列面板的右滑演示是否已经放过（只在第一次打开时演示一次）。 */
-    val queueSwipeHintShown: StateFlow<Boolean> = settingsStore.queueSwipeHintShown
-
-    fun markQueueSwipeHintShown() = settingsStore.setQueueSwipeHintShown()
+    /** 首次使用演示（设计稿 2026-10-07-first-use-hints）。界面经 LocalHints 取用。 */
+    val hints = com.biliseek.app.hint.HintController(com.biliseek.app.hint.SharedPrefsHintRecords(app))
 
     /** 设置页改 minibar 风格：直接落库，UI 订阅 settings.miniBarStyle 即时切换。 */
     fun setMiniBarStyle(style: com.biliseek.app.data.MiniBarStyle) = viewModelScope.launch {

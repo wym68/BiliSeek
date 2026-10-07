@@ -69,8 +69,8 @@ import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.player.PresentationMode
 import com.biliseek.designsystem.theme.BiliSeekTheme
 
-/** 队列「撤销」提示的停留时长（docs/10）。 */
-private const val QUEUE_UNDO_SNACKBAR_MS = 4_000L
+/** 队列「撤销」提示的停留时长（docs/10）：与列表移除的撤销提示同一时长，右滑演示气泡里写的秒数也从这里来。 */
+private const val QUEUE_UNDO_SNACKBAR_MS = com.biliseek.app.remote.RemoteLibraryController.REMOVAL_UNDO_MS
 
 /**
  * 弹一条带「撤销」的提示，返回用户有没有点「撤销」。
@@ -162,6 +162,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // 首次演示的「另一次启动」按冷启动计（设计稿 2026-10-07-first-use-hints）
+        if (savedInstanceState == null) viewModel.hints.onColdStart()
         ensureNotificationPermission()
         handleSharedIntent(intent)
         handleSummaryIntent(intent)
@@ -192,6 +194,7 @@ class MainActivity : ComponentActivity() {
                 val showMessage = remember { { msg: String -> showReplacingToast(msg) } }
                 androidx.compose.runtime.CompositionLocalProvider(
                     com.biliseek.app.ui.components.LocalShowMessage provides showMessage,
+                    com.biliseek.app.ui.components.LocalHints provides viewModel.hints,
                     com.biliseek.app.ui.richtext.LocalEmoteDictionary provides emoteDictionary,
                     com.biliseek.app.ui.richtext.LocalEmotePanelHost provides com.biliseek.app.ui.richtext.EmotePanelHost(
                         state = emotePanel,
@@ -346,6 +349,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // 全屏 / 画中画时不开始新的首次演示
+                LaunchedEffect(expansion, isInPip) {
+                    viewModel.hints.setEnvironmentBlocked(expansion == PlayerExpansion.FULLSCREEN || isInPip)
+                }
+
                 // 弹幕只在全屏（且不在 PiP）时拉取与显示
                 LaunchedEffect(expansion, isInPip) {
                     viewModel.setDanmakuSurfaceVisible(
@@ -410,7 +418,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val queueSwipeHintShown by viewModel.queueSwipeHintShown.collectAsState()
 
                 // 普通提示（不带按钮：批量操作结果、链接已复制、下载完成、筛选、播放模式……）：
                 // 前台一律用 App 内的提示，放在迷你条上方——系统 Toast 的位置挪不动、会压在迷你条上（用户 2026-10-04 要求）。
@@ -1182,8 +1189,6 @@ class MainActivity : ComponentActivity() {
                         onRemove = viewModel::removeFromQueue,
                         onDismiss = viewModel::closeQueueSheet,
                         snackbarHostState = queueSheetSnackbar,
-                        showSwipeHint = !queueSwipeHintShown,
-                        onSwipeHintShown = viewModel::markQueueSwipeHintShown,
                     )
                 }
 
