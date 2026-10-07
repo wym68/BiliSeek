@@ -8,8 +8,8 @@ Copyright (C) 2026 wym68
 第三方项目致谢与授权说明
 ================================================================================
 
-BiliSeek 的设计与实现参考了以下三个开源/公开项目。三者的授权情况不同，
-使用方式也因此不同，下面逐一说明。
+BiliSeek 的设计与实现参考了以下开源/公开项目，并随 APK 分发了若干第三方
+二进制、模型与字体。各项授权情况不同，使用方式也因此不同，下面逐一说明。
 
 --------------------------------------------------------------------------------
 1. BiliPai  —  https://github.com/jay3-yy/BiliPai
@@ -23,6 +23,15 @@ BiliSeek 的设计与实现参考了以下三个开源/公开项目。三者的�
   - 本地 DASH manifest 组装（core/player/internal/LocalDashManifestBuilder.kt）
   - 视频轨开关与后台回落的策略划分（core/player/internal/*Policy.kt）
   - MediaSessionService 的前台服务装配方式
+  - 动态与图文详情的解析：modules 数组形态兼容、opus 段落归一化、详情接口的
+    多级降级与 features 参数（core/network/dto/DynamicModulesCompatSerializer.kt、
+    core/network/DynamicDetail.kt、core/network/BiliApi.kt）
+  - 宽松布尔值反序列化（core/network/dto/FlexibleBooleanSerializer.kt）
+  - 评论读取失败时的降级重试（core/network/internal/CommentReadPolicy.kt）
+  - 充电专属稿件的判断（core/network/DynamicFeed.kt、app/ui/ChargeBadgePolicy.kt）
+  - B 站官方 AI 总结的字段含义、状态判断与转 Markdown
+    （core/network/dto/ConclusionDto.kt、app/summary/OfficialSummaryPolicy.kt）
+  - 全屏播放层的自动隐藏与屏幕方向保存恢复（app/ui/FullscreenPlayer.kt）
 
 BiliSeek 整体采用 GPLv3 发布，即因为对 BiliPai 的参照与后续可能的代码复用。
 GPLv3 具传染性（copyleft），派生作品必须同为 GPLv3。
@@ -41,8 +50,12 @@ GPLv3 具传染性（copyleft），派生作品必须同为 GPLv3。
 
   - 「一切皆歌单」的数据建模：本地歌单、收藏夹、多 P 视频、搜索结果
     统一为同一种列表
-  - 首页空状态的构成：搜索历史 + 最近播放 + 播放热力图
+  - 首页布局：标题栏（软件名 + 账号）、胶囊搜索框、快捷入口卡片，
+    以及播放热力图的排法与参数（app/SearchScreen.kt、app/ui/HomeScreen.kt）
+  - 某天的播放记录页（app/ui/DayHistoryScreen.kt）
+  - 播放页三点菜单的结构（app/ui/PlayerSheets.kt）
   - 搜索输入的智能路由（BV 号 / 链接直达）
+  - 写接口「重复点赞」错误码 65006（事实性常量，core/network/internal/WritePolicy.kt）
 
 MIT 与 GPLv3 单向兼容：MIT 代码可并入 GPLv3 项目，合并后整体按 GPLv3 发布。
 若日后复制其 packages/orpheus 下的 Kotlin 源文件，须保留 MIT 许可头与
@@ -75,6 +88,9 @@ API 端点名称与参数属事实性信息，不构成受版权保护的表达�
 
 WBI 签名、bili_ticket 生成、buvid 激活等接口的参数与算法说明来自该文档项目。
 这些是对公开接口行为的记录，属事实性信息。
+
+另参考 Bilibili-Evolved（https://github.com/the1812/Bilibili-Evolved，MIT 附
+再分发限制，见其 LICENCE.md）印证图文动态接口的字段形态，未使用其代码或脚本。
 
 --------------------------------------------------------------------------------
 5. sherpa-onnx  —  https://github.com/k2-fsa/sherpa-onnx  （Apache-2.0）
@@ -116,6 +132,14 @@ AI 总结阅读页的 Markdown 渲染。
   with Reserved Font Name 'Source'. Copyright 2019 Google LLC.
 
 许可证：SIL Open Font License 1.1 —— https://openfontlicense.org
+
+--------------------------------------------------------------------------------
+10. 其余依赖库
+--------------------------------------------------------------------------------
+
+其余通过 Gradle 引入的依赖（AndroidX / Jetpack Compose / Media3、Kotlin 协程与
+序列化、OkHttp、Retrofit、Coil、ZXing、zoomimage 等）均以 Apache-2.0 发布，
+未做修改，授权详见各自仓库。
 
 ================================================================================
 免责声明

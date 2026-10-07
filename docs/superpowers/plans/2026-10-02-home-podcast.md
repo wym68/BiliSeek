@@ -33,7 +33,7 @@
 - **不执行 `git commit` / `git push`**：用户尚未同意提交，改完留在工作区。
 - **不访问 Bilibili 服务器**（CLAUDE.md 安全规则）：不 `curl` B 站、不运行 App。测试全部离线；`x/article/cards` 的样例按文档手写，**没对照过真实响应**；活动页样例是从用户存下的真实页面裁剪的（`core/network/src/test/resources/era_podcast_sample.html`，已生成）。
 - 工作区里 `docs/01-开发环境搭建.md` 的未提交修改不是本次改动，**不要动、不要纳入**；前两步（首页标题栏小改、三个榜单）的未提交改动也保持原样。
-- 不要用 `cd` 改变工作目录，命令都在仓库根目录 `/home/minifive/own_work/BiliSeek` 下执行。
+- 不要用 `cd` 改变工作目录，命令都在仓库根目录（`./`）下执行。
 - Gradle 命令放后台跑并轮询日志末尾，不要靠退出码一个信号下结论。
 
 ---

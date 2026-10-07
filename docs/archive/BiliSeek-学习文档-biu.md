@@ -48,14 +48,7 @@
 
 > 「桌面端 biu 证明了一种干净的使用方式：打开即搜索、把 B 站当音频库来听，**没有信息流推荐**。」
 
-实测：biu **有一个专门的推荐页** `src/pages/music-recommend/`（6 个文件），背后调用：
-
-```
-src/service/web-interface-new-music.ts          新歌
-src/service/web-interface-new-music-banner.ts   新歌 banner
-src/service/music-comprehensive-web-rank.ts     音乐综合排行榜
-src/service/web-interface-region-feed-rcmd.ts   分区推荐 feed
-```
+实测：biu **有一个专门的推荐页** `src/pages/music-recommend/`（6 个文件），背后调用新歌、新歌 banner、音乐综合排行榜、分区推荐 feed 四类接口（`src/service/` 下 `web-interface-new-music`、`music-comprehensive-web-rank`、`web-interface-region-feed-rcmd` 等文件）。
 
 准确的说法应该是：**biu 没有「视频信息流推荐」，但有「音乐榜单/新歌推荐」页面。**
 
@@ -73,50 +66,40 @@ biu 采用**一个接口一个文件**的组织方式，约 90 个文件，文�
 
 ### 3.1 播放与视频
 
-```
-player-playurl.ts                    播放地址
-player-pagelist.ts                   分 P 列表
-web-interface-view.ts                视频详情
-web-player.ts                        播放器信息
-audio-song-info.ts                   B 站音频区（au）歌曲信息
-audio-web-url.ts                     B 站音频区播放地址
-click-interface-click-web-h5.ts      播放行为上报
-click-interface-web-heartbeat.ts     播放心跳（写入观看历史/进度）
-```
+| 接口文件 | 用途 |
+| --- | --- |
+| `player-playurl` | 播放地址 |
+| `player-pagelist` | 分 P 列表 |
+| `web-interface-view` | 视频详情 |
+| `web-player` | 播放器信息 |
+| `audio-song-info` | B 站音频区（au）歌曲信息 |
+| `audio-web-url` | B 站音频区播放地址 |
+| `click-interface-click-web-h5` | 播放行为上报 |
+| `click-interface-web-heartbeat` | 播放心跳（写入观看历史/进度） |
 
 > **注意 `audio-*` 这两个**：B 站有独立的「音频区」（`au` 号，非 `BV`），接口与视频完全不同。BiliPai 的 `MusicPlaybackSource` 也区分了 `AudioSong(sid)` 与 `VideoAudio(bvid,cid)`。BiliSeek 若只做视频抽音频，可以不碰；但要意识到搜索结果里可能混入音频区内容。
 
-`player-playurl.ts` 的参数注释很清楚：
+`player-playurl` 的参数说明要点：
 
-```ts
-qn?: number;          // 视频清晰度  未登录默认 32(480P)  登录后默认 64(720P)
-fnval?: number;       // 流格式位掩码
-fnver?: number;       // 固定为 0
-platform?: string;    // pc: web播放(默认)  html5: 移动端HTML5播放
-high_quality?: number; // platform=html5 时置 1 可使画质到 1080p
-```
+- `qn`：视频清晰度，未登录默认 32（480P），登录后默认 64（720P）
+- `fnval`：流格式位掩码；`fnver` 固定为 0
+- `platform`：`pc` 为 Web 播放（默认），`html5` 为移动端 HTML5 播放
+- `high_quality`：`platform=html5` 时置 1 可使画质到 1080p
 
 > `platform=html5 + high_quality=1` 是一条**不需要登录也能拿到 1080p** 的路径（代价是只有 MP4 单流、无 DASH、无高码率音频）。BiliPai 的 ApiClient 里也有对应的「HTML5 降级方案（无 Referer 鉴权，仅 MP4 格式）」注释。**这是取流失败时的最后兜底**，BiliSeek 值得保留。
 
 ### 3.2 搜索
 
-`web-interface-search-type.ts` 把搜索参数枚举得很完整：
+`web-interface-search-type` 把搜索参数枚举得很完整：
 
-```ts
-search_type: "video" | "bili_user" | "article" | "photo" | "live"
+- `search_type`：`video` / `bili_user` / `article` / `photo` / `live`
+- 搜视频时：
+  - `order` 取 `totalrank`（综合）、`click`（最多点击）、`pubdate`（最新发布）、`dm`（最多弹幕）、`stow`（最多收藏）、`scores`（最多评论）
+  - `duration` 取 0～4，依次为全部、10 分钟以下、10–30、30–60、60 分钟以上
+  - `tids` 为分区 tid，0 表示全部
+- 搜用户时：`order` 取 0 / `fans` / `level`，`order_sort` 0 为降序、1 为升序
 
-// video
-order?: "totalrank" | "click" | "pubdate" | "dm" | "stow" | "scores"
-        // 综合   / 最多点击 / 最新发布 / 最多弹幕 / 最多收藏 / 最多评论
-duration?: 0 | 1 | 2 | 3 | 4   // 全部 / <10 / 10-30 / 30-60 / >60 分钟
-tids?: number                   // 分区 tid，0 = 全部
-
-// bili_user
-order?: 0 | "fans" | "level"
-order_sort?: 0 | 1              // 0 降序 1 升序
-```
-
-配套还有 `main-suggest.ts`（搜索建议）与 `web-interface-history-search.ts`（搜索历史）。
+配套还有 `main-suggest`（搜索建议）与 `web-interface-history-search`（搜索历史）。
 
 > **对 BiliSeek 的意义**：
 > - `duration` 过滤对「听」场景意义很大——想听完整专辑就筛 `>60 分钟`，想听单曲就筛 `<10 分钟`。**建议 BiliSeek 的搜索结果页把 duration 做成一级筛选器**，这是「音频优先」的差异化点，视频客户端不会这么设计。
@@ -125,38 +108,34 @@ order_sort?: 0 | 1              // 0 降序 1 升序
 
 ### 3.3 收藏夹（数量最多，说明这是核心）
 
-```
-fav-folder-created-list.ts / -all.ts    我创建的收藏夹
-fav-folder-collected-list.ts            我收藏的收藏夹
-fav-folder-info.ts / -add / -edit / -del
-fav-folder-deal.ts                      移动/复制
-fav-folder-fav.ts / -unfav.ts           订阅/取消订阅
-fav-resource.ts / -infos.ts             收藏夹内容
-fav-resource-batch-del.ts / -clean.ts
-fav-season-fav.ts / -unfav.ts           合集订阅
-medialist-gateway-base-created.ts
-medialist-gateway-coll-resource-check.ts / -deal.ts
-```
+| 接口文件 | 用途 |
+| --- | --- |
+| `fav-folder-created-list`（及 `-all`） | 我创建的收藏夹 |
+| `fav-folder-collected-list` | 我收藏的收藏夹 |
+| `fav-folder-info` / `-add` / `-edit` / `-del` | 收藏夹信息与增改删 |
+| `fav-folder-deal` | 移动 / 复制 |
+| `fav-folder-fav` / `-unfav` | 订阅 / 取消订阅 |
+| `fav-resource`（及 `-infos`） | 收藏夹内容 |
+| `fav-resource-batch-del` / `-clean` | 批量删除 / 清理失效内容 |
+| `fav-season-fav` / `-unfav` | 合集订阅 |
+| `medialist-gateway-base-created`、`medialist-gateway-coll-resource-check` / `-deal` | 媒体列表网关 |
 
 **14 个收藏夹相关接口**——这印证了「收藏夹同步」不是一个小功能，而是一整块。BiliSeek 把它放 P1 是合理的，但要预期到工作量。
 
 ### 3.4 登录与风控
 
-```
-passport-login-web-qrcode-generate.ts   扫码：生成
-passport-login-web-qrcode-poll.ts       扫码：轮询
-passport-login-web-sms-send.ts          短信：发送
-passport-login-web-login-sms.ts         短信：登录
-passport-login-web-login-passport.ts    密码登录
-passport-login-web-key.ts               密码加密公钥
-passport-login-captcha.ts               验证码
-passport-login-web-country.ts           国家区号
-passport-login-exit.ts                  登出
-passport-login-web-cookie-info.ts       ★ Cookie 有效期查询
-passport-login-web-confirm-refresh.ts   ★ 确认刷新
-passport-login-web-cookie-refresh.ts    ★ Cookie 刷新
-gaia-vgate.ts                           ★ 风控验证网关
-```
+| 接口文件 | 用途 |
+| --- | --- |
+| `passport-login-web-qrcode-generate` / `-poll` | 扫码登录：生成 / 轮询 |
+| `passport-login-web-sms-send`、`passport-login-web-login-sms` | 短信登录：发送 / 登录 |
+| `passport-login-web-login-passport`、`passport-login-web-key` | 密码登录、密码加密公钥 |
+| `passport-login-captcha` | 验证码 |
+| `passport-login-web-country` | 国家区号 |
+| `passport-login-exit` | 登出 |
+| ★ `passport-login-web-cookie-info` | Cookie 有效期查询 |
+| ★ `passport-login-web-confirm-refresh` | 确认刷新 |
+| ★ `passport-login-web-cookie-refresh` | Cookie 刷新 |
+| ★ `gaia-vgate` | 风控验证网关 |
 
 > **`cookie-info` / `confirm-refresh` / `cookie-refresh` 这三个是 BiliSeek 应当重视的。**
 > B 站的 Cookie 会过期，官方提供了主动刷新机制（查询是否需要刷新 → 用 `refresh_token` 换新 Cookie → 确认旧凭证作废）。**不做刷新，用户就会隔一段时间被登出一次**，对「打开即用」的体验伤害很大。
@@ -165,17 +144,9 @@ gaia-vgate.ts                           ★ 风控验证网关
 
 ### 3.5 其他
 
-```
-history-*.ts               历史记录 / 稍后再看
-relation-*.ts              关注关系
-space-wbi-*.ts             UP 主空间（需 WBI 签名）
-series-*.ts                合集/系列
-web-dynamic*.ts            动态
-ai-lyrics.ts               ★ AI 歌词
-vu-web-cover-up.ts         封面上传
-```
+`history-*`（历史记录 / 稍后再看）、`relation-*`（关注关系）、`space-wbi-*`（UP 主空间，需 WBI 签名）、`series-*`（合集 / 系列）、`web-dynamic*`（动态）、★ `ai-lyrics`（AI 歌词）、`vu-web-cover-up`（封面上传）。
 
-`ai-lyrics.ts` 值得一提：biu 用 AI 生成/匹配歌词，是 BBPlayer「网易云/QQ/酷狗多源匹配」之外的另一条路。BiliSeek 的 P2 歌词方案可以把它作为兜底候选（但依赖外部 AI 服务，与「纯本地」定位有张力）。
+`ai-lyrics` 值得一提：biu 用 AI 生成/匹配歌词，是 BBPlayer「网易云/QQ/酷狗多源匹配」之外的另一条路。BiliSeek 的 P2 歌词方案可以把它作为兜底候选（但依赖外部 AI 服务，与「纯本地」定位有张力）。
 
 ---
 
@@ -185,42 +156,21 @@ vu-web-cover-up.ts         封面上传
 
 ### 4.1 User-Agent：伪装成桌面 Chrome
 
-`electron/network/user-agent.ts`（就一行）：
-
-```ts
-export const UserAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36`;
-```
+`electron/network/user-agent.ts` 只定义了一个常量：Windows 10 x64 上 Chrome 141 的标准桌面 UA 字符串。
 
 ### 4.2 buvid：向服务端索取，而非本地生成
 
-`electron/network/web-buvid.ts`：
-
-```ts
-GET https://api.bilibili.com/x/frontend/finger/spi_v2
-→ { data: { b_3: string /* buvid3 */, b_4: string /* buvid4 */ } }
-```
+`electron/network/web-buvid.ts` 用 GET 请求 `https://api.bilibili.com/x/frontend/finger/spi_v2`，响应里的 `data.b_3`、`data.b_4` 分别是 buvid3、buvid4。
 
 > **与 BiliPai 的做法形成对比**：BiliPai 的 `AppSessionCookieJar` 在本地用 `UUID.randomUUID() + "infoc"` 造一个 buvid3；biu 则老老实实调 `spi_v2` 让服务端下发。
 > **服务端下发的版本更不容易被风控盯上**（本地生成的 UUID 格式与真实 buvid 有分布差异）。BiliSeek 建议采用 biu 的思路：**优先调 `spi_v2` 获取，失败时才回退本地生成**。
 
 ### 4.3 bili_ticket：容易被忽略但很关键
 
-`electron/network/web-bili-ticket.ts`：
+`electron/network/web-bili-ticket.ts` 用 POST 请求 `https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket`：
 
-```ts
-POST https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket
-参数：
-  key_id      = "ec02"                              // 固定
-  hexsign     = HMAC-SHA256(key="XgwSnGZ1p", msg="ts"+timestamp)  // 十六进制
-  context[ts] = UNIX 秒级时间戳
-  csrf        = bili_jct（可为空）
-
-返回：
-  data.ticket      bili_ticket（JWT）
-  data.ttl         259200 秒（3 天）
-  data.nav.img     ★ WBI img_key
-  data.nav.sub     ★ WBI sub_key
-```
+- 参数：`key_id` 固定为 `ec02`；`hexsign` 是以 `XgwSnGZ1p` 为密钥、对「`ts` + 时间戳」做 HMAC-SHA256 得到的十六进制串；`context[ts]` 为 UNIX 秒级时间戳；`csrf` 为 `bili_jct`（可为空）
+- 返回：`data.ticket` 是 bili_ticket（JWT），`data.ttl` 为 259200 秒（3 天），★ `data.nav.img` / `data.nav.sub` 即 WBI 的 img_key / sub_key
 
 三个要点：
 
@@ -234,13 +184,7 @@ POST https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/GenWebTicket
 
 ### 4.4 请求拦截：统一注入 Referer / Origin / UA
 
-`electron/network/interceptor.ts`：
-
-```ts
-headers["Referer"]    = "https://www.bilibili.com";
-headers["Origin"]     = "https://www.bilibili.com";
-headers["User-Agent"] = UserAgent;
-```
+`electron/network/interceptor.ts` 给每个请求统一设置 `Referer` 和 `Origin` 为 `https://www.bilibili.com`，`User-Agent` 为上面的桌面 UA。
 
 还有一段响应侧的处理——重写 `Set-Cookie` 的 `SameSite=none; Secure=true`，这是 Electron 环境特有的问题（跨源 Cookie 存不下），**Android 端不需要**。
 
@@ -252,21 +196,20 @@ headers["User-Agent"] = UserAgent;
 
 ### 5.1 页面构成
 
-```
-src/pages/
-  search/            11 文件   搜索
-  video-collection/  17 文件   合集/收藏夹（最大的一块）
-  user-profile/      11 文件   UP 主页
-  history/            7        历史
-  settings/           7        设置
-  music-recommend/    6        音乐推荐（见 §2）
-  dynamic-feed/       5        动态
-  later/              5        稍后再看
-  download-list/      4        下载管理
-  follow-list/        4        关注
-  local-music/        3        本地音乐
-  mini-player/        3        迷你播放器
-```
+| `src/pages/` 下的目录 | 文件数 | 页面 |
+| --- | --- | --- |
+| `search/` | 11 | 搜索 |
+| `video-collection/` | 17 | 合集 / 收藏夹（最大的一块） |
+| `user-profile/` | 11 | UP 主页 |
+| `history/` | 7 | 历史 |
+| `settings/` | 7 | 设置 |
+| `music-recommend/` | 6 | 音乐推荐（见 §2） |
+| `dynamic-feed/` | 5 | 动态 |
+| `later/` | 5 | 稍后再看 |
+| `download-list/` | 4 | 下载管理 |
+| `follow-list/` | 4 | 关注 |
+| `local-music/` | 3 | 本地音乐 |
+| `mini-player/` | 3 | 迷你播放器 |
 
 ### 5.2 值得借鉴的组件设计
 
@@ -310,11 +253,7 @@ src/pages/
 
 ### 6.3 需要在合规清单里补的条目
 
-```
-- [ ] README 致谢 biu 时明确标注：仅参考产品设计与公开接口用法，
-      未使用其任何代码或资源（其授权为 PolyForm Noncommercial 1.0.0，
-      与本项目 GPLv3 不兼容）
-```
+- [ ] README 致谢 biu 时明确标注：仅参考产品设计与公开接口用法，未使用其任何代码或资源（其授权为 PolyForm Noncommercial 1.0.0，与本项目 GPLv3 不兼容）
 
 ---
 
