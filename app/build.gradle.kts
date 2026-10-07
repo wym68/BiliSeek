@@ -35,10 +35,10 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         // M10 版本策略：versionName 与里程碑对齐（M9 完成 → 0.2.0，M11 完成 → 0.3.0，0.3.x 逐条优化收口 → 0.4.0，
-        // 0.4.0 的功能连同 AI 总结 1.0 一起以 0.4.1 发布，0.4.1 之后的逐条优化以 0.4.2 发布）；
-        // versionCode 每次发版 +1（MVP=1 → M10=2 → M11=3 → 0.4.0=4 → 0.4.1=5 → 0.4.2=6），只在发版提交上动。
-        versionCode = 6
-        versionName = "0.4.2"
+        // 0.4.0 的功能连同 AI 总结 1.0 一起以 0.4.1 发布，0.4.1 之后的逐条优化以 0.4.2 发布，其后的小修补以 0.4.3 发布）；
+        // versionCode 每次发版 +1（MVP=1 → M10=2 → M11=3 → 0.4.0=4 → 0.4.1=5 → 0.4.2=6 → 0.4.3=7），只在发版提交上动。
+        versionCode = 7
+        versionName = "0.4.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
