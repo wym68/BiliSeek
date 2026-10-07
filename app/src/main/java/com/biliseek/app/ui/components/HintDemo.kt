@@ -9,7 +9,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -57,6 +56,9 @@ fun rememberHintDemo(key: HintKey?, ready: Boolean): HintDemo {
     var started by remember(key) { mutableStateOf(false) }
     var forfeited by remember(key) { mutableStateOf(false) }
 
+    // 重置要等下次进入才生效，与提示文字一致：进入时已看过的，这次进入不再尝试开始
+    val seenAtEntry = remember(key) { hints != null && key != null && key in hints.state.value.persisted.shown }
+
     LaunchedEffect(key, ready, focused, state) {
         if (hints == null || key == null) return@LaunchedEffect
         if (started) {
@@ -64,16 +66,15 @@ fun rememberHintDemo(key: HintKey?, ready: Boolean): HintDemo {
             if (state.active != key) started = false
             return@LaunchedEffect
         }
-        if (!ready || !focused || forfeited) return@LaunchedEffect
+        if (!ready || !focused || forfeited || seenAtEntry) return@LaunchedEffect
         if (shouldForfeitHint(key, state)) {
             forfeited = true
         } else if (hints.tryStart(key)) {
             started = true
         }
     }
-    val currentStarted by rememberUpdatedState(started)
     DisposableEffect(hints, key) {
-        onDispose { if (currentStarted && key != null) hints?.cancel(key) }
+        onDispose { if (started && key != null) hints?.cancel(key) }
     }
     val running = key != null && started && state.active == key
     return HintDemo(running) { if (key != null) hints?.finish(key) }

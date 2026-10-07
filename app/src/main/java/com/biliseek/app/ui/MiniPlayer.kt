@@ -233,7 +233,7 @@ fun MiniPlayer(
                     DemoFinger(swipeFinger, Modifier.align(Alignment.Center))
                 }
             }
-            if (swipeDemo.running) HintBubble(MINIBAR_SWIPE_HINT_TEXT, preferAbove = true)
+            if (swipeDemo.running) HintBubble(MINIBAR_SWIPE_HINT_TEXT, preferAbove = true, extraAbove = MINIBAR_DEMO_UP_DP.dp)
         }
     }
 }
