@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +33,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -47,16 +50,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
+import com.biliseek.app.hint.HintKey
+import com.biliseek.app.ui.SCRUB_STEP_MS
 import com.biliseek.app.ui.TickLevel
 import com.biliseek.app.ui.barFraction
 import com.biliseek.app.ui.scrubSteps
 import com.biliseek.app.ui.scrubTarget
+import com.biliseek.app.ui.snapToStep
 import com.biliseek.app.ui.zoomPressMs
 import com.biliseek.app.ui.zoomStartMs
 import com.biliseek.app.ui.zoomTargetMs
 import com.biliseek.app.ui.zoomTicks
 import com.biliseek.app.ui.zoomWindowMs
 import com.biliseek.core.player.formatDuration
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 /**
  * 迷你条顶部的进度区（设计稿：docs/superpowers/specs/2026-10-04-minibar-progress-design.md、
@@ -79,6 +87,7 @@ fun DraggableProgressBar(
     onScrub: (Long?) -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val currentPosition by rememberUpdatedState(positionMs)
     val currentDuration by rememberUpdatedState(durationMs)
     val currentOnSeek by rememberUpdatedState(onSeek)
@@ -87,6 +96,91 @@ fun DraggableProgressBar(
     // 按住后浮出的刻度尺；为空 = 没在放大
     var ruler by remember { mutableStateOf<ZoomRuler?>(null) }
     var widthPx by remember { mutableIntStateOf(0) }
+
+    // 首次演示 ②③（设计稿 2026-10-07-first-use-hints）：只改显示用的 scrubMs / ruler，不调 onSeek
+    val hints = LocalHints.current
+    val dragDemo = rememberHintDemo(HintKey.MINIBAR_DRAG, ready = durationMs > 0)
+    val zoomDemo = rememberHintDemo(HintKey.MINIBAR_ZOOM, ready = durationMs > 0)
+    val finger = rememberDemoFingerState()
+    // scrubMs / ruler 此刻是不是演示设的：用户一按下就清掉，交还给手势
+    var demoScrubbing by remember { mutableStateOf(false) }
+    // 气泡尖角指的位置：演示开始时手指所在处，之后不跟着走
+    var demoAnchorX by remember { mutableStateOf(0.dp) }
+    val longPressMs = LocalViewConfiguration.current.longPressTimeoutMillis
+
+    // 进度线上 [fraction] 处的横坐标（px）
+    fun barX(fraction: Float): Float {
+        val inset = with(density) { BAR_INSET.toPx() }
+        return inset + (widthPx - 2 * inset) * fraction.coerceIn(0f, 1f)
+    }
+
+    fun clearDemoScrub() {
+        if (!demoScrubbing) return
+        demoScrubbing = false
+        ruler = null
+        scrubMs = null
+        currentOnScrub(null)
+    }
+
+    // ②：圆点按 5 秒一格走 4 格再退回，时间跟着变色
+    LaunchedEffect(dragDemo.running) {
+        if (!dragDemo.running) {
+            clearDemoScrub()
+            finger.reset()
+            return@LaunchedEffect
+        }
+        delay(HintTiming.START_DELAY_MS)
+        val start = currentPosition
+        val duration = currentDuration
+        val startFraction = if (duration > 0) start.toFloat() / duration else 0f
+        demoAnchorX = with(density) { barX(startFraction).toDp() }
+        demoScrubbing = true
+        finger.show()
+        scrubMs = start
+        currentOnScrub(start)
+        for (step in 1..DRAG_DEMO_STEPS) {
+            delay(DRAG_DEMO_STEP_MS)
+            val target = scrubTarget(start, step, duration)
+            scrubMs = target
+            currentOnScrub(target)
+        }
+        delay(DEMO_END_PAUSE_MS)
+        clearDemoScrub()
+        finger.hide()
+        delay(HintTiming.BUBBLE_HOLD_MS)
+        dragDemo.finish()
+    }
+
+    // ③：在进度线约 70% 处按住，半秒后浮出刻度尺，指针走 3 格，收起
+    LaunchedEffect(zoomDemo.running) {
+        if (!zoomDemo.running) {
+            clearDemoScrub()
+            finger.reset()
+            return@LaunchedEffect
+        }
+        delay(HintTiming.START_DELAY_MS)
+        val duration = currentDuration
+        val window = zoomWindowMs(duration)
+        val pressMs = zoomPressMs(ZOOM_DEMO_FRACTION, duration)
+        demoAnchorX = with(density) { barX(ZOOM_DEMO_FRACTION).toDp() }
+        demoScrubbing = true
+        finger.show()
+        scrubMs = pressMs
+        currentOnScrub(pressMs)
+        delay(longPressMs)
+        ruler = ZoomRuler(zoomStartMs(pressMs, ZOOM_DEMO_FRACTION, window), window)
+        for (step in 1..ZOOM_DEMO_STEPS) {
+            delay(ZOOM_DEMO_STEP_MS)
+            val target = snapToStep(pressMs + step * SCRUB_STEP_MS, duration)
+            scrubMs = target
+            currentOnScrub(target)
+        }
+        delay(DEMO_END_PAUSE_MS)
+        clearDemoScrub()
+        finger.hide()
+        delay(HintTiming.BUBBLE_HOLD_MS)
+        zoomDemo.finish()
+    }
 
     val primary = MaterialTheme.colorScheme.primary
     val shownMs = scrubMs ?: positionMs
@@ -109,6 +203,8 @@ fun DraggableProgressBar(
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        // 演示中按下：演示设的拖动状态先清掉，交还给手势
+                        clearDemoScrub()
                         if (currentDuration <= 0) return@awaitEachGesture
                         // 长按时间内：横着拖过阈值 → 5 秒一格；抬起或被外层的竖滑拿走 → 不管；一直按着不动 → 放大
                         var dragStart: PointerInputChange? = null
@@ -153,6 +249,8 @@ fun DraggableProgressBar(
                                 scrubMs = null
                                 currentOnScrub(null)
                                 if (completed && target != null && target != startMs) currentOnSeek(target)
+                                // 自己拖完一次：② 记为看过，③ 可以放了
+                                if (completed) hints?.onUserAction(HintKey.MINIBAR_DRAG)
                             }
                         } else if (!settled) {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -195,6 +293,7 @@ fun DraggableProgressBar(
                                 scrubMs = null
                                 currentOnScrub(null)
                                 if (completed && target != null && target != startPosition) currentOnSeek(target)
+                                if (completed) hints?.onUserAction(HintKey.MINIBAR_ZOOM)
                             }
                         }
                     }
@@ -202,7 +301,7 @@ fun DraggableProgressBar(
         ) {
             val scrubbing = scrubMs != null
             val thick = (if (scrubbing) 5.dp else 3.dp).toPx()
-            val y = 11.dp.toPx()
+            val y = BAR_LINE_Y.toPx()
             // 圆头画在端点外半个线宽，端点往里收半个线宽，整条正好落在左右 16dp 的缩进里
             val x0 = BAR_INSET.toPx() + thick / 2
             val x1 = size.width - BAR_INSET.toPx() - thick / 2
@@ -210,6 +309,27 @@ fun DraggableProgressBar(
             drawLine(primary.copy(alpha = 0.16f), Offset(x0, y), Offset(x1, y), thick, StrokeCap.Round)
             if (fraction > 0f) drawLine(primary, Offset(x0, y), Offset(xp, y), thick, StrokeCap.Round)
             if (scrubbing) drawCircle(primary, radius = 6.dp.toPx(), center = Offset(xp, y))
+        }
+
+        // 演示的手指：放大时在刻度尺选中处对应的进度线位置（手指按在进度线上），否则在圆点上
+        val zoomNow = ruler
+        val fingerFraction = if (zoomNow != null && zoomNow.windowMs > 0) {
+            (shownMs - zoomNow.startMs).toFloat() / zoomNow.windowMs
+        } else {
+            fraction
+        }
+        DemoFinger(
+            finger,
+            Modifier.offset {
+                IntOffset(
+                    (barX(fingerFraction) - DemoFingerDefaults.Size.toPx() / 2).roundToInt(),
+                    (BAR_LINE_Y - DemoFingerDefaults.Size / 2).roundToPx(),
+                )
+            },
+        )
+        if (dragDemo.running) HintBubble(DRAG_HINT_TEXT, pointX = demoAnchorX, preferAbove = true)
+        if (zoomDemo.running) {
+            HintBubble(ZOOM_HINT_TEXT, pointX = demoAnchorX, preferAbove = true, extraAbove = RULER_HEIGHT + RULER_GAP)
         }
 
         val zoom = ruler
@@ -298,3 +418,18 @@ private val BAR_INSET = 16.dp
 /** 刻度尺浮层的高度、离迷你条顶边的距离。 */
 private val RULER_HEIGHT = 84.dp
 private val RULER_GAP = 12.dp
+
+/** 进度线的竖直位置（Canvas 里画线的 y）。 */
+private val BAR_LINE_Y = 11.dp
+
+// 首次演示 ②③ 的节奏（设计稿 2026-10-07-first-use-hints；效果图 minibar-sequence.html）
+private const val DRAG_DEMO_STEPS = 4
+private const val DRAG_DEMO_STEP_MS = 350L
+private const val ZOOM_DEMO_STEPS = 3
+private const val ZOOM_DEMO_STEP_MS = 450L
+private const val DEMO_END_PAUSE_MS = 600L
+
+/** ③ 演示按住的位置：进度线约 70% 处。 */
+private const val ZOOM_DEMO_FRACTION = 0.7f
+private const val DRAG_HINT_TEXT = "左右拖进度线，每格 5 秒"
+private const val ZOOM_HINT_TEXT = "按住进度线半秒，出刻度尺细调"
