@@ -7,7 +7,6 @@ import com.biliseek.core.network.ChartItem
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 
 /** 排序：[param] 是 newlist_rank 的 `order`。声明顺序 = 菜单顺序。 */
@@ -26,7 +25,7 @@ data class DateSpan(val from: LocalDate, val to: LocalDate)
 
 /**
  * 分区列表的设置，全部分区共用、存 DataStore。
- * [savedSpan] 只在 [RegionTimeMode.MONTH] / [RegionTimeMode.CUSTOM] 用；最近 7 天每次按当天重算。
+ * [savedSpan] 只在 [RegionTimeMode.MONTH] / [RegionTimeMode.CUSTOM] 用；MONTH 只取其中的年月。
  */
 data class RegionSettings(
     val timeMode: RegionTimeMode = RegionTimeMode.LAST_7_DAYS,
@@ -69,10 +68,14 @@ fun validateCustomSpan(span: DateSpan, today: LocalDate): CustomSpanError? = whe
     else -> null
 }
 
-/** 当前要查的范围。月份 / 自定义缺了存的范围时退回最近 7 天。 */
+/**
+ * 当前要查的范围：最近 7 天每次按当天重算；按月份按存的年月重算（本月始终到今天）；自定义用存的范围。
+ * 月份 / 自定义缺了存的范围时退回最近 7 天。
+ */
 fun RegionSettings.span(today: LocalDate): DateSpan = when (timeMode) {
     RegionTimeMode.LAST_7_DAYS -> lastSevenDays(today)
-    RegionTimeMode.MONTH, RegionTimeMode.CUSTOM -> savedSpan ?: lastSevenDays(today)
+    RegionTimeMode.MONTH -> savedSpan?.let { monthSpan(it.from.year, it.from.monthValue, today) } ?: lastSevenDays(today)
+    RegionTimeMode.CUSTOM -> savedSpan ?: lastSevenDays(today)
 }
 
 fun formatApiDate(date: LocalDate): String = date.format(API_DATE)

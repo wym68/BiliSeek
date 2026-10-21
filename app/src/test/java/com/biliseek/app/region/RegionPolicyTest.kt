@@ -65,6 +65,16 @@ class RegionPolicyTest {
     }
 
     @Test
+    fun `按月份选了本月_过几天范围跟着延长到今天`() {
+        val chosen = monthSpan(2026, 10, d(2026, 10, 21))
+        val settings = RegionSettings(timeMode = RegionTimeMode.MONTH, savedSpan = chosen)
+        assertEquals(DateSpan(d(2026, 10, 1), d(2026, 10, 28)), settings.span(d(2026, 10, 28)))
+        // 往月不受影响
+        val sept = RegionSettings(timeMode = RegionTimeMode.MONTH, savedSpan = monthSpan(2026, 9, today))
+        assertEquals(DateSpan(d(2026, 9, 1), d(2026, 9, 30)), sept.span(d(2026, 10, 28)))
+    }
+
+    @Test
     fun `日期格式`() {
         assertEquals("20261015", formatApiDate(d(2026, 10, 15)))
         assertEquals(d(2026, 10, 15), parseApiDate("20261015"))
