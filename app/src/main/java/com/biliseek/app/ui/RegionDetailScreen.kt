@@ -155,9 +155,9 @@ fun RegionDetailScreen(
                         }
                         if (state.hasMore || state.isLoadingMore || error != null) {
                             item(key = "footer") {
-                                // 跟原始条数走：一页全被短视频过滤掉时也会接着取。失败后不自动再来（否则会一直重打 B 站）
+                                // 跟页码和条数一起走：一页全被过滤或去重成零条新增时，页码变了也会接着取。失败后不自动再来（否则会一直重打 B 站）
                                 if (shouldAutoLoadMore(state.hasMore, state.isLoadingMore, error)) {
-                                    LaunchedEffect(state.items.size) { onLoadMore(tid) }
+                                    LaunchedEffect(state.page, state.items.size) { onLoadMore(tid) }
                                 }
                                 Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
                                     when {

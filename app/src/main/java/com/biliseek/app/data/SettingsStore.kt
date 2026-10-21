@@ -53,7 +53,7 @@ data class AppSettings(
     val danmaku: com.biliseek.app.danmaku.DanmakuSettings = com.biliseek.app.danmaku.DanmakuSettings(),
     /** 同时下载数（1..[MAX_DOWNLOAD_CONCURRENCY]）。默认 1：一条下完再下下一条。 */
     val downloadConcurrency: Int = 1,
-    /** 首页快捷入口的顺序与开关（设置 → 首页快捷入口）。出厂全部打开。 */
+    /** 首页快捷入口的顺序与开关（设置 → 首页快捷入口）。出厂：固定入口与「分区」打开，22 个子分区关闭。 */
     val quickEntries: List<QuickEntrySetting> = DEFAULT_QUICK_ENTRIES,
     /** 分区列表的时间范围、排序、隐藏短视频（全部分区共用）。 */
     val region: com.biliseek.app.region.RegionSettings = com.biliseek.app.region.RegionSettings(),
