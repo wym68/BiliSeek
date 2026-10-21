@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Gavel
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.outlined.Info
@@ -60,6 +61,7 @@ import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DefaultPresentation
 import com.biliseek.app.data.MiniBarStyle
 import com.biliseek.app.data.VideoQualityDefaults
+import com.biliseek.app.data.visibleQuickEntries
 import com.biliseek.app.data.DOWNLOAD_CONCURRENCY_CHOICES
 import com.biliseek.app.data.MAX_DOWNLOAD_CONCURRENCY
 import com.biliseek.app.ui.components.LocalHints
@@ -124,6 +126,8 @@ fun SettingsScreen(
     onPlayModeChange: (PlayMode) -> Unit = {},
     onDanmakuSettingsChange: ((DanmakuSettings) -> DanmakuSettings) -> Unit = {},
     onDownloadConcurrencyChange: (Int) -> Unit = {},
+    /** 打开「首页快捷入口」页。 */
+    onOpenQuickEntries: () -> Unit = {},
 ) {
     var sheet by remember { mutableStateOf<SettingsSheetKind?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
@@ -235,6 +239,12 @@ fun SettingsScreen(
                     icon = Icons.Outlined.PictureInPictureAlt,
                     value = miniBarChoices.first { it.value == settings.miniBarStyle }.label,
                     onClick = { sheet = SettingsSheetKind.MINI_BAR },
+                )
+                SettingsRow(
+                    title = "首页快捷入口",
+                    icon = Icons.Outlined.GridView,
+                    value = "显示 ${visibleQuickEntries(settings.quickEntries).size} 个",
+                    onClick = onOpenQuickEntries,
                 )
                 // 首次演示全部清掉重来（设计稿 2026-10-07-first-use-hints）
                 val hints = LocalHints.current

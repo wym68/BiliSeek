@@ -313,6 +313,7 @@ class MainActivity : ComponentActivity() {
                 var summariesOpen by remember { mutableStateOf(false) }
                 val summaryLibraryState by viewModel.summaryLibrary.state.collectAsState()
                 var aiSettingsOpen by remember { mutableStateOf(false) }
+                var quickEntriesOpen by remember { mutableStateOf(false) }
                 // 「去设置」：切到设置 tab 并打开 AI 总结设置页
                 LaunchedEffect(Unit) {
                     viewModel.openAiSettingsRequests.collect {
@@ -860,6 +861,13 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                             )
+                        } else if (quickEntriesOpen) {
+                            BackHandler(onBack = { quickEntriesOpen = false })
+                            com.biliseek.app.ui.QuickEntrySettingsScreen(
+                                entries = settings.quickEntries,
+                                onChange = viewModel::setQuickEntries,
+                                onClose = { quickEntriesOpen = false },
+                            )
                         } else SettingsScreen(
                             settings = settings,
                             onDefaultPresentationChange = viewModel::setDefaultPresentation,
@@ -871,6 +879,7 @@ class MainActivity : ComponentActivity() {
                             onVideoQualityMeteredChange = viewModel::setVideoQualityMetered,
                             onLoudnessChange = viewModel::setLoudnessNormalization,
                             onOpenAiSettings = { aiSettingsOpen = true },
+                            onOpenQuickEntries = { quickEntriesOpen = true },
                             aiSettingsSummary = if (aiSettingsState.primaryReady) {
                                 aiSettingsState.primary?.model.orEmpty()
                             } else {
