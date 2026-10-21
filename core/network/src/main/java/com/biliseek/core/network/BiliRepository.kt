@@ -224,7 +224,7 @@ class BiliRepository internal constructor(
 
     /**
      * 别人的公开收藏夹内容（首页「视频播客」）。同一个接口，**不要求登录**——10-21 实测不带 Cookie 可读。
-     * 与首页榜单同属公开页面读，走 [chartRead]（FEED 限速桶）；登录态的 [favoriteResources] 仍走不限速的 [accountRead]。
+     * 与首页榜单同属公开页面读，走 [chartRead]（CHART 限速桶）；登录态的 [favoriteResources] 仍走不限速的 [accountRead]。
      */
     suspend fun publicFavoriteResources(
         mediaId: Long,
@@ -509,11 +509,11 @@ class BiliRepository internal constructor(
 
     /**
      * 榜单读请求的统一出口：走 [accountRead] 的风控分流（冷却期内本地快速失败，-352 记入冷却且绝不重试，
-     * -412 重置设备凭据），请求本身套 FEED 限速桶。**不加重试循环。**
+     * -412 重置设备凭据），请求本身套 CHART 限速桶。**不加重试循环。**
      */
     private suspend fun <T> chartRead(what: String, request: suspend () -> BiliResponse<T>): T? =
         accountRead(what) {
-            requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) { request() }
+            requestThrottle.gate(ThrottleBucket.CHART, CHART_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) { request() }
         }
 
     // ── 热门播客（运营搭建的活动页）──────────────────────────
@@ -559,13 +559,13 @@ class BiliRepository internal constructor(
      * 取 B 站活动页（`bilibili.com` 域内）的 HTML。公开页面，不需要登录。
      *
      * 页面不是 JSON 接口，没有 `code` 字段：冷却期内本地快速失败；HTTP 412 当作被拦，
-     * 记入全局冷却且**不重试**；其他非 2xx 报「页面加载失败」。套 FEED 限速桶。
+     * 记入全局冷却且**不重试**；其他非 2xx 报「页面加载失败」。套 CHART 限速桶。
      */
     private suspend fun eraPageRead(url: String): String {
         require(isTrustedBiliHost(url)) { "只取 bilibili.com 域内的页面：$url" }
         authGate.awaitReady()
         ensureNotCoolingRead()
-        val response = requestThrottle.gate(ThrottleBucket.FEED, FEED_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+        val response = requestThrottle.gate(ThrottleBucket.CHART, CHART_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
             api.eraPage(url)
         }
         if (response.code() == 412) {
@@ -1586,6 +1586,8 @@ class BiliRepository internal constructor(
         // B3 限速最小间隔（ms）+ 抖动。保守初值，真机按体感/效果校准（工单 §5.3）。
         const val SEARCH_MIN_INTERVAL_MS = 800L
         const val FEED_MIN_INTERVAL_MS = 600L
+        /** 榜单 / 活动页 / 视频播客：连点几个入口时 600ms 偏密（10-21 真机 -352），放到 1 秒。 */
+        const val CHART_MIN_INTERVAL_MS = 1_000L
         const val DANMAKU_MIN_INTERVAL_MS = 1_000L
         const val SUMMARY_MIN_INTERVAL_MS = 800L
         const val WRITE_MIN_INTERVAL_MS = 1_000L

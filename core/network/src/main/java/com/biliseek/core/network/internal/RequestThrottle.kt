@@ -11,6 +11,8 @@ internal object ThrottleBucket {
     const val SEARCH = "search"
     const val WRITE = "write"
     const val FEED = "feed"
+    /** 首页榜单、活动页、视频播客：用户常连着点开好几个，与 FEED 隔离、间隔更大（10-21 真机连点三个榜单 8 秒 6 个请求触发 -352） */
+    const val CHART = "chart"
     /** 消息中心（私信会话/历史/互动 tab）：与 FEED 隔离，避免触发风控 */
     const val MESSAGE = "message"
     /** 弹幕分段：随播放进度按需拉取，与 FEED 隔离，不拖慢评论等页面读 */
