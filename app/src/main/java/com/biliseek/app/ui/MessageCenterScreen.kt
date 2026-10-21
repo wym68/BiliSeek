@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -150,7 +151,7 @@ private fun MessageEntryIcon(
             BadgedBox(
                 badge = {
                     if (badgeCount > 0) {
-                        Badge { Text(minOf(badgeCount, 99).toString()) }
+                        Badge { Text(unreadBadgeText(badgeCount)) }
                     }
                 },
             ) {
@@ -182,10 +183,20 @@ private fun SessionRow(session: Session, onClick: () -> Unit) {
             Text(lastText, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            text = if (session.lastMsg?.timestamp ?: 0L > 0L) formatRelativeTime(session.lastMsg!!.timestamp * 1000) else "",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = if (session.lastMsg?.timestamp ?: 0L > 0L) formatRelativeTime(session.lastMsg!!.timestamp * 1000) else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            // 入口总数含私信未读：每个会话要显示自己的未读数，否则总数与页面里看到的对不上
+            if (session.unreadCount > 0) {
+                Spacer(Modifier.height(4.dp))
+                Badge { Text(unreadBadgeText(session.unreadCount)) }
+            }
+        }
     }
 }
+
+/** 未读角标文字：超过 99 显示「99+」。 */
+internal fun unreadBadgeText(count: Int): String = if (count > 99) "99+" else count.toString()

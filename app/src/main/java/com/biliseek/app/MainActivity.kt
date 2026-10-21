@@ -464,8 +464,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 首次进入也刷新一次未读小红点（LifecycleObserver 只覆盖 ON_RESUME）
-                LaunchedEffect(Unit) {
+                // 首次进入 / 登录 / 退出也刷新一次未读小红点（LifecycleObserver 只覆盖 ON_RESUME）
+                LaunchedEffect(session.isLoggedIn) {
                     viewModel.messages.refreshUnreadCount()
                 }
 

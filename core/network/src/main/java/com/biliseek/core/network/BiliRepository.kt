@@ -29,6 +29,7 @@ import com.biliseek.core.network.dto.DanmakuItem
 import com.biliseek.core.network.internal.DanmakuProto
 import com.biliseek.core.network.internal.IdempotentCodes
 import com.biliseek.core.network.internal.runCommentRead
+import com.biliseek.core.network.internal.resolveUnreadSummary
 import com.biliseek.core.network.internal.RequestThrottle
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.RiskCooldown
@@ -1524,22 +1525,17 @@ class BiliRepository internal constructor(
     /**
      * 入口未读角标聚合：互动未读（回复/@/赞）+ 私信未读。
      * `api.bilibili.com x/msgfeed/unread` + `api.vc.bilibili.com session_svr/single_unread`。
-     * 失败时返回全零，UI 不报错（角标是 best-effort）。
+     * 任一路失败返回 null（见 [resolveUnreadSummary]），调用方保留旧角标；UI 不报错（角标是 best-effort）。
      */
-    suspend fun messageUnread(): MessageUnreadSummary = runCatching {
+    suspend fun messageUnread(): MessageUnreadSummary? = runCatching {
         requireLoggedInMid()
         authGate.awaitReady()
         ensureNotCoolingRead()
         // 角标是 best-effort：失败不抛，但 -352 仍要记入冷却，否则后台轮询会继续顶着风控打。
-        val msgfeed = runCatching { api.getMsgfeedUnread().also { noteRiskCode(it.code) }.data }.getOrNull()
-        val session = runCatching { api.getSessionUnread().also { noteRiskCode(it.code) }.data }.getOrNull()
-        MessageUnreadSummary(
-            reply = msgfeed?.reply ?: 0,
-            at = msgfeed?.at ?: 0,
-            like = msgfeed?.like ?: 0,
-            sessionUnread = (session?.unfollowUnread ?: 0) + (session?.followUnread ?: 0),
-        )
-    }.getOrDefault(MessageUnreadSummary())
+        val msgfeed = runCatching { api.getMsgfeedUnread().also { noteRiskCode(it.code) } }.getOrNull()
+        val session = runCatching { api.getSessionUnread().also { noteRiskCode(it.code) } }.getOrNull()
+        resolveUnreadSummary(msgfeed, session)
+    }.getOrNull()
 
     /**
      * 入口未读角标的结构化聚合。`total` 喂动态页铃铛；`replyAtBadge`/`like`

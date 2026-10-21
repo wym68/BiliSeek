@@ -14,6 +14,7 @@ import com.biliseek.core.network.mergeReplyAndAt
 import com.biliseek.core.network.videoBvid
 import com.biliseek.core.player.PlaybackRequest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -107,8 +108,11 @@ class MessageCenterController(
     /** 点"新增粉丝"图标：只发导航信号，子页面自己的 onInit 负责加载。 */
     fun openFollowerFeed() { _openFollowerFeedRequests.tryEmit(Unit) }
 
-    /** 消息中心页 onInit / 下拉刷新共用。 */
-    fun retryPrivateSessions() = loadPrivateSessions()
+    /** 消息中心页 onInit / 下拉刷新共用：私信列表 + 入口角标一起刷新，角标不停留在上次回前台时的旧值。 */
+    fun retryPrivateSessions() {
+        loadPrivateSessions()
+        refreshUnreadCount()
+    }
 
     private fun loadPrivateSessions() {
         if (!session.value.isLoggedIn) {
@@ -223,14 +227,21 @@ class MessageCenterController(
         }
     }
 
-    /** 入口未读角标：动态页铃铛 / 消息中心两个图标共用，best-effort，失败不抛。 */
+    private var unreadJob: Job? = null
+
+    /**
+     * 入口未读角标：动态页铃铛 / 消息中心两个图标共用，best-effort，失败不抛。
+     * 新一次刷新取消上一次：回前台、进页面、列表加载完会各发一次，慢的旧请求晚回来会把
+     * 刚清掉的角标又盖回去。失败（返回 null）保留旧角标，不清零。
+     */
     fun refreshUnreadCount() {
+        unreadJob?.cancel()
         if (!session.value.isLoggedIn) {
             _unreadSummary.value = BiliRepository.MessageUnreadSummary()
             return
         }
-        scope.launch {
-            _unreadSummary.value = repository.messageUnread()
+        unreadJob = scope.launch {
+            repository.messageUnread()?.let { _unreadSummary.value = it }
         }
     }
 
@@ -288,6 +299,7 @@ class MessageCenterController(
                     // 首屏加载完成后立即标记已读
                     if (!isLoadMore && data.maxSeqno > 0L) {
                         repository.markSessionRead(talkerId, data.maxSeqno)
+                            .onSuccess { clearSessionUnread(talkerId) }
                         refreshUnreadCount()
                     }
                 }
@@ -420,6 +432,13 @@ class MessageCenterController(
                     onResult(false, e.message)
                 }
         }
+    }
+
+    /** 会话已读后把列表里这一行的未读数清零，返回消息中心时不用等整页重拉。 */
+    private fun clearSessionUnread(talkerId: Long) {
+        _privateSessions.value = _privateSessions.value.copy(
+            items = _privateSessions.value.items.map { if (it.talkerId == talkerId) it.copy(unreadCount = 0) else it },
+        )
     }
 
     private fun ensureChatState(talkerId: Long): PrivateChatState =

@@ -292,7 +292,7 @@ private fun DynamicFilterBar(
             BadgedBox(
                 badge = {
                     if (unreadCount > 0) {
-                        Badge { Text(minOf(unreadCount, 99).toString()) }
+                        Badge { Text(unreadBadgeText(unreadCount)) }
                     }
                 },
             ) {
