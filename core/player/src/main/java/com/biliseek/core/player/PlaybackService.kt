@@ -19,6 +19,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.internal.CdnHostHealth
+import com.biliseek.core.player.internal.QueueSkipPlayer
 import com.biliseek.core.player.internal.StreamLoadErrorPolicy
 import java.io.IOException
 
@@ -99,7 +100,8 @@ class PlaybackService : MediaSessionService() {
         })
 
         player = exoPlayer
-        mediaSession = MediaSession.Builder(this, exoPlayer).build()
+        // 通知栏 / 锁屏的上一首、下一首走 BiliSeek 的队列，见该类的说明
+        mediaSession = MediaSession.Builder(this, QueueSkipPlayer(exoPlayer)).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =

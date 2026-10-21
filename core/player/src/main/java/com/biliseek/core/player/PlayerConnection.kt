@@ -12,6 +12,7 @@ import androidx.media3.session.SessionToken
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.internal.EffectiveQuality
 import com.biliseek.core.player.internal.PlayUrlResolver
+import com.biliseek.core.player.internal.QueueSkipBridge
 import com.biliseek.core.player.internal.PlaybackRecovery
 import com.biliseek.core.player.internal.RecoveryBudget
 import com.biliseek.core.player.internal.SleepTimerSpec
@@ -111,6 +112,15 @@ class PlayerConnection(private val context: Context) {
      * 整体替换单 item，永远是 0。只有这个自增计数器能保证「每次起播都换一个新值」。
      */
     private var trackGeneration = 0
+
+    /** 通知栏 / 锁屏 / 耳机的上一首、下一首，经 [QueueSkipBridge] 转进来。 */
+    private val skipHandler: (Boolean) -> Boolean = { toNext ->
+        if (toNext) {
+            skipTo(resolveManualNextIndex(queueIndex, queue.size, playMode))
+        } else {
+            skipTo(resolvePreviousIndex(queueIndex, queue.size, playMode))
+        }
+    }
 
     /** 已从持久化恢复队列（尚未起播）。用于 pushState 中 hasMedia 判断，
      *  以及 togglePlayPause 时改走「取流续播」而非直接 play controller。 */
@@ -344,6 +354,7 @@ class PlayerConnection(private val context: Context) {
         }
         mediaController.addListener(listener)
         controller = mediaController
+        QueueSkipBridge.handler = skipHandler
 
         scope = CoroutineScope(Dispatchers.Main).also { s ->
             s.launch {
@@ -939,15 +950,19 @@ class PlayerConnection(private val context: Context) {
     }
 
     fun skipToNext() {
-        val next = resolveManualNextIndex(queueIndex, queue.size, playMode) ?: return
-        queueIndex = next
-        scope?.launch { queue.getOrNull(next)?.let { play(it, fromQueue = true) } }
+        skipTo(resolveManualNextIndex(queueIndex, queue.size, playMode))
     }
 
     fun skipToPrevious() {
-        val prev = resolvePreviousIndex(queueIndex, queue.size, playMode) ?: return
-        queueIndex = prev
-        scope?.launch { queue.getOrNull(prev)?.let { play(it, fromQueue = true) } }
+        skipTo(resolvePreviousIndex(queueIndex, queue.size, playMode))
+    }
+
+    /** 返回是否真的切了：通知栏 / 锁屏按到队列两头时，交回播放器原本的行为。 */
+    private fun skipTo(index: Int?): Boolean {
+        val target = index?.let { queue.getOrNull(it) } ?: return false
+        queueIndex = index
+        scope?.launch { play(target, fromQueue = true) }
+        return true
     }
 
     /** 播完自动推进。与手动切歌不同：单曲循环下这里原地重播。 */
@@ -1170,6 +1185,7 @@ class PlayerConnection(private val context: Context) {
     }
 
     fun release() {
+        if (QueueSkipBridge.handler === skipHandler) QueueSkipBridge.handler = null
         scope?.cancel()
         scope = null
         controller?.removeListener(listener)
