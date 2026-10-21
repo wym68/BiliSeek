@@ -7,6 +7,7 @@ import com.biliseek.core.network.dto.SubtitleBody
 import com.biliseek.core.network.dto.VideoViewInfo
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.FavoriteFolderItem
+import com.biliseek.core.network.dto.FavoriteResourceData
 import com.biliseek.core.network.dto.FavoriteMedia
 import com.biliseek.core.network.dto.DynamicFeedData
 import com.biliseek.core.network.dto.DynamicItem
@@ -218,20 +219,27 @@ class BiliRepository internal constructor(
         pageSize: Int = 20,
     ): Result<FavoriteResourcePage> = runCatching {
         requireLoggedInMid()
-        fetchFavoriteResources(mediaId, page, pageSize)
+        fetchFavoriteResources(mediaId, page, pageSize) { what, req -> accountRead(what, req) }
     }
 
     /**
      * 别人的公开收藏夹内容（首页「视频播客」）。同一个接口，**不要求登录**——10-21 实测不带 Cookie 可读。
+     * 与首页榜单同属公开页面读，走 [chartRead]（FEED 限速桶）；登录态的 [favoriteResources] 仍走不限速的 [accountRead]。
      */
     suspend fun publicFavoriteResources(
         mediaId: Long,
         page: Int,
         pageSize: Int = 20,
-    ): Result<FavoriteResourcePage> = runCatching { fetchFavoriteResources(mediaId, page, pageSize) }
+    ): Result<FavoriteResourcePage> = runCatching { fetchFavoriteResources(mediaId, page, pageSize) { what, req -> chartRead(what, req) } }
 
-    private suspend fun fetchFavoriteResources(mediaId: Long, page: Int, pageSize: Int): FavoriteResourcePage {
-        val data = accountRead("收藏夹内容") { api.favoriteResources(mediaId, pn = page, ps = pageSize) }
+    /** 请求与映射共用；[read] 决定是否过限速桶（登录态 [accountRead]，公开 [chartRead]）。 */
+    private suspend fun fetchFavoriteResources(
+        mediaId: Long,
+        page: Int,
+        pageSize: Int,
+        read: suspend (String, suspend () -> BiliResponse<FavoriteResourceData>) -> FavoriteResourceData?,
+    ): FavoriteResourcePage {
+        val data = read("收藏夹内容") { api.favoriteResources(mediaId, pn = page, ps = pageSize) }
             ?: throw IllegalStateException("收藏夹内容为空")
         return FavoriteResourcePage(
             items = data.medias.filter { it.bvid.isNotBlank() && it.type == 2 },

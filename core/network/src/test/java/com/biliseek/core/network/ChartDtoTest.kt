@@ -17,7 +17,7 @@ import org.junit.Test
 /**
  * 榜单接口（每周必看 / 入站必刷 / 热歌榜）的 DTO 解析。
  *
- * 样例 JSON 按社区文档（bilibili-API-collect）的示例手写，**没有对照过真实响应**：
+ * 样例 JSON 除排行榜（`ranking_v2_sample.json`，10-21 的真实抓取）外，按社区文档（bilibili-API-collect）的示例手写，**没有对照过真实响应**：
  * 这里钉住字段名映射和脏数据回退——解析错了不会崩，只会少显示。
  */
 class ChartDtoTest {

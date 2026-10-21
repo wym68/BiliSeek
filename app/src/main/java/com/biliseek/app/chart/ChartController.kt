@@ -34,7 +34,7 @@ data class ChartState(
     /** 页头一行说明（期名 · 主题 / 官方说明 / 第 N 期 / N 个视频）。 */
     val subtitle: String = "",
     val items: List<ChartItem> = emptyList(),
-    /** 有期数的榜单（活动页的分组、每周必看、热歌榜；最新在前）的标签；其他榜单、或只有一期时为空，页面不显示选择条。 */
+    /** 有期数的榜单（活动页的分组、每周必看、热歌榜、原创音乐榜；最新在前）的标签；其他榜单、或只有一期时为空，页面不显示选择条。 */
     val issues: List<String> = emptyList(),
     /** [issues] 里当前选中的下标。 */
     val selectedIssue: Int = 0,
@@ -51,7 +51,7 @@ data class ChartState(
  * 点条目起播经 [playList] 回到宿主，整张榜单（有期数的是当前这一期）作为临时队列（docs/10）。
  *
  * 有期数的榜单共用一套切换机制（[selectIssue]）：
- * - 每周必看、热歌榜：先取全部期数（最新在前），再取要看的那一期；切到没看过的期发一次请求。
+ * - 每周必看、热歌榜、原创音乐榜：先取全部期数（最新在前），再取要看的那一期；切到没看过的期发一次请求。
  * - 活动页类（热门播客、搜索框里的活动页）是页面里按标签页分组的 BV 号：先取页面得到各组的 BV 号，
  *   再按组批量取标题封面。
  *
@@ -71,7 +71,7 @@ class ChartController(
     /** [ChartKind.ERA_PAGE] 的网址（热门播客的网址在仓库里）。 */
     private var eraUrl: String = ""
 
-    /** 活动页取到的各组（BV 号）；每周必看、热歌榜取到的各期（最新在前）。 */
+    /** 活动页取到的各组（BV 号）；每周必看、热歌榜、原创音乐榜取到的各期（最新在前）。 */
     private var eraGroups: List<EraGroup> = emptyList()
     private var chartIssues: List<ChartIssue> = emptyList()
 
@@ -232,7 +232,7 @@ class ChartController(
 
     /**
      * 取第 [index] 期的内容；下标越界（列表刚被刷新换掉）返回 null。
-     * 活动页是这一组的 BV 号再补卡片，每周必看、热歌榜是一次期数请求。
+     * 活动页是这一组的 BV 号再补卡片，每周必看、热歌榜、原创音乐榜是一次期数请求。
      */
     private suspend fun fetchIssue(kind: ChartKind, index: Int): Result<ChartPage>? = when (kind) {
         ChartKind.WEEKLY -> chartIssues.getOrNull(index)?.let { repository.weeklyIssue(it) }

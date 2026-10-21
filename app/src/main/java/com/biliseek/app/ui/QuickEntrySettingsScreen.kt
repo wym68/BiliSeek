@@ -92,7 +92,8 @@ fun QuickEntrySettingsScreen(
                         Modifier
                             .fillMaxWidth()
                             .toggleable(value = item.enabled, role = Role.Switch) {
-                                onChange(entries.withEnabled(item.entry, it))
+                                // 长按拖动松手时子节点先收到抬起事件、会当作点按；此时 draggingId 还没清，据此忽略
+                                if (reorder.draggingId == null) onChange(entries.withEnabled(item.entry, it))
                             }
                             .heightIn(min = 60.dp)
                             .padding(horizontal = 16.dp),
@@ -104,7 +105,7 @@ fun QuickEntrySettingsScreen(
                         Switch(checked = item.enabled, onCheckedChange = null)
                         Icon(
                             Icons.Filled.DragIndicator,
-                            contentDescription = "拖动排序",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
