@@ -40,6 +40,7 @@ import com.biliseek.core.network.dto.MusicListData
 import com.biliseek.core.network.dto.MusicPeriodsData
 import com.biliseek.core.network.dto.PopularVideo
 import com.biliseek.core.network.dto.PreciousData
+import com.biliseek.core.network.dto.RankingData
 import com.biliseek.core.network.dto.WeeklySeriesListData
 import com.biliseek.core.network.dto.WeeklySeriesOneData
 import kotlinx.serialization.json.JsonElement
@@ -350,6 +351,13 @@ interface BiliApi {
     /** 入站必刷。 */
     @GET("x/web-interface/popular/precious")
     suspend fun preciousVideos(): BiliResponse<PreciousData>
+
+    /** 全站排行榜。`rid=0` 全站，`type=all` 全部稿件。10-21 实测不签名返回正常。 */
+    @GET("x/web-interface/ranking/v2")
+    suspend fun rankingV2(
+        @Query("rid") rid: Int = 0,
+        @Query("type") type: String = "all",
+    ): BiliResponse<RankingData>
 
     /** 音频榜单每期列表。`list_type`：1 = 热榜（热歌榜），2 = 原创榜。 */
     @GET("x/copyright-music-publicity/toplist/all_period")

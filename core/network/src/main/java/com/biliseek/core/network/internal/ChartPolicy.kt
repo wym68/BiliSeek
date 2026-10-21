@@ -8,6 +8,7 @@ import com.biliseek.core.network.dto.MusicPeriod
 import com.biliseek.core.network.dto.MusicSong
 import com.biliseek.core.network.dto.PopularVideo
 import com.biliseek.core.network.dto.PreciousData
+import com.biliseek.core.network.dto.RankingData
 import com.biliseek.core.network.dto.WeeklySeriesEntry
 import com.biliseek.core.network.dto.WeeklySeriesOneData
 import com.biliseek.core.network.normalizeCoverUrl
@@ -112,3 +113,9 @@ internal fun resolveCardItems(bvids: List<String>, cards: Map<String, PopularVid
     val byBvid = cards.values.filterNotNull().filter { it.bvid.isNotBlank() }.associateBy { it.bvid }
     return bvids.mapNotNull { byBvid[it]?.toChartItem() }
 }
+
+/** 全站排行榜：页头 = 官方说明；名次 = 在榜单里的位置（跳过的条目不让后面的名次前移）。 */
+internal fun RankingData.toChartPage(): ChartPage = ChartPage(
+    subtitle = note,
+    items = list.mapIndexedNotNull { index, video -> video.toChartItem()?.copy(rank = index + 1) },
+)

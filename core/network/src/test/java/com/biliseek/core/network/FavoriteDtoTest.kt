@@ -124,4 +124,18 @@ class FavoriteDtoTest {
         )
         assertTrue(data.medias.isEmpty())
     }
+
+    /** 10-21 真实返回（官方公开收藏夹「视频播客」，不带 Cookie 读到），裁剪成 3 条。 */
+    @Test
+    fun `视频播客收藏夹真实样例_未登录可读的结构`() {
+        val text = checkNotNull(javaClass.classLoader?.getResourceAsStream("fav_video_podcast_sample.json"))
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+        val r = json.decodeFromString<com.biliseek.core.network.dto.BiliResponse<FavoriteResourceData>>(text)
+        assertEquals(0, r.code)
+        val data = r.data!!
+        assertTrue(data.hasMore)
+        assertEquals(listOf("BV1dYaJ6PE2z", "BV1Fhad6GEQL", "BV1j4af6rEN7"), data.medias.map { it.bvid })
+        assertTrue(data.medias.all { it.type == 2 })
+        assertEquals("于谦", data.medias[0].upper?.name)
+    }
 }

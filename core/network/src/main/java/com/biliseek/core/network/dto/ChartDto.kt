@@ -44,6 +44,14 @@ data class PreciousData(
     val list: List<PopularVideo> = emptyList(),
 )
 
+/** `x/web-interface/ranking/v2` —— 全站排行榜（`rid=0&type=all`），一次 100 条，没有期数。公开接口，不需要登录、不需要 WBI。 */
+@Serializable
+data class RankingData(
+    /** 官方说明，如「根据稿件内容质量、近期的数据综合展示，动态更新」。 */
+    val note: String = "",
+    val list: List<PopularVideo> = emptyList(),
+)
+
 /** 每周必看 / 入站必刷的视频条目（同视频详情的 data，只取要用的）。 */
 @Serializable
 data class PopularVideo(

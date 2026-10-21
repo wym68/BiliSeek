@@ -7,6 +7,8 @@ import com.biliseek.core.network.dto.PopularVideo
 import com.biliseek.core.network.dto.PreciousData
 import com.biliseek.core.network.dto.WeeklySeriesListData
 import com.biliseek.core.network.dto.WeeklySeriesOneData
+import com.biliseek.core.network.dto.RankingData
+import com.biliseek.core.network.internal.toChartPage
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -182,5 +184,40 @@ class ChartDtoTest {
         assertEquals(37L, v.owner?.mid)
         assertEquals(11329388L, v.stat?.view)
         assertNull(data.getValue("BV1gone000000"))
+    }
+
+    private fun resource(name: String): String =
+        checkNotNull(javaClass.classLoader?.getResourceAsStream(name)) { "缺少测试资源 $name" }
+            .bufferedReader(Charsets.UTF_8).use { it.readText() }
+
+    /** 10-21 真实返回（不签名、不带 Cookie），裁剪成 3 条。 */
+    @Test
+    fun `全站排行榜真实样例_按位置给名次_页头是官方说明`() {
+        val r = json.decodeFromString<BiliResponse<RankingData>>(resource("ranking_v2_sample.json"))
+        val page = r.data!!.toChartPage()
+        assertEquals("根据稿件内容质量、近期的数据综合展示，动态更新", page.subtitle)
+        assertEquals(listOf("BV1pGnn67EbB", "BV1SknF6KE5g", "BV1Jonu6mEwN"), page.items.map { it.bvid })
+        assertEquals(listOf(1, 2, 3), page.items.map { it.rank })
+        val first = page.items[0]
+        assertEquals("影视飓风", first.author)
+        assertEquals(946974L, first.authorMid)
+        assertEquals(2682L, first.durationSec)
+        assertEquals(4542869L, first.playCount)
+        assertEquals("https://i2.hdslb.com/bfs/archive/1bf5beb95e275c81e31f84f4798fdc1eaba4295f.jpg", first.coverUrl)
+    }
+
+    @Test
+    fun `全站排行榜_没有bvid的条目跳过但名次按原位置`() {
+        val r = json.decodeFromString<BiliResponse<RankingData>>(
+            """
+            {"code":0,"data":{"note":"n","list":[
+              {"bvid":"","title":"失效"},
+              {"bvid":"BV1xxxxxxxxx","title":"第二名","duration":10}
+            ]}}
+            """.trimIndent(),
+        )
+        val page = r.data!!.toChartPage()
+        assertEquals(listOf("BV1xxxxxxxxx"), page.items.map { it.bvid })
+        assertEquals(listOf(2), page.items.map { it.rank })
     }
 }

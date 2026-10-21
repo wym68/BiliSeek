@@ -11,7 +11,7 @@ data class ChartItem(
     val durationSec: Long,
     /** 播放量；没有该数据（热歌榜、或接口给 0）为 null。 */
     val playCount: Long?,
-    /** 名次；只有热歌榜有，其余为 null。 */
+    /** 名次；热歌榜、原创音乐榜、全站排行榜有，其余为 null。 */
     val rank: Int?,
     /** UP 主编号；没有（热歌榜的歌只有歌手）为 0。三点菜单据此决定要不要「查看UP主」。 */
     val authorMid: Long = 0,

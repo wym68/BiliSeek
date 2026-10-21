@@ -218,9 +218,22 @@ class BiliRepository internal constructor(
         pageSize: Int = 20,
     ): Result<FavoriteResourcePage> = runCatching {
         requireLoggedInMid()
+        fetchFavoriteResources(mediaId, page, pageSize)
+    }
+
+    /**
+     * 别人的公开收藏夹内容（首页「视频播客」）。同一个接口，**不要求登录**——10-21 实测不带 Cookie 可读。
+     */
+    suspend fun publicFavoriteResources(
+        mediaId: Long,
+        page: Int,
+        pageSize: Int = 20,
+    ): Result<FavoriteResourcePage> = runCatching { fetchFavoriteResources(mediaId, page, pageSize) }
+
+    private suspend fun fetchFavoriteResources(mediaId: Long, page: Int, pageSize: Int): FavoriteResourcePage {
         val data = accountRead("收藏夹内容") { api.favoriteResources(mediaId, pn = page, ps = pageSize) }
             ?: throw IllegalStateException("收藏夹内容为空")
-        FavoriteResourcePage(
+        return FavoriteResourcePage(
             items = data.medias.filter { it.bvid.isNotBlank() && it.type == 2 },
             page = page,
             hasMore = data.hasMore,
@@ -463,17 +476,27 @@ class BiliRepository internal constructor(
         chartRead("入站必刷") { api.preciousVideos() }?.toChartPage() ?: ChartPage.EMPTY
     }
 
+    /** 全站排行榜：页头 = 官方说明，条目按名次。一次请求，走 [chartRead]；不签名。 */
+    suspend fun rankingVideos(): Result<ChartPage> = runCatching {
+        chartRead("全站排行榜") { api.rankingV2() }?.toChartPage() ?: ChartPage.EMPTY
+    }
+
     /**
      * 热歌榜（音频榜单 `list_type=1` 的「热榜」）的全部期，最新一期在前。
      * 公开接口，不需要登录；一次请求，走 [chartRead]。没有任何期时返回空列表。
      */
-    suspend fun hotSongIssues(): Result<List<ChartIssue>> = runCatching {
-        resolveMusicIssues(chartRead("热歌榜期数") { api.musicToplistPeriods(listType = 1) }?.list.orEmpty())
+    suspend fun hotSongIssues(): Result<List<ChartIssue>> = musicIssues(listType = 1, what = "热歌榜期数")
+
+    /** 原创音乐榜的全部期：与热歌榜同一个接口，`list_type=2`；某一期的歌曲同样用 [hotSongIssue] 取。 */
+    suspend fun originalSongIssues(): Result<List<ChartIssue>> = musicIssues(listType = 2, what = "原创榜期数")
+
+    private suspend fun musicIssues(listType: Int, what: String): Result<List<ChartIssue>> = runCatching {
+        resolveMusicIssues(chartRead(what) { api.musicToplistPeriods(listType = listType) }?.list.orEmpty())
     }
 
-    /** 热歌榜的某一期：页头 =「第 N 期」，条目按名次排。一次请求，走 [chartRead]。 */
+    /** 热歌榜 / 原创音乐榜的某一期：页头 =「第 N 期」，条目按名次排。一次请求，走 [chartRead]。 */
     suspend fun hotSongIssue(issue: ChartIssue): Result<ChartPage> = runCatching {
-        chartRead("热歌榜") { api.musicToplistSongs(issue.id) }?.toChartPage(issue.number) ?: ChartPage.EMPTY
+        chartRead("音乐榜") { api.musicToplistSongs(issue.id) }?.toChartPage(issue.number) ?: ChartPage.EMPTY
     }
 
     /**
