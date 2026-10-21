@@ -22,7 +22,7 @@
 - 设置行标题「首页快捷入口」，值「显示 N 个」。
 - 首页每行 4 张卡片，最后一行不足时靠左、用等宽占位。
 - 中文注释，风格与周围代码一致；不新增 `:core:network` 的公开类型（`RankingData` DTO 与已有 DTO 同为 public 数据类，属于 DTO 包惯例，可以）。
-- **提交前先问用户**。工作区里有与本功能无关的未提交改动（消息角标、`UnreadPolicy` 等），每次提交只 `git add` 本任务列出的文件。
+- 在独立 worktree `../BiliSeek-home-quick-entries`（分支 `feat/home-quick-entries`）上开发，每个任务完成后直接提交（用户已同意）；只 `git add` 本任务改动的文件，不用交互式命令（不支持 `git add -p`）。提交信息末尾加 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。
 - 验证命令：`./gradlew test assembleDebug :app:compileDebugAndroidTestKotlin`。不装机，等用户开口。
 
 ---
@@ -237,7 +237,7 @@ internal fun RankingData.toChartPage(): ChartPage = ChartPage(
 Run: `./gradlew :core:network:test`
 Expected: BUILD SUCCESSFUL，全部通过。
 
-- [ ] **Step 7: 提交（先问用户）**
+- [ ] **Step 7: 提交**
 
 ```bash
 git add core/network/src/main/java/com/biliseek/core/network/dto/ChartDto.kt \
@@ -248,7 +248,7 @@ git add core/network/src/main/java/com/biliseek/core/network/dto/ChartDto.kt \
   core/network/src/test/java/com/biliseek/core/network/FavoriteDtoTest.kt \
   core/network/src/test/resources/ranking_v2_sample.json \
   core/network/src/test/resources/fav_video_podcast_sample.json
-git add -p core/network/src/main/java/com/biliseek/core/network/BiliRepository.kt   # 只选本任务的块
+git add core/network/src/main/java/com/biliseek/core/network/BiliRepository.kt
 git commit -m "feat(network): 全站排行榜、原创音乐榜期数、公开收藏夹读取"
 ```
 
@@ -327,7 +327,7 @@ enum class ChartKind(val title: String, val isEraPage: Boolean = false) {
 Run: `./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL（`when` 穷尽检查通过）。
 
-- [ ] **Step 4: 提交（先问用户）**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add app/src/main/java/com/biliseek/app/chart/ChartController.kt
@@ -561,13 +561,13 @@ fun List<QuickEntrySetting>.withEnabled(entry: QuickEntry, enabled: Boolean): Li
 Run: `./gradlew :app:testDebugUnitTest --tests "com.biliseek.app.data.QuickEntryPolicyTest"`
 Expected: PASS（7 个）。
 
-- [ ] **Step 5: 提交（先问用户）**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add app/src/main/java/com/biliseek/app/data/QuickEntryPolicy.kt \
   app/src/test/java/com/biliseek/app/data/QuickEntryPolicyTest.kt \
   app/src/main/java/com/biliseek/app/data/SettingsStore.kt
-git add -p app/src/main/java/com/biliseek/app/AppViewModel.kt
+git add app/src/main/java/com/biliseek/app/AppViewModel.kt
 git commit -m "feat(home): 快捷入口清单与开关/顺序的存储规则"
 ```
 
@@ -705,11 +705,11 @@ internal fun <T> rememberDragReorderState(
 Run: `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --tests "com.biliseek.app.data.ReorderPolicyTest"`
 Expected: BUILD SUCCESSFUL，PASS。另 `grep -rn "PlaylistReorderState\|rememberPlaylistReorderState" app/src` 应无结果。
 
-- [ ] **Step 4: 提交（先问用户）**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add app/src/main/java/com/biliseek/app/ui/DragReorder.kt app/src/main/java/com/biliseek/app/ui/PlaylistReorder.kt
-git add -p app/src/main/java/com/biliseek/app/ui/LibraryScreen.kt
+git add app/src/main/java/com/biliseek/app/ui/LibraryScreen.kt
 git commit -m "refactor(ui): 拖动排序改成按任意 key 的通用 DragReorderState"
 ```
 
@@ -857,10 +857,10 @@ KDoc 末尾补一句「[readOnly] 时只能看、播。」。函数体内：
 Run: `./gradlew :app:compileDebugKotlin`
 Expected: BUILD SUCCESSFUL。
 
-- [ ] **Step 4: 提交（先问用户）**
+- [ ] **Step 4: 提交**
 
 ```bash
-git add -p app/src/main/java/com/biliseek/app/remote/RemoteLibraryController.kt app/src/main/java/com/biliseek/app/ui/LibraryScreen.kt
+git add app/src/main/java/com/biliseek/app/remote/RemoteLibraryController.kt app/src/main/java/com/biliseek/app/ui/LibraryScreen.kt
 git commit -m "feat(remote): 只读打开公开收藏夹（首页视频播客）"
 ```
 
@@ -1072,12 +1072,12 @@ private const val QUICK_ENTRY_HINT_TEXT = "入口可以在 设置 → 首页快�
 Run: `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest`
 Expected: BUILD SUCCESSFUL，全部通过。
 
-- [ ] **Step 7: 提交（先问用户）**
+- [ ] **Step 7: 提交**
 
 ```bash
 git add app/src/main/java/com/biliseek/app/hint/HintPolicy.kt app/src/test/java/com/biliseek/app/hint/HintPolicyTest.kt \
   app/src/main/java/com/biliseek/app/ui/HomeScreen.kt
-git add -p app/src/main/java/com/biliseek/app/AppViewModel.kt app/src/main/java/com/biliseek/app/MainActivity.kt
+git add app/src/main/java/com/biliseek/app/AppViewModel.kt app/src/main/java/com/biliseek/app/MainActivity.kt
 git commit -m "feat(home): 快捷入口按设置显示（每行 4 张）、首次提示、视频播客入口"
 ```
 
@@ -1270,11 +1270,11 @@ import：`androidx.compose.material.icons.outlined.GridView`、`com.biliseek.app
 Run: `./gradlew test assembleDebug :app:compileDebugAndroidTestKotlin`
 Expected: BUILD SUCCESSFUL。
 
-- [ ] **Step 5: 提交（先问用户）**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add app/src/main/java/com/biliseek/app/ui/QuickEntrySettingsScreen.kt app/src/main/java/com/biliseek/app/ui/SettingsScreen.kt
-git add -p app/src/main/java/com/biliseek/app/MainActivity.kt
+git add app/src/main/java/com/biliseek/app/MainActivity.kt
 git commit -m "feat(settings): 首页快捷入口开关与拖动排序"
 ```
 
@@ -1287,8 +1287,6 @@ git commit -m "feat(settings): 首页快捷入口开关与拖动排序"
 - Modify: `docs/09-UI规范与重构.md`（首页快捷入口、设置页一节）
 - Modify: `docs/BiliSeek-手动测试指南.md`（加步骤）
 - Add: `docs/superpowers/specs/2026-10-21-home-quick-entries-design.md`、本计划文件
-
-注意：这三份 docs 里已有消息角标那批**未提交**的改动，提交时用 `git add -p` 只选本功能的块。
 
 - [ ] **Step 1: 05 §13**
 
@@ -1307,10 +1305,10 @@ git commit -m "feat(settings): 首页快捷入口开关与拖动排序"
 4. 视频播客：未登录也能打开；滚到底接着加载；标题栏没有编辑 / 删除，条目不能右滑，三点菜单没有「移除」；返回回到首页；切到「我的」页不受影响。
 5. 设置 → 界面 → 首页快捷入口：关掉一个，首页立刻少一个，行显示「显示 6 个」；长按拖动换顺序，首页顺序跟着变；杀进程重开后保持；全部关掉首页没有「快捷入口」一节。
 
-- [ ] **Step 4: 提交（先问用户）**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add docs/superpowers/specs/2026-10-21-home-quick-entries-design.md docs/superpowers/plans/2026-10-21-home-quick-entries.md
-git add -p docs/05-功能优化篇.md docs/09-UI规范与重构.md docs/BiliSeek-手动测试指南.md
+git add docs/05-功能优化篇.md docs/09-UI规范与重构.md docs/BiliSeek-手动测试指南.md
 git commit -m "docs: 首页快捷入口（第一期）设计稿、计划与文档同步"
 ```
