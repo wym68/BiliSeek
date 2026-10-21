@@ -55,6 +55,8 @@ data class AppSettings(
     val downloadConcurrency: Int = 1,
     /** 首页快捷入口的顺序与开关（设置 → 首页快捷入口）。出厂全部打开。 */
     val quickEntries: List<QuickEntrySetting> = DEFAULT_QUICK_ENTRIES,
+    /** 分区列表的时间范围、排序、隐藏短视频（全部分区共用）。 */
+    val region: com.biliseek.app.region.RegionSettings = com.biliseek.app.region.RegionSettings(),
 )
 
 /** 默认画质的出厂值与设置页可选档位。 */
@@ -125,6 +127,13 @@ class SettingsStore(private val context: Context) {
             videoQualityMetered = p[KEY_VIDEO_QUALITY_METERED] ?: VideoQualityDefaults.METERED,
             downloadConcurrency = clampDownloadConcurrency(p[KEY_DOWNLOAD_CONCURRENCY] ?: 1),
             quickEntries = resolveQuickEntries(p[KEY_QUICK_ENTRIES]),
+            region = com.biliseek.app.region.resolveRegionSettings(
+                mode = p[KEY_REGION_TIME_MODE],
+                from = p[KEY_REGION_TIME_FROM],
+                to = p[KEY_REGION_TIME_TO],
+                order = p[KEY_REGION_ORDER],
+                hideShort = p[KEY_REGION_HIDE_SHORT],
+            ),
             danmaku = com.biliseek.app.danmaku.DanmakuSettings().let { d ->
                 d.copy(
                     enabled = p[KEY_DM_ENABLED] ?: d.enabled,
@@ -178,6 +187,7 @@ class SettingsStore(private val context: Context) {
         update { it.copy(downloadConcurrency = clampDownloadConcurrency(value)) }
 
     suspend fun setQuickEntries(value: List<QuickEntrySetting>) = update { it.copy(quickEntries = value) }
+    suspend fun setRegionSettings(value: com.biliseek.app.region.RegionSettings) = update { it.copy(region = value) }
 
     suspend fun updateDanmaku(transform: (com.biliseek.app.danmaku.DanmakuSettings) -> com.biliseek.app.danmaku.DanmakuSettings) =
         update { it.copy(danmaku = transform(it.danmaku)) }
@@ -199,6 +209,13 @@ class SettingsStore(private val context: Context) {
             p[KEY_VIDEO_QUALITY_METERED] = next.videoQualityMetered
             p[KEY_DOWNLOAD_CONCURRENCY] = next.downloadConcurrency
             p[KEY_QUICK_ENTRIES] = encodeQuickEntries(next.quickEntries)
+            next.region.let { r ->
+                p[KEY_REGION_TIME_MODE] = r.timeMode.name
+                p[KEY_REGION_TIME_FROM] = r.savedSpan?.from?.let { com.biliseek.app.region.formatApiDate(it) }.orEmpty()
+                p[KEY_REGION_TIME_TO] = r.savedSpan?.to?.let { com.biliseek.app.region.formatApiDate(it) }.orEmpty()
+                p[KEY_REGION_ORDER] = r.order.param
+                p[KEY_REGION_HIDE_SHORT] = r.hideShort
+            }
             next.danmaku.let { d ->
                 p[KEY_DM_ENABLED] = d.enabled
                 p[KEY_DM_OPACITY] = d.opacity
@@ -233,6 +250,11 @@ class SettingsStore(private val context: Context) {
         val KEY_VIDEO_QUALITY_METERED = intPreferencesKey("video_quality_metered")
         val KEY_DOWNLOAD_CONCURRENCY = intPreferencesKey("download_concurrency")
         val KEY_QUICK_ENTRIES = stringPreferencesKey("home_quick_entries")
+        val KEY_REGION_TIME_MODE = stringPreferencesKey("region_time_mode")
+        val KEY_REGION_TIME_FROM = stringPreferencesKey("region_time_from")
+        val KEY_REGION_TIME_TO = stringPreferencesKey("region_time_to")
+        val KEY_REGION_ORDER = stringPreferencesKey("region_order")
+        val KEY_REGION_HIDE_SHORT = booleanPreferencesKey("region_hide_short")
         val KEY_DM_ENABLED = booleanPreferencesKey("danmaku_enabled")
         val KEY_DM_OPACITY = floatPreferencesKey("danmaku_opacity")
         val KEY_DM_FONT_SCALE = floatPreferencesKey("danmaku_font_scale")

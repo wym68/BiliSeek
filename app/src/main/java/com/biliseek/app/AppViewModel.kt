@@ -537,6 +537,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         },
     )
 
+    // ── 分区入口（时光姬式）：见 RegionController ──
+
+    val regions: com.biliseek.app.region.RegionController = com.biliseek.app.region.RegionController(
+        scope = viewModelScope,
+        repository = network.repository,
+        playList = { items, startIndex, loadMore ->
+            viewModelScope.launch {
+                connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
+            }
+        },
+        initialSettings = settingsStore.current.region,
+        saveSettings = { value -> viewModelScope.launch { settingsStore.setRegionSettings(value) } },
+    )
+
     // ── 日历史页（M12）────────────────────────────────────
 
     /** 当前打开的日历史页日期。null = 未打开。 */
@@ -1266,6 +1280,7 @@ return pages.map { p ->
         connection.sessionRestorer = { settingsStore.getLastSessionSync() }
         viewModelScope.launch {
             settingsStore.load()
+            regions.onSettingsLoaded(settingsStore.current.region)
             aiSettings.store.load()
             // 进程被杀前没做完的总结按断点重新入队
             summaryManager.resumePending()
