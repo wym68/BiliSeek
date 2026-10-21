@@ -13,12 +13,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** 榜单页的种类：首页快捷入口里的四个榜单，加上搜索框里认出来的活动页。 */
+/** 榜单页的种类：首页快捷入口里的榜单，加上搜索框里认出来的活动页。 */
 enum class ChartKind(val title: String, val isEraPage: Boolean = false) {
     WEEKLY("每周必看"),
     PRECIOUS("入站必刷"),
     HOT_SONGS("热歌榜"),
+    ORIGINAL_SONGS("原创音乐榜"),
     PODCAST("热门播客", isEraPage = true),
+    RANKING("全站排行榜"),
 
     /** 搜索框里认出来的活动页（b23 短链展开，或直接粘贴的网址）；标题用页面自己的 `<title>`。 */
     ERA_PAGE("活动页", isEraPage = true),
@@ -41,7 +43,7 @@ data class ChartState(
 )
 
 /**
- * 首页榜单（每周必看 / 入站必刷 / 热歌榜 / 热门播客）与搜索框里的活动页。公开接口，不需要登录。
+ * 首页榜单（每周必看 / 入站必刷 / 热歌榜 / 原创音乐榜 / 热门播客 / 全站排行榜）与搜索框里的活动页。公开接口，不需要登录。
  *
  * 从 AppViewModel 拆出，由 `AppViewModel.charts` 持有。每次打开或下拉刷新重新取，不落库
  * （设计稿：docs/superpowers/specs/ 下的 home-charts、home-podcast、search-era-and-av、chart-issues）。
@@ -102,7 +104,7 @@ class ChartController(
         fetch(state.kind, issue = state.selectedIssue)
     }
 
-    /** 切到第 [index] 期（活动页的分组、每周必看、热歌榜）。取过的期直接用缓存，没取过的发一次请求。 */
+    /** 切到第 [index] 期（活动页的分组、每周必看、热歌榜、原创音乐榜）。取过的期直接用缓存，没取过的发一次请求。 */
     fun selectIssue(index: Int) {
         val state = _opened.value?.takeIf { it.issues.isNotEmpty() } ?: return
         if (index == state.selectedIssue || index !in state.issues.indices) return
@@ -131,16 +133,16 @@ class ChartController(
     private fun fetch(kind: ChartKind, issue: Int = 0) {
         scope.launch {
             when (kind) {
-                ChartKind.PRECIOUS -> fetchChart(kind)
-                ChartKind.WEEKLY, ChartKind.HOT_SONGS -> fetchIssued(kind, issue)
+                ChartKind.PRECIOUS, ChartKind.RANKING -> fetchChart(kind)
+                ChartKind.WEEKLY, ChartKind.HOT_SONGS, ChartKind.ORIGINAL_SONGS -> fetchIssued(kind, issue)
                 ChartKind.PODCAST, ChartKind.ERA_PAGE -> fetchEra(kind, issue)
             }
         }
     }
 
-    /** 入站必刷：没有期数，一次取全。 */
+    /** 入站必刷、全站排行榜：没有期数，一次取全。 */
     private suspend fun fetchChart(kind: ChartKind) {
-        val result = repository.preciousVideos()
+        val result = if (kind == ChartKind.RANKING) repository.rankingVideos() else repository.preciousVideos()
         update(kind) { current ->
             result.fold(
                 onSuccess = { page ->
@@ -156,11 +158,12 @@ class ChartController(
         }
     }
 
-    /** 每周必看、热歌榜：先取全部期数（刷新时重取），再取要看的那一期。 */
+    /** 每周必看、热歌榜、原创音乐榜：先取全部期数（刷新时重取），再取要看的那一期。 */
     private suspend fun fetchIssued(kind: ChartKind, issue: Int) {
         issueCache.clear()
         val issues = when (kind) {
             ChartKind.WEEKLY -> repository.weeklyIssues()
+            ChartKind.ORIGINAL_SONGS -> repository.originalSongIssues()
             else -> repository.hotSongIssues()
         }.getOrElse { error ->
             failIssue(kind, index = null, error)
@@ -233,11 +236,11 @@ class ChartController(
      */
     private suspend fun fetchIssue(kind: ChartKind, index: Int): Result<ChartPage>? = when (kind) {
         ChartKind.WEEKLY -> chartIssues.getOrNull(index)?.let { repository.weeklyIssue(it) }
-        ChartKind.HOT_SONGS -> chartIssues.getOrNull(index)?.let { repository.hotSongIssue(it) }
+        ChartKind.HOT_SONGS, ChartKind.ORIGINAL_SONGS -> chartIssues.getOrNull(index)?.let { repository.hotSongIssue(it) }
         ChartKind.PODCAST, ChartKind.ERA_PAGE -> eraGroups.getOrNull(index)?.let { group ->
             repository.videoCards(group.bvids).map { ChartPage(subtitle = eraSubtitle(it), items = it) }
         }
-        ChartKind.PRECIOUS -> null
+        ChartKind.PRECIOUS, ChartKind.RANKING -> null
     }
 
     /** [index] 为 null 表示期数列表（或活动页本身）没取到；否则只在用户还停在这一期时才显示错误。 */
