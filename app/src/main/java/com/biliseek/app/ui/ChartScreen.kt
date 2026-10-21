@@ -114,7 +114,7 @@ private fun IssueChips(issues: List<String>, selected: Int, onSelect: (Int) -> U
 }
 
 @Composable
-private fun ChartRow(item: ChartItem, onClick: () -> Unit, onOpenMenu: () -> Unit) {
+internal fun ChartRow(item: ChartItem, onClick: () -> Unit, onOpenMenu: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()

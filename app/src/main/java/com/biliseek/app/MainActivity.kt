@@ -222,6 +222,10 @@ class MainActivity : ComponentActivity() {
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
                 val chart by viewModel.charts.opened.collectAsState()
                 val publicFavorite by viewModel.remoteLibrary.openedPublicFavorite.collectAsState()
+                val regionOverviewOpen by viewModel.regions.overviewOpen.collectAsState()
+                val regionDetail by viewModel.regions.detail.collectAsState()
+                val regionLists by viewModel.regions.lists.collectAsState()
+                val regionSettings by viewModel.regions.settings.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
                 val deletingFavoriteMediaId by viewModel.deletingFavoriteMediaId.collectAsState()
                 val selectionMode by viewModel.selectionMode.collectAsState()
@@ -616,11 +620,13 @@ class MainActivity : ComponentActivity() {
                             if (search.keyword.isNotBlank()) {
                                 viewModel.charts.close()
                                 viewModel.remoteLibrary.closePublicFavorite()
+                                viewModel.regions.closeAll()
                             }
                         }
                         val dayDate = dayHistoryDate
                         val openedChart = chart
                         val openedPublic = publicFavorite
+                        val openedRegionDetail = regionDetail
                         if (dayDate != null) {
                             // 日历史页（M12）：从首页热力图点入，返回手势收起到首页
                             BackHandler(onBack = viewModel::closeDayHistory)
@@ -654,6 +660,29 @@ class MainActivity : ComponentActivity() {
                                 onRemoveTrack = {},
                                 videoActions = videoMenuActions,
                                 readOnly = true,
+                            )
+                        } else if (openedRegionDetail != null) {
+                            // 分区详情：返回回到总览（从总览进来时）或首页（从快捷入口直接进来时）
+                            BackHandler(onBack = viewModel.regions::closeDetail)
+                            com.biliseek.app.ui.RegionDetailScreen(
+                                detail = openedRegionDetail,
+                                lists = regionLists,
+                                settings = regionSettings,
+                                onSettingsChange = viewModel.regions::updateSettings,
+                                onSelectTab = viewModel.regions::selectTab,
+                                onLoadMore = viewModel.regions::loadMore,
+                                onRetry = viewModel.regions::retry,
+                                onItemClick = viewModel.regions::play,
+                                onClose = viewModel.regions::closeDetail,
+                                videoActions = videoMenuActions,
+                            )
+                        } else if (regionOverviewOpen) {
+                            BackHandler(onBack = viewModel.regions::closeOverview)
+                            com.biliseek.app.ui.RegionOverviewScreen(
+                                settings = regionSettings,
+                                onSettingsChange = viewModel.regions::updateSettings,
+                                onOpenSubRegion = viewModel.regions::openDetail,
+                                onClose = viewModel.regions::closeOverview,
                             )
                         } else {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
