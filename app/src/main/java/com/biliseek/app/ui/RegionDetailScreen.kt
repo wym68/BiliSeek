@@ -30,6 +30,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -78,86 +79,95 @@ fun RegionDetailScreen(
     val today = remember { LocalDate.now() }
     val subs = remember(detail.group) { RegionCatalog.inGroup(detail.group) }
     val selectedIndex = subs.indexOfFirst { it.tid == detail.selectedTid }.coerceAtLeast(0)
-    val pager = rememberPagerState(initialPage = selectedIndex) { subs.size }
-    val scope = rememberCoroutineScope()
-    var showTime by remember { mutableStateOf(false) }
-    var showOrder by remember { mutableStateOf(false) }
-    var menuFor by remember { mutableStateOf<SearchVideo?>(null) }
-    menuFor?.let { VideoMenuSheet(it, videoActions) { menuFor = null } }
-    if (showTime) RegionTimeSheet(settings, today, onApply = onSettingsChange, onDismiss = { showTime = false })
+    // 按大类分键：换了大类绝不复用上一个的翻页状态
+    key(detail.group) {
+        val pager = rememberPagerState(initialPage = selectedIndex) { subs.size }
+        val scope = rememberCoroutineScope()
+        var showTime by remember { mutableStateOf(false) }
+        var showOrder by remember { mutableStateOf(false) }
+        var menuFor by remember { mutableStateOf<SearchVideo?>(null) }
+        menuFor?.let { VideoMenuSheet(it, videoActions) { menuFor = null } }
+        if (showTime) RegionTimeSheet(settings, today, onApply = onSettingsChange, onDismiss = { showTime = false })
 
-    // 左右滑到别的页 → 告诉控制器（取这一页的列表）
-    LaunchedEffect(pager) {
-        snapshotFlow { pager.settledPage }.collect { page -> subs.getOrNull(page)?.let { onSelectTab(it.tid) } }
-    }
-    // 从外面改了选中（快捷入口进来、点标签）→ 翻到那一页
-    LaunchedEffect(selectedIndex) { if (pager.currentPage != selectedIndex) pager.scrollToPage(selectedIndex) }
+        // 左右滑到别的页 → 告诉控制器（取这一页的列表）
+        LaunchedEffect(pager, subs) {
+            snapshotFlow { pager.settledPage }.collect { page -> subs.getOrNull(page)?.let { onSelectTab(it.tid) } }
+        }
+        // 从外面改了选中（快捷入口进来、点标签）→ 翻到那一页
+        // 比较已落定的页，且手指还在滑时不动，免得连续快滑被拉回
+        LaunchedEffect(selectedIndex) {
+            if (!pager.isScrollInProgress && pager.settledPage != selectedIndex) pager.scrollToPage(selectedIndex)
+        }
 
-    Column(Modifier.fillMaxSize()) {
-        BsTopBar(
-            title = detail.group.title,
-            onNavigate = onClose,
-            actions = {
-                Box {
-                    TextButton(onClick = { showOrder = true }) { Text("按${settings.order.label}") }
-                    DropdownMenu(expanded = showOrder, onDismissRequest = { showOrder = false }) {
-                        RegionOrder.entries.forEach { o ->
-                            DropdownMenuItem(
-                                text = { Text(o.label) },
-                                onClick = { showOrder = false; onSettingsChange(settings.copy(order = o)) },
-                                trailingIcon = if (o == settings.order) ({ Icon(Icons.Filled.Check, contentDescription = null) }) else null,
-                            )
+        Column(Modifier.fillMaxSize()) {
+            BsTopBar(
+                title = detail.group.title,
+                onNavigate = onClose,
+                actions = {
+                    Box {
+                        TextButton(onClick = { showOrder = true }) { Text("按${settings.order.label}") }
+                        DropdownMenu(expanded = showOrder, onDismissRequest = { showOrder = false }) {
+                            RegionOrder.entries.forEach { o ->
+                                DropdownMenuItem(
+                                    text = { Text(o.label) },
+                                    onClick = { showOrder = false; onSettingsChange(settings.copy(order = o)) },
+                                    trailingIcon = if (o == settings.order) ({ Icon(Icons.Filled.Check, contentDescription = null) }) else null,
+                                )
+                            }
                         }
                     }
+                },
+            )
+            ScrollableTabRow(selectedTabIndex = pager.currentPage, edgePadding = 16.dp) {
+                subs.forEachIndexed { i, sub ->
+                    Tab(selected = pager.currentPage == i, onClick = { scope.launch { pager.animateScrollToPage(i) } }, text = { Text(sub.name) })
                 }
-            },
-        )
-        ScrollableTabRow(selectedTabIndex = pager.currentPage, edgePadding = 16.dp) {
-            subs.forEachIndexed { i, sub ->
-                Tab(selected = pager.currentPage == i, onClick = { scope.launch { pager.animateScrollToPage(i) } }, text = { Text(sub.name) })
             }
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { showTime = true }) {
-                Icon(Icons.Outlined.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(formatSpanLabel(settings.span(today), today))
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { showTime = true }) {
+                    Icon(Icons.Outlined.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(formatSpanLabel(settings.span(today), today))
+                }
+                Spacer(Modifier.weight(1f))
+                Text("隐藏 1 分钟以下", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = settings.hideShort, onCheckedChange = { onSettingsChange(settings.copy(hideShort = it)) })
             }
-            Spacer(Modifier.weight(1f))
-            Text("隐藏 1 分钟以下", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.width(8.dp))
-            Switch(checked = settings.hideShort, onCheckedChange = { onSettingsChange(settings.copy(hideShort = it)) })
-        }
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), key = { subs[it].tid }) { page ->
-            val tid = subs[page].tid
-            val state = lists[tid] ?: RegionListState(isLoading = true)
-            val visible = visibleRegionItems(state.items, settings.hideShort)
-            val error = state.errorMessage
-            when {
-                state.isLoading && state.items.isEmpty() -> BsLoadingState()
-                error != null && state.items.isEmpty() -> BsErrorState(error, onRetry = { onRetry(tid) })
-                state.items.isEmpty() -> BsEmptyState("这段时间这个分区没有投稿", icon = regionGroupIcon(detail.group))
-                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
-                    items(visible, key = { it.bvid }) { item ->
-                        ChartRow(item, onClick = { onItemClick(tid, item) }, onOpenMenu = { menuFor = item.toSearchVideo() })
-                    }
-                    if (state.hasMore || state.isLoadingMore || error != null) {
-                        item(key = "footer") {
-                            // 跟原始条数走：一页全被短视频过滤掉时也会接着取。失败后不自动再来（否则会一直重打 B 站）
-                            if (shouldAutoLoadMore(state.hasMore, state.isLoadingMore, error)) {
-                                LaunchedEffect(state.items.size) { onLoadMore(tid) }
-                            }
-                            Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
-                                when {
-                                    state.isLoadingMore -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    error != null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(error, style = MaterialTheme.typography.labelSmall)
-                                        TextButton(onClick = { onRetry(tid) }) { Text("重试") }
+            HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), key = { subs[it].tid }) { page ->
+                val tid = subs[page].tid
+                val state = lists[tid] ?: RegionListState(isLoading = true)
+                val visible = visibleRegionItems(state.items, settings.hideShort)
+                val error = state.errorMessage
+                when {
+                    state.isLoading && state.items.isEmpty() -> BsLoadingState()
+                    error != null && state.items.isEmpty() -> BsErrorState(error, onRetry = { onRetry(tid) })
+                    state.items.isEmpty() -> BsEmptyState("这段时间这个分区没有投稿", icon = regionGroupIcon(detail.group))
+                    // 取到的全被「隐藏 1 分钟以下」滤掉且没有后续：给提示，免得空白
+                    visible.isEmpty() && !state.hasMore && !state.isLoadingMore && error == null ->
+                        BsEmptyState("没有 1 分钟以上的视频，可以关掉「隐藏 1 分钟以下」看看", icon = regionGroupIcon(detail.group))
+                    else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
+                        items(visible, key = { it.bvid }) { item ->
+                            ChartRow(item, onClick = { onItemClick(tid, item) }, onOpenMenu = { menuFor = item.toSearchVideo() })
+                        }
+                        if (state.hasMore || state.isLoadingMore || error != null) {
+                            item(key = "footer") {
+                                // 跟原始条数走：一页全被短视频过滤掉时也会接着取。失败后不自动再来（否则会一直重打 B 站）
+                                if (shouldAutoLoadMore(state.hasMore, state.isLoadingMore, error)) {
+                                    LaunchedEffect(state.items.size) { onLoadMore(tid) }
+                                }
+                                Box(Modifier.fillMaxWidth().padding(12.dp), Alignment.Center) {
+                                    when {
+                                        state.isLoadingMore -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                        error != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(error, style = MaterialTheme.typography.labelSmall)
+                                            TextButton(onClick = { onRetry(tid) }) { Text("重试") }
+                                        }
+                                        else -> Text("加载中…", style = MaterialTheme.typography.labelSmall)
                                     }
-                                    else -> Text("加载中…", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
