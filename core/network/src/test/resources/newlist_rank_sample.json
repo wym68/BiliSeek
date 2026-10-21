@@ -1,0 +1,66 @@
+{
+ "code": 0,
+ "message": "OK",
+ "ttl": 1,
+ "data": {
+  "result": [
+   {
+    "pubdate": "2026-10-18 19:40:12",
+    "pic": "//i0.hdslb.com/bfs/archive/d4c65f30bac48928fd966eb75cd94ca712db77ed.jpg",
+    "duration": 64,
+    "id": 117461701629225,
+    "author": "桂香GuiXiang",
+    "mid": 1920927277,
+    "play": "2134234",
+    "favorites": 30464,
+    "video_review": 595,
+    "review": 4094,
+    "bvid": "BV18rn36iEBq",
+    "title": "重阳节，以此摇滚，缅怀逝去的姐妹。",
+    "senddate": 1792594771,
+    "rank_index": 1,
+    "type": "video"
+   },
+   {
+    "pubdate": "2026-10-17 22:25:47",
+    "pic": "//i0.hdslb.com/bfs/archive/eca8d0b9ee9f32ce05eab3b5587b2523e52cf331.jpg",
+    "duration": 16,
+    "id": 117456702021201,
+    "author": "柚屿睛川",
+    "mid": 3546842193201158,
+    "play": "941176",
+    "favorites": 2967,
+    "video_review": 37,
+    "review": 262,
+    "bvid": "BV1PaJB6eEeM",
+    "title": "Oh my god",
+    "senddate": 1792381211,
+    "rank_index": 3,
+    "type": "video"
+   },
+   {
+    "pubdate": "2026-10-16 11:10:10",
+    "pic": "//i0.hdslb.com/bfs/archive/d73bf2596959cfe22d69dc6548d0bf57b2eaaafd.jpg",
+    "duration": 288,
+    "id": 117448380582500,
+    "author": "柠萌在thinking",
+    "mid": 502291943,
+    "play": "209398",
+    "favorites": 970,
+    "video_review": 625,
+    "review": 3750,
+    "bvid": "BV15GJQ6REdA",
+    "title": "能飞多久？毫无价值？一口气讲完Roadster超跑！",
+    "senddate": 1792534732,
+    "rank_index": 8,
+    "type": "video"
+   }
+  ],
+  "numPages": 337,
+  "numResults": 6736,
+  "pagesize": 20,
+  "page": 1,
+  "rqt_type": "search",
+  "msg": "success"
+ }
+}
