@@ -1,6 +1,8 @@
 package com.biliseek.app.summary
 
 import com.biliseek.core.ai.AiConnectionTester
+import com.biliseek.core.ai.AiModelLister
+import com.biliseek.core.ai.ModelListResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +17,14 @@ sealed interface ConnectionTestState {
     data object Testing : ConnectionTestState
     data object Ok : ConnectionTestState
     data class Failed(val message: String) : ConnectionTestState
+}
+
+/** 「获取模型列表」的结果。[Loaded.baseUrl] 记下是哪个地址拿到的，地址改了就不再用它。 */
+sealed interface ModelListState {
+    data object Idle : ModelListState
+    data object Loading : ModelListState
+    data class Loaded(val baseUrl: String, val models: List<String>) : ModelListState
+    data class Failed(val message: String) : ModelListState
 }
 
 /**
@@ -32,6 +42,9 @@ class AiSettingsController(
 
     private val _tests = MutableStateFlow<Map<EndpointSlot, ConnectionTestState>>(emptyMap())
     val tests: StateFlow<Map<EndpointSlot, ConnectionTestState>> = _tests.asStateFlow()
+
+    private val _modelLists = MutableStateFlow<Map<EndpointSlot, ModelListState>>(emptyMap())
+    val modelLists: StateFlow<Map<EndpointSlot, ModelListState>> = _modelLists.asStateFlow()
 
     /** 保存。返回校验失败原因（null = 已保存）。 */
     fun save(slot: EndpointSlot, draft: EndpointDraft, onResult: (String?) -> Unit = {}) {
@@ -71,6 +84,27 @@ class AiSettingsController(
                 ConnectionTestState.Failed(AiErrorText.describe(error, config.presetId))
             }
             _tests.update { it + (slot to result) }
+        }
+    }
+
+    /** 用草稿拉取模型列表（草稿 Key 留空则用已保存的）。只在用户点击时调用。 */
+    fun fetchModels(slot: EndpointSlot, draft: EndpointDraft) {
+        scope.launch {
+            val config = AiSettingsPolicy.resolve(draft, store.savedKey(slot))
+            if (config == null) {
+                _modelLists.update { it + (slot to ModelListState.Failed("请先填写 API Key")) }
+                return@launch
+            }
+            _modelLists.update { it + (slot to ModelListState.Loading) }
+            val result = when (val r = AiModelLister.list(config, aiHttp)) {
+                is ModelListResult.Ok -> if (r.models.isEmpty()) {
+                    ModelListState.Failed("服务没有返回可用的模型，请手动填写")
+                } else {
+                    ModelListState.Loaded(config.baseUrl, r.models)
+                }
+                is ModelListResult.Failed -> ModelListState.Failed(AiSettingsPolicy.describeModelListError(r.error, config.presetId))
+            }
+            _modelLists.update { it + (slot to result) }
         }
     }
 

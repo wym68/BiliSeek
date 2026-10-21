@@ -12,6 +12,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -19,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +42,7 @@ import com.biliseek.app.summary.ConnectionTestState
 import com.biliseek.app.summary.EndpointDraft
 import com.biliseek.app.summary.EndpointSlot
 import com.biliseek.app.summary.EndpointView
+import com.biliseek.app.summary.ModelListState
 import com.biliseek.app.summary.StyleChoice
 import com.biliseek.app.ui.components.LocalMiniBarInset
 import com.biliseek.core.ai.provider.ProviderCatalog
@@ -58,9 +65,11 @@ import com.biliseek.designsystem.theme.BsSpacing
 fun AiSettingsScreen(
     settings: AiSettings,
     tests: Map<EndpointSlot, ConnectionTestState>,
+    modelLists: Map<EndpointSlot, ModelListState>,
     onSave: (EndpointSlot, EndpointDraft, (String?) -> Unit) -> Unit,
     onClear: (EndpointSlot) -> Unit,
     onTest: (EndpointSlot, EndpointDraft) -> Unit,
+    onFetchModels: (EndpointSlot, EndpointDraft) -> Unit,
     /** 默认选择：(是否 B 站总结, 风格)。 */
     onDefaultChange: (Boolean, StyleChoice) -> Unit,
     onCustomPromptSave: (String) -> Unit,
@@ -99,9 +108,11 @@ fun AiSettingsScreen(
                         slot = EndpointSlot.PRIMARY,
                         saved = settings.primary,
                         test = tests[EndpointSlot.PRIMARY] ?: ConnectionTestState.Idle,
+                        modelList = modelLists[EndpointSlot.PRIMARY] ?: ModelListState.Idle,
                         onSave = ::requestSave,
                         onClear = onClear,
                         onTest = onTest,
+                        onFetchModels = onFetchModels,
                     )
                 }
             }
@@ -125,9 +136,11 @@ fun AiSettingsScreen(
                             slot = EndpointSlot.BACKUP,
                             saved = settings.backup,
                             test = tests[EndpointSlot.BACKUP] ?: ConnectionTestState.Idle,
+                            modelList = modelLists[EndpointSlot.BACKUP] ?: ModelListState.Idle,
                             onSave = ::requestSave,
                             onClear = onClear,
                             onTest = onTest,
+                        onFetchModels = onFetchModels,
                         )
                     }
                 }
@@ -175,9 +188,11 @@ private fun EndpointEditor(
     slot: EndpointSlot,
     saved: EndpointView?,
     test: ConnectionTestState,
+    modelList: ModelListState,
     onSave: (EndpointSlot, EndpointDraft, (String?) -> Unit) -> Unit,
     onClear: (EndpointSlot) -> Unit,
     onTest: (EndpointSlot, EndpointDraft) -> Unit,
+    onFetchModels: (EndpointSlot, EndpointDraft) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     var presetId by remember(saved) { mutableStateOf(saved?.presetId ?: ProviderCatalog.MINIMAX_CN.id) }
@@ -222,15 +237,25 @@ private fun EndpointEditor(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             modifier = Modifier.fillMaxWidth().testTag("${tagPrefix}_key"),
         )
-        OutlinedTextField(
+        ModelField(
             value = model,
             onValueChange = { model = it },
-            label = { Text("模型名（必填）") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag("${tagPrefix}_model"),
+            choices = AiSettingsPolicy.modelChoices(presetId, baseUrl, modelList),
+            openOnLoad = modelList,
+            tag = "${tagPrefix}_model",
         )
-        ProviderCatalog.byId(presetId)?.docsUrl?.takeIf { it.isNotBlank() }?.let { docs ->
-            TextButton(onClick = { uriHandler.openUri(docs) }) { Text("去哪拿 API Key") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(
+                onClick = { onFetchModels(slot, draft) },
+                enabled = modelList != ModelListState.Loading,
+                modifier = Modifier.testTag("${tagPrefix}_fetch_models"),
+            ) { Text(if (modelList == ModelListState.Loading) "正在获取…" else "获取模型列表") }
+            ProviderCatalog.byId(presetId)?.docsUrl?.takeIf { it.isNotBlank() }?.let { docs ->
+                TextButton(onClick = { uriHandler.openUri(docs) }) { Text("去哪拿 API Key") }
+            }
+        }
+        (modelList as? ModelListState.Failed)?.let {
+            Text(it.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(
@@ -261,6 +286,66 @@ private fun EndpointEditor(
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+/**
+ * 模型名：可直接输入，也可从下拉里选（拉到的列表或预设内置备选）。输入时按包含筛选下拉项。
+ * 拉取成功（[openOnLoad] 变成 Loaded）时自动展开下拉。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    choices: List<String>,
+    openOnLoad: ModelListState,
+    tag: String,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    // 只在这次打开页面期间刚拉取成功时展开；重进页面时已有的结果不自动弹出
+    var lastList by remember { mutableStateOf(openOnLoad) }
+    LaunchedEffect(openOnLoad) {
+        if (openOnLoad is ModelListState.Loaded && openOnLoad != lastList) expanded = true
+        lastList = openOnLoad
+    }
+    val shown = AiSettingsPolicy.filterModels(choices, value)
+    ExposedDropdownMenuBox(
+        expanded = expanded && shown.isNotEmpty(),
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = true
+            },
+            label = { Text("模型名（必填）") },
+            placeholder = { if (choices.isNotEmpty()) Text("输入或从列表中选择") },
+            singleLine = true,
+            trailingIcon = {
+                if (choices.isNotEmpty()) ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && shown.isNotEmpty())
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable)
+                .testTag(tag),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded && shown.isNotEmpty(),
+            onDismissRequest = { expanded = false },
+        ) {
+            shown.forEach { name ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        onValueChange(name)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                )
+            }
         }
     }
 }

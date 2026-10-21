@@ -46,6 +46,8 @@ data class ProviderPreset(
     val errorCodeMap: Map<Int, VendorErrorKind> = emptyMap(),
     /** 该预设下 401 时额外提示「Key 与域名的区域不匹配」。 */
     val regionSensitive: Boolean = false,
+    /** 设置页模型下拉的内置备选；服务不支持 `GET /models` 时靠它选。 */
+    val knownModels: List<String> = emptyList(),
 )
 
 /**
@@ -84,6 +86,9 @@ object ProviderCatalog {
      * **未经真机核对**（工单 §3.7.1）。1002 / 1039 在官方 CLI 里与审核拦截同一分支，
      * 但按错误码说明更像限流；按限流处理——误判的代价只是多重试几次，反之会把限流错报成「内容被拦截」。
      */
+    /** 来源：MiniMax 开放平台「OpenAI 兼容」文档（2026-10），**未经真机核对**。 */
+    private val MINIMAX_MODELS = listOf("MiniMax-M3", "MiniMax-M3.1-Flash", "MiniMax-M2.7", "MiniMax-M2.7-highspeed")
+
     private val MINIMAX_ERROR_CODES: Map<Int, VendorErrorKind> = mapOf(
         1002 to VendorErrorKind.RATE_LIMITED,
         1039 to VendorErrorKind.RATE_LIMITED,
@@ -104,6 +109,7 @@ object ProviderCatalog {
         docsUrl = "https://platform.minimaxi.com",
         errorCodeMap = MINIMAX_ERROR_CODES,
         regionSensitive = true,
+        knownModels = MINIMAX_MODELS,
     )
 
     val MINIMAX_GLOBAL = ProviderPreset(
@@ -113,6 +119,7 @@ object ProviderCatalog {
         docsUrl = "https://platform.minimax.io",
         errorCodeMap = MINIMAX_ERROR_CODES,
         regionSensitive = true,
+        knownModels = MINIMAX_MODELS,
     )
 
     /** 任意 OpenAI 兼容服务（Kimi 开放平台、DeepSeek、通义、Ollama…），地址由用户填。 */

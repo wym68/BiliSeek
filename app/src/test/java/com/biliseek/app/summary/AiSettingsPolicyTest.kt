@@ -24,6 +24,34 @@ class AiSettingsPolicyTest {
     }
 
     @Test
+    fun `模型下拉优先用当前地址拉到的列表 否则用预设内置备选`() {
+        val loaded = ModelListState.Loaded("https://my.host/v1", listOf("a", "b"))
+        assertEquals(listOf("a", "b"), AiSettingsPolicy.modelChoices("custom_openai", " https://my.host/v1 ", loaded))
+        // 地址改了就不再用旧列表
+        assertEquals(emptyList<String>(), AiSettingsPolicy.modelChoices("custom_openai", "https://other/v1", loaded))
+        val minimax = AiSettingsPolicy.modelChoices("minimax_cn", "https://api.minimaxi.com/v1", ModelListState.Idle)
+        assertTrue("MiniMax-M2.7" in minimax)
+        assertEquals(emptyList<String>(), AiSettingsPolicy.modelChoices("unknown", "x", ModelListState.Idle))
+    }
+
+    @Test
+    fun `模型下拉按输入筛选 空输入或正好选中时全部显示`() {
+        val models = listOf("deepseek-chat", "deepseek-reasoner", "qwen-max")
+        assertEquals(models, AiSettingsPolicy.filterModels(models, " "))
+        assertEquals(models, AiSettingsPolicy.filterModels(models, "qwen-max"))
+        assertEquals(listOf("deepseek-chat", "deepseek-reasoner"), AiSettingsPolicy.filterModels(models, "DeepSeek"))
+        assertEquals(emptyList<String>(), AiSettingsPolicy.filterModels(models, "gpt"))
+    }
+
+    @Test
+    fun `拉取模型列表 404 同时提示地址错或不支持`() {
+        val wrong = AiSettingsPolicy.describeModelListError(AiError.Config(ConfigErrorKind.WRONG_ENDPOINT), "minimax_cn")
+        assertTrue("不支持获取列表" in wrong)
+        val key = AiSettingsPolicy.describeModelListError(AiError.Config(ConfigErrorKind.INVALID_KEY), "custom_openai")
+        assertEquals("没有拿到模型列表：API Key 无效", key)
+    }
+
+    @Test
     fun `草稿 Key 为空时用已保存的 都没有返回 null`() {
         assertEquals("sk-abcdefgh1234", AiSettingsPolicy.resolve(draft, "saved")!!.apiKey)
         assertEquals("saved", AiSettingsPolicy.resolve(draft.copy(apiKey = " "), "saved")!!.apiKey)

@@ -327,6 +327,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val aiSettingsState by viewModel.aiSettings.state.collectAsState()
                 val aiConnectionTests by viewModel.aiSettings.tests.collectAsState()
+                val aiModelLists by viewModel.aiSettings.modelLists.collectAsState()
                 // 列表 tab 选中的页
                 var selectedTab by remember { mutableStateOf(LibraryTab.PLAYLISTS) }
 
@@ -870,9 +871,11 @@ class MainActivity : ComponentActivity() {
                             com.biliseek.app.ui.AiSettingsScreen(
                                 settings = aiSettingsState,
                                 tests = aiConnectionTests,
+                                modelLists = aiModelLists,
                                 onSave = viewModel.aiSettings::save,
                                 onClear = viewModel.aiSettings::clear,
                                 onTest = viewModel.aiSettings::test,
+                                onFetchModels = viewModel.aiSettings::fetchModels,
                                 onDefaultChange = viewModel.aiSettings::setDefaultPick,
                                 onCustomPromptSave = viewModel.aiSettings::setCustomPrompt,
                                 onAcceptPrivacy = viewModel.aiSettings::acceptPrivacy,

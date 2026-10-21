@@ -118,6 +118,29 @@ object AiSettingsPolicy {
     /** `sk-abcd1234` → `1234`。 */
     fun keyHint(key: String): String = if (key.length <= 8) "" else key.takeLast(4)
 
+    /**
+     * 模型下拉的选项：拉到的列表（且仍是当前地址的）优先，否则用预设的内置备选。
+     */
+    fun modelChoices(presetId: String, baseUrl: String, list: ModelListState): List<String> {
+        if (list is ModelListState.Loaded && list.baseUrl == baseUrl.trim()) return list.models
+        return ProviderCatalog.byId(presetId)?.knownModels.orEmpty()
+    }
+
+    /** 按输入筛选下拉项：输入为空或正好是某一项时全部显示，否则按包含（不分大小写）。 */
+    fun filterModels(models: List<String>, query: String): List<String> {
+        val q = query.trim()
+        if (q.isEmpty() || q in models) return models
+        return models.filter { it.contains(q, ignoreCase = true) }
+    }
+
+    /** 拉取失败的提示。404 / 405 既可能是地址错，也可能是服务不提供列表接口，两种都说。 */
+    fun describeModelListError(error: AiError, presetId: String): String =
+        if (error is AiError.Config && error.kind == ConfigErrorKind.WRONG_ENDPOINT) {
+            "没有拿到模型列表：接口地址不对，或该服务不支持获取列表，请手动填写"
+        } else {
+            "没有拿到模型列表：" + AiErrorText.describe(error, presetId)
+        }
+
     /** 新的 RTF 并入滑动平均（新值权重 0.3）。 */
     fun blendRtf(previous: Float?, measured: Float): Float =
         if (previous == null) measured else previous * 0.7f + measured * 0.3f
