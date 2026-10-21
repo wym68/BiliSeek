@@ -418,6 +418,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settingsStore.setThemeMode(mode)
     }
 
+    fun setQuickEntries(value: List<com.biliseek.app.data.QuickEntrySetting>) = viewModelScope.launch {
+        settingsStore.setQuickEntries(value)
+    }
+
     // ── 表情（面板 + 进程级字典）：见 EmoteController ──
 
     val emotes: com.biliseek.app.emote.EmoteController = com.biliseek.app.emote.EmoteController(

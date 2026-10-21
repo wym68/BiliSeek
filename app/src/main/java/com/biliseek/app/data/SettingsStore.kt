@@ -53,6 +53,8 @@ data class AppSettings(
     val danmaku: com.biliseek.app.danmaku.DanmakuSettings = com.biliseek.app.danmaku.DanmakuSettings(),
     /** 同时下载数（1..[MAX_DOWNLOAD_CONCURRENCY]）。默认 1：一条下完再下下一条。 */
     val downloadConcurrency: Int = 1,
+    /** 首页快捷入口的顺序与开关（设置 → 首页快捷入口）。出厂全部打开。 */
+    val quickEntries: List<QuickEntrySetting> = DEFAULT_QUICK_ENTRIES,
 )
 
 /** 默认画质的出厂值与设置页可选档位。 */
@@ -122,6 +124,7 @@ class SettingsStore(private val context: Context) {
             videoQualityWifi = p[KEY_VIDEO_QUALITY_WIFI] ?: VideoQualityDefaults.WIFI,
             videoQualityMetered = p[KEY_VIDEO_QUALITY_METERED] ?: VideoQualityDefaults.METERED,
             downloadConcurrency = clampDownloadConcurrency(p[KEY_DOWNLOAD_CONCURRENCY] ?: 1),
+            quickEntries = resolveQuickEntries(p[KEY_QUICK_ENTRIES]),
             danmaku = com.biliseek.app.danmaku.DanmakuSettings().let { d ->
                 d.copy(
                     enabled = p[KEY_DM_ENABLED] ?: d.enabled,
@@ -174,6 +177,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setDownloadConcurrency(value: Int) =
         update { it.copy(downloadConcurrency = clampDownloadConcurrency(value)) }
 
+    suspend fun setQuickEntries(value: List<QuickEntrySetting>) = update { it.copy(quickEntries = value) }
+
     suspend fun updateDanmaku(transform: (com.biliseek.app.danmaku.DanmakuSettings) -> com.biliseek.app.danmaku.DanmakuSettings) =
         update { it.copy(danmaku = transform(it.danmaku)) }
 
@@ -193,6 +198,7 @@ class SettingsStore(private val context: Context) {
             p[KEY_VIDEO_QUALITY_WIFI] = next.videoQualityWifi
             p[KEY_VIDEO_QUALITY_METERED] = next.videoQualityMetered
             p[KEY_DOWNLOAD_CONCURRENCY] = next.downloadConcurrency
+            p[KEY_QUICK_ENTRIES] = encodeQuickEntries(next.quickEntries)
             next.danmaku.let { d ->
                 p[KEY_DM_ENABLED] = d.enabled
                 p[KEY_DM_OPACITY] = d.opacity
@@ -226,6 +232,7 @@ class SettingsStore(private val context: Context) {
         val KEY_VIDEO_QUALITY_WIFI = intPreferencesKey("video_quality_wifi")
         val KEY_VIDEO_QUALITY_METERED = intPreferencesKey("video_quality_metered")
         val KEY_DOWNLOAD_CONCURRENCY = intPreferencesKey("download_concurrency")
+        val KEY_QUICK_ENTRIES = stringPreferencesKey("home_quick_entries")
         val KEY_DM_ENABLED = booleanPreferencesKey("danmaku_enabled")
         val KEY_DM_OPACITY = floatPreferencesKey("danmaku_opacity")
         val KEY_DM_FONT_SCALE = floatPreferencesKey("danmaku_font_scale")
