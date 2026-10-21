@@ -78,6 +78,7 @@ import androidx.compose.ui.zIndex
 import com.biliseek.app.data.PlaylistEntity
 import com.biliseek.app.data.PlaylistTrack
 import com.biliseek.app.data.RemoteListState
+import com.biliseek.app.data.reorderNeighbors
 import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.data.CollectedListLoadState
@@ -705,7 +706,7 @@ fun LibraryScreen(
  * 按住不动等长按触发后再拖，拖动事件被排序消费，右滑看到已消费的事件不会启动。
  *
  * 拖动排序（设计稿：2026-10-04-playlist-reorder）：拿起的那一行变成浮起卡片、三点换成拖动手柄并震一下；
- * 拖动时别的行滑开让位，空出来的格子就是落点。状态与手势见 [PlaylistReorderState]。
+ * 拖动时别的行滑开让位，空出来的格子就是落点。状态与手势见 [DragReorderState]。
  */
 @Composable
 private fun PlaylistDetail(
@@ -722,7 +723,11 @@ private fun PlaylistDetail(
     videoActions: VideoMenuActions = VideoMenuActions(),
 ) {
     val listState = rememberLazyListState()
-    val reorder = rememberPlaylistReorderState(listState, tracks, onTrackReorder)
+    // 松手：按「最初位置 → 最终位置」算两侧 sortKey（取中值）写一次库
+    val reorder = rememberDragReorderState(listState, tracks, keyOf = { it.track.id }) { key, from, to ->
+        val (before, after) = reorderNeighbors(tracks.map { it.sortKey }, from, to)
+        onTrackReorder(key as Long, before, after)
+    }
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
 
