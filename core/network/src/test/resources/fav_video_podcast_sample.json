@@ -1,0 +1,55 @@
+{
+ "code": 0,
+ "message": "OK",
+ "ttl": 1,
+ "data": {
+  "info": {
+   "id": 3628308062,
+   "title": "视频播客",
+   "media_count": 486
+  },
+  "medias": [
+   {
+    "id": 117353404763755,
+    "type": 2,
+    "title": "电音玩家 VS 摇滚老炮：摇滚协会副会长于谦当场入坑电音现场？",
+    "cover": "http://i2.hdslb.com/bfs/archive/8a48bd174c67b011b1b8254ba159da4a4e2711e8.jpg",
+    "duration": 2844,
+    "upper": {
+     "mid": 3546944530025226,
+     "name": "于谦"
+    },
+    "bv_id": "BV1dYaJ6PE2z",
+    "bvid": "BV1dYaJ6PE2z"
+   },
+   {
+    "id": 117358102382328,
+    "type": 2,
+    "title": "对话陈明昊：他塑造的角色为何总能深入人心？【主创有话说EP17|视频播客】",
+    "cover": "http://i1.hdslb.com/bfs/archive/7e94e94e3365038779e2299e810ce00ede826eb4.jpg",
+    "duration": 1811,
+    "upper": {
+     "mid": 10119428,
+     "name": "小片片说大片"
+    },
+    "bv_id": "BV1Fhad6GEQL",
+    "bvid": "BV1Fhad6GEQL"
+   },
+   {
+    "id": 117360736344040,
+    "type": 2,
+    "title": "从未见过如此「好笑」之人丨丞相还挺忙·于洋",
+    "cover": "http://i0.hdslb.com/bfs/archive/137d533fa9125e9ae3440ababe759f131586bec0.jpg",
+    "duration": 3591,
+    "upper": {
+     "mid": 608763788,
+     "name": "唐国强"
+    },
+    "bv_id": "BV1j4af6rEN7",
+    "bvid": "BV1j4af6rEN7"
+   }
+  ],
+  "has_more": true,
+  "ttl": 1792592081
+ }
+}

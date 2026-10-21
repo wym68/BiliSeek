@@ -1,0 +1,58 @@
+{
+ "code": 0,
+ "message": "OK",
+ "ttl": 1,
+ "data": {
+  "note": "根据稿件内容质量、近期的数据综合展示，动态更新",
+  "list": [
+   {
+    "aid": 117466583799078,
+    "tname": "数码",
+    "pic": "http://i2.hdslb.com/bfs/archive/1bf5beb95e275c81e31f84f4798fdc1eaba4295f.jpg",
+    "title": "带着100万，我们见了成人网红...",
+    "duration": 2682,
+    "owner": {
+     "mid": 946974,
+     "name": "影视飓风"
+    },
+    "stat": {
+     "view": 4542869,
+     "danmaku": 38260
+    },
+    "bvid": "BV1pGnn67EbB"
+   },
+   {
+    "aid": 117470996208173,
+    "tname": "手机游戏",
+    "pic": "http://i1.hdslb.com/bfs/archive/d8d83b706361919d994582f72bd4f14c28b7f26a.jpg",
+    "title": "《绝区零》菲欧妮EP | 1% Battery Girl 低电量女孩",
+    "duration": 904,
+    "owner": {
+     "mid": 1636034895,
+     "name": "绝区零"
+    },
+    "stat": {
+     "view": 2353915,
+     "danmaku": 4475
+    },
+    "bvid": "BV1SknF6KE5g"
+   },
+   {
+    "aid": 117460426558014,
+    "tname": "搞笑",
+    "pic": "http://i2.hdslb.com/bfs/archive/eb6754d89ccbfd48f6e612fda6a542bf10791a9c.jpg",
+    "title": "每一位认真谋生的人都值得被仰望",
+    "duration": 369,
+    "owner": {
+     "mid": 302338318,
+     "name": "李炮炮儿"
+    },
+    "stat": {
+     "view": 2509255,
+     "danmaku": 3098
+    },
+    "bvid": "BV1Jonu6mEwN"
+   }
+  ]
+ }
+}
