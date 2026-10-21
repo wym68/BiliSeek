@@ -221,6 +221,7 @@ class MainActivity : ComponentActivity() {
                 val dayView by viewModel.dayView.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
                 val chart by viewModel.charts.opened.collectAsState()
+                val publicFavorite by viewModel.remoteLibrary.openedPublicFavorite.collectAsState()
                 val pendingBatchAdd by viewModel.pendingBatchAdd.collectAsState()
                 val deletingFavoriteMediaId by viewModel.deletingFavoriteMediaId.collectAsState()
                 val selectionMode by viewModel.selectionMode.collectAsState()
@@ -609,12 +610,16 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     searchContent = {
-                        // 外部分享链接会触发搜索：榜单页不能盖住结果页
+                        // 外部分享链接会触发搜索：榜单页 / 视频播客不能盖住结果页
                         LaunchedEffect(search.keyword) {
-                            if (search.keyword.isNotBlank()) viewModel.charts.close()
+                            if (search.keyword.isNotBlank()) {
+                                viewModel.charts.close()
+                                viewModel.remoteLibrary.closePublicFavorite()
+                            }
                         }
                         val dayDate = dayHistoryDate
                         val openedChart = chart
+                        val openedPublic = publicFavorite
                         if (dayDate != null) {
                             // 日历史页（M12）：从首页热力图点入，返回手势收起到首页
                             BackHandler(onBack = viewModel::closeDayHistory)
@@ -634,6 +639,20 @@ class MainActivity : ComponentActivity() {
                                 onItemClick = viewModel.charts::play,
                                 onIssueSelect = viewModel.charts::selectIssue,
                                 videoActions = videoMenuActions,
+                            )
+                        } else if (openedPublic != null) {
+                            // 视频播客：从首页快捷入口点入，只读的收藏夹内容页；返回手势收起到首页
+                            BackHandler(onBack = viewModel.remoteLibrary::closePublicFavorite)
+                            com.biliseek.app.ui.FavoriteDetail(
+                                state = openedPublic,
+                                onClose = viewModel.remoteLibrary::closePublicFavorite,
+                                onTrackClick = viewModel.remoteLibrary::playFavoriteTrack,
+                                onLoadMore = viewModel.remoteLibrary::loadPublicFavoritePage,
+                                onEditFolder = { _, _ -> },
+                                onDeleteFolder = {},
+                                onRemoveTrack = {},
+                                videoActions = videoMenuActions,
+                                readOnly = true,
                             )
                         } else {
                         // 首页空状态：无搜索、无结果时展示用户自己的行为数据
@@ -720,7 +739,8 @@ class MainActivity : ComponentActivity() {
                                         onDeleteKeyword = viewModel.search::deleteSearchKeyword,
                                         onClearHistory = viewModel.search::clearSearchHistory,
                                         onDayClick = { date -> viewModel.openDayHistory(date) },
-                                        onOpenChart = viewModel.charts::open,
+                                        quickEntries = com.biliseek.app.data.visibleQuickEntries(settings.quickEntries),
+                                        onOpenQuickEntry = viewModel::openQuickEntry,
                                         // 搜索历史改为聚焦时才弹出，未聚焦首页不直接显示
                                         showSearchHistory = false,
                                     )

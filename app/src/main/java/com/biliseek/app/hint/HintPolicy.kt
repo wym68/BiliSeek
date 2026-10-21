@@ -3,7 +3,7 @@ package com.biliseek.app.hint
 // 首次使用演示的判定（设计稿：docs/superpowers/specs/2026-10-07-first-use-hints-design.md）。
 // 纯函数；HintController 只负责持有状态与落盘。
 
-/** 13 项演示。[prefKey] 是 SharedPreferences（biliseek_hints）里的键。 */
+/** 14 项演示。[prefKey] 是 SharedPreferences（biliseek_hints）里的键。 */
 enum class HintKey(val prefKey: String) {
     /** 沿用旧键：看过旧版队列演示的不再放。 */
     SWIPE_QUEUE("queue_swipe_hint_shown"),
@@ -19,6 +19,8 @@ enum class HintKey(val prefKey: String) {
     DYNAMIC_VIDEO_MENU("hint_dynamic_video_menu"),
     SEARCH_MULTI_SELECT("hint_search_multi_select"),
     UPSPACE_MULTI_SELECT("hint_upspace_multi_select"),
+    /** 首页快捷入口：只有说明气泡，没有手势动画（设计稿 2026-10-21-home-quick-entries）。 */
+    HOME_QUICK_ENTRIES("hint_home_quick_entries"),
 }
 
 /** 启动序号 / 进入序号的「没有」。 */

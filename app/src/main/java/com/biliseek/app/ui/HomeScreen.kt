@@ -40,7 +40,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.biliseek.app.chart.ChartKind
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.biliseek.app.data.QuickEntry
+import com.biliseek.app.hint.HintKey
+import com.biliseek.app.ui.components.HintBubble
+import com.biliseek.app.ui.components.HintTiming
+import com.biliseek.app.ui.components.rememberHintDemo
+import kotlinx.coroutines.delay
 import com.biliseek.app.data.SearchHistoryEntity
 import com.biliseek.app.ui.components.HomeSlogan
 import com.biliseek.app.ui.components.LocalMiniBarInset
@@ -52,7 +64,7 @@ import java.util.Locale
  * 首页空状态。
  *
  * 「没有推荐」不等于「空屏」——展示的以**用户自己的行为数据**为主：搜索历史、播放热力图；
- * 快捷入口是官方榜单（每周必看 / 入站必刷 / 热歌榜 / 热门播客），全站同一份，不需要登录。
+ * 快捷入口是官方榜单与官方播单（设置 → 首页快捷入口 里选显示哪些、调顺序），全站同一份，不需要登录。
  * 无算法、无个性化推荐，不破坏产品身份。
  *
  * [showSearchHistory]：搜索历史改为「聚焦搜索框时才弹出」（M11 真机反馈），
@@ -71,8 +83,10 @@ fun HomeEmptyState(
     onClearHistory: () -> Unit,
     /** 点热力图某天 → 打开该日的播放记录页。 */
     onDayClick: (LocalDate) -> Unit = {},
-    /** 点快捷入口里的榜单卡片 → 打开对应的榜单页。 */
-    onOpenChart: (ChartKind) -> Unit = {},
+    /** 要显示的快捷入口（已按设置过滤、排好序）；空 = 整节不显示。 */
+    quickEntries: List<QuickEntry> = emptyList(),
+    /** 点快捷入口 → 打开对应的榜单页 / 播单。 */
+    onOpenQuickEntry: (QuickEntry) -> Unit = {},
     modifier: Modifier = Modifier,
     showSearchHistory: Boolean = true,
 ) {
@@ -103,45 +117,70 @@ fun HomeEmptyState(
             Section(title = "播放热力") { WeeklyHeatGrid(heatmap, onDayClick) }
         }
 
-        // 快捷入口：官方榜单（每周必看 / 入站必刷 / 热歌榜 / 热门播客），不需要登录
-        Section(title = "快捷入口") {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                QuickEntryCard(
-                    icon = Icons.Outlined.CalendarMonth,
-                    label = ChartKind.WEEKLY.title,
-                    onClick = { onOpenChart(ChartKind.WEEKLY) },
-                    modifier = Modifier.weight(1f),
-                )
-                QuickEntryCard(
-                    icon = Icons.Outlined.Whatshot,
-                    label = ChartKind.PRECIOUS.title,
-                    onClick = { onOpenChart(ChartKind.PRECIOUS) },
-                    modifier = Modifier.weight(1f),
-                )
-                QuickEntryCard(
-                    icon = Icons.Outlined.Leaderboard,
-                    label = ChartKind.HOT_SONGS.title,
-                    onClick = { onOpenChart(ChartKind.HOT_SONGS) },
-                    modifier = Modifier.weight(1f),
-                )
-                QuickEntryCard(
-                    icon = Icons.Outlined.Podcasts,
-                    label = ChartKind.PODCAST.title,
-                    onClick = { onOpenChart(ChartKind.PODCAST) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+        if (quickEntries.isNotEmpty()) {
+            Section(title = "快捷入口") { QuickEntryGrid(quickEntries, onOpenQuickEntry) }
         }
     }
 }
 
+/**
+ * 快捷入口网格：每行 [QUICK_ENTRY_COLUMNS] 张，最后一行不足时靠左、空位等宽占住。
+ * 第一次显示时在上方弹一次说明气泡（没有手势动画，碰一下或停满时长后记为看过）。
+ */
+@Composable
+private fun QuickEntryGrid(entries: List<QuickEntry>, onOpen: (QuickEntry) -> Unit) {
+    val demo = rememberHintDemo(HintKey.HOME_QUICK_ENTRIES, ready = entries.isNotEmpty())
+    var showBubble by remember { mutableStateOf(false) }
+    LaunchedEffect(demo.running) {
+        showBubble = false
+        if (!demo.running) return@LaunchedEffect
+        delay(HintTiming.START_DELAY_MS)
+        showBubble = true
+        delay(HintTiming.BUBBLE_HOLD_MS)
+        demo.finish()
+    }
+    Box {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            entries.chunked(QUICK_ENTRY_COLUMNS).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { entry ->
+                        QuickEntryCard(
+                            icon = quickEntryIcon(entry),
+                            label = entry.title,
+                            onClick = { onOpen(entry) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(QUICK_ENTRY_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+        if (showBubble) HintBubble(text = QUICK_ENTRY_HINT_TEXT, preferAbove = true)
+    }
+}
+
+/** 快捷入口的图标；首页与设置页共用。 */
+internal fun quickEntryIcon(entry: QuickEntry): ImageVector = when (entry) {
+    QuickEntry.WEEKLY -> Icons.Outlined.CalendarMonth
+    QuickEntry.PRECIOUS -> Icons.Outlined.Whatshot
+    QuickEntry.HOT_SONGS -> Icons.Outlined.Leaderboard
+    QuickEntry.ORIGINAL_SONGS -> Icons.Outlined.MusicNote
+    QuickEntry.PODCAST -> Icons.Outlined.Podcasts
+    QuickEntry.VIDEO_PODCAST -> Icons.Outlined.Mic
+    QuickEntry.RANKING -> Icons.Outlined.EmojiEvents
+}
+
+private const val QUICK_ENTRY_COLUMNS = 4
+
+private const val QUICK_ENTRY_HINT_TEXT = "入口可以在 设置 → 首页快捷入口 里关闭和排序"
+
 /** 快捷入口卡片：symbol + 标签，仿 BBPlayer quickAccessCard。 */
 @Composable
 private fun QuickEntryCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

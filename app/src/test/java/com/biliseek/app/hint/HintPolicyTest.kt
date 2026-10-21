@@ -137,4 +137,14 @@ class HintPolicyTest {
         assertEquals("queue_swipe_hint_shown", HintKey.SWIPE_QUEUE.prefKey)
         assertEquals(HintKey.entries.size, HintKey.entries.map { it.prefKey }.toSet().size)
     }
+
+    @Test
+    fun `首页快捷入口提示_没看过能放_放完记为看过`() {
+        assertTrue(canStartHint(HintKey.HOME_QUICK_ENTRIES, state()))
+        val started = startHint(state(), HintKey.HOME_QUICK_ENTRIES)
+        assertEquals(HintKey.HOME_QUICK_ENTRIES, started.active)
+        val seen = markHintSeen(started, HintKey.HOME_QUICK_ENTRIES)
+        assertNull(seen.active)
+        assertFalse(canStartHint(HintKey.HOME_QUICK_ENTRIES, seen))
+    }
 }
