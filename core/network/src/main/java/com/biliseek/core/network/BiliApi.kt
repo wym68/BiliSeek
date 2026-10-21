@@ -3,6 +3,7 @@ package com.biliseek.core.network
 import com.biliseek.core.network.dto.AddReplyData
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.NavData
+import com.biliseek.core.network.dto.NewlistRankData
 import com.biliseek.core.network.dto.ReplyData
 import com.biliseek.core.network.dto.PageItem
 import com.biliseek.core.network.dto.VideoViewInfo
@@ -358,6 +359,25 @@ interface BiliApi {
         @Query("rid") rid: Int = 0,
         @Query("type") type: String = "all",
     ): BiliResponse<RankingData>
+
+    /**
+     * 分区列表（时光机式）：某个**旧版（v1）分区号**在 [timeFrom]–[timeTo]（`yyyyMMdd`）之间的投稿，按 [order] 排序。
+     * 后台是搜索服务；10-21 实测不签名、不带 Cookie 返回正常。`pagesize` 必填。
+     */
+    @GET("x/web-interface/newlist_rank")
+    suspend fun newlistRank(
+        @Query("cate_id") cateId: Int,
+        @Query("order") order: String,
+        @Query("page") page: Int,
+        @Query("pagesize") pageSize: Int,
+        @Query("time_from") timeFrom: String,
+        @Query("time_to") timeTo: String,
+        @Query("main_ver") mainVer: String = "v3",
+        @Query("search_type") searchType: String = "video",
+        @Query("view_type") viewType: String = "hot_rank",
+        @Query("copy_right") copyRight: Int = -1,
+        @Query("new_web_tag") newWebTag: Int = 1,
+    ): BiliResponse<NewlistRankData>
 
     /** 音频榜单每期列表。`list_type`：1 = 热榜（热歌榜），2 = 原创榜。 */
     @GET("x/copyright-music-publicity/toplist/all_period")

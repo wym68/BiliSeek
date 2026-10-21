@@ -50,3 +50,12 @@ data class EraPageContent(
     val title: String,
     val groups: List<EraGroup>,
 )
+
+/** 分区列表的一页（`newlist_rank`）：条目复用榜单行模型，没有名次。 */
+data class RegionPage(
+    val items: List<ChartItem>,
+    /** 这一页的页码（第 1 页起）。 */
+    val page: Int,
+    /** 总页数；没有结果为 0。 */
+    val totalPages: Int,
+)

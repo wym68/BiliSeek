@@ -42,6 +42,7 @@ import com.biliseek.core.network.internal.resolveMusicIssues
 import com.biliseek.core.network.internal.resolveRetryAction
 import com.biliseek.core.network.internal.resolveWeeklyIssues
 import com.biliseek.core.network.internal.toChartPage
+import com.biliseek.core.network.internal.toRegionPage
 import com.biliseek.core.network.internal.runWithLoginRefresh
 import com.biliseek.core.network.internal.runWriteRequest
 import kotlinx.coroutines.Dispatchers
@@ -514,6 +515,40 @@ class BiliRepository internal constructor(
     private suspend fun <T> chartRead(what: String, request: suspend () -> BiliResponse<T>): T? =
         accountRead(what) {
             requestThrottle.gate(ThrottleBucket.CHART, CHART_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) { request() }
+        }
+
+    // ── 分区列表（时光机式）──────────────────────────────
+
+    /**
+     * 分区列表的一页：旧版分区号 [tid]、排序 [order]（`click` / `stow` / `coin` / `dm` / `scores`）、
+     * 时间 [timeFrom]–[timeTo]（`yyyyMMdd`）。每页 [REGION_PAGE_SIZE] 条。走 [regionRead]；没有结果是空页，**不重试**。
+     */
+    suspend fun regionVideos(
+        tid: Int,
+        order: String,
+        page: Int,
+        timeFrom: String,
+        timeTo: String,
+    ): Result<RegionPage> = runCatching {
+        regionRead("分区列表") {
+            api.newlistRank(
+                cateId = tid,
+                order = order,
+                page = page,
+                pageSize = REGION_PAGE_SIZE,
+                timeFrom = timeFrom,
+                timeTo = timeTo,
+            )
+        }.toRegionPage(requestedPage = page)
+    }
+
+    /**
+     * 分区列表的读出口：后台是搜索服务，套 SEARCH 限速桶（与搜索共用间隔）；风控分流同 [accountRead]
+     * （冷却期内本地快速失败，-352 记入冷却且绝不重试，-412 重置设备凭据）。**不加重试循环。**
+     */
+    private suspend fun <T> regionRead(what: String, request: suspend () -> BiliResponse<T>): T? =
+        accountRead(what) {
+            requestThrottle.gate(ThrottleBucket.SEARCH, SEARCH_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) { request() }
         }
 
     // ── 热门播客（运营搭建的活动页）──────────────────────────
@@ -1600,6 +1635,9 @@ class BiliRepository internal constructor(
 
         /** 批量取视频卡片时一次最多带的 BV 数（一期最多 21 个，留余量）。 */
         const val MAX_CARD_IDS = 30
+
+        /** 分区列表每页条数（`newlist_rank` 的 `pagesize`）。 */
+        const val REGION_PAGE_SIZE = 20
     }
 }
 
