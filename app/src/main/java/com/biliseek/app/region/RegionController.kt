@@ -5,9 +5,11 @@ import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.ChartItem
 import com.biliseek.core.player.PlaybackRequest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -51,7 +53,16 @@ class RegionController(
     private val _settings = MutableStateFlow(initialSettings)
     val settings: StateFlow<RegionSettings> = _settings.asStateFlow()
 
-    /** 设置在启动时异步读完：宿主收到最新值后调一次，只在没打开过任何列表时生效。 */
+    /**
+     * 列表代号：时间或排序变了、列表整体清空时加一。每次请求记下发出时的代号，回来时代号变了就整个丢掉
+     * （成功、失败都不碰列表）；续播的队列也凭它判断列表是否已换了一批。
+     */
+    private var generation = 0
+
+    /**
+     * 设置在启动时异步读完：宿主收到最新值后调一次，只在没打开过任何列表时生效。
+     * 读得太晚（用户已经打开过列表）就不再覆盖——此时界面上的设置已是用户看到并在用的那一份。
+     */
     fun onSettingsLoaded(value: RegionSettings) {
         if (_lists.value.isEmpty()) _settings.value = value
     }
@@ -109,6 +120,7 @@ class RegionController(
         saveSettings(value)
         val requeryNeeded = value.order != old.order || value.span(today()) != old.span(today())
         if (requeryNeeded) {
+            generation++
             _lists.value = emptyMap()
             _detail.value?.let { ensureLoaded(it.selectedTid) }
         }
@@ -116,26 +128,48 @@ class RegionController(
 
     /**
      * 点条目：这个子分区当前显示的条目作为临时队列，从这一条开始播（docs/10）；
-     * 续页按同样的过滤取下一页，追加到列表里。
+     * 续播时先补列表里已有、还没进队列的条目，不够再和列表共用同一条取页路径往后取。
      */
     fun play(tid: Int, item: ChartItem) {
         val hideShort = _settings.value.hideShort
         val visible = visibleRegionItems(_lists.value[tid]?.items.orEmpty(), hideShort)
         val index = visible.indexOfFirst { it.bvid == item.bvid }.takeIf { it >= 0 } ?: return
-        playList.play(visible.map { it.toRequest() }, index) { loadNextForQueue(tid, hideShort) }
+        val gen = generation
+        val given = visible.mapTo(HashSet()) { it.bvid }
+        playList.play(visible.map { it.toRequest() }, index) { continueQueue(tid, hideShort, gen, given) }
     }
 
-    private suspend fun loadNextForQueue(tid: Int, hideShort: Boolean): List<PlaybackRequest>? {
-        val state = _lists.value[tid] ?: return null
-        if (!state.hasMore) return null
-        val page = state.page + 1
-        val span = _settings.value.span(today())
-        val result = repository.regionVideos(
-            tid, _settings.value.order.param, page, formatApiDate(span.from), formatApiDate(span.to),
-        ).getOrNull() ?: return null
-        val fresh = result.items.filter { new -> state.items.none { it.bvid == new.bvid } }
-        applyPage(tid, page, result.items, result.totalPages, append = true)
-        return visibleRegionItems(fresh, hideShort).map { it.toRequest() }
+    /**
+     * 队列续页（播放器同一来源同时只问一次，返回 null 或空表就不再问）：
+     * 列表里有还没给过队列的条目就直接给；没有就往后取页，最多 [QUEUE_PAGE_SCAN_LIMIT] 页
+     * （整页都是被过滤掉的短视频时才会多取）。列表正在取（滚到底触发的）就等它取完，不另发一次；
+     * 取失败或没有下一页就结束续播，不重试——列表上显示「重试」，由用户决定。
+     */
+    private suspend fun continueQueue(
+        tid: Int,
+        hideShort: Boolean,
+        gen: Int,
+        given: MutableSet<String>,
+    ): List<PlaybackRequest>? {
+        // 列表还是点播放时那一批：挑出没给过队列的显示条目
+        fun takeFresh(): List<PlaybackRequest>? {
+            if (generation != gen) return null
+            val fresh = visibleRegionItems(_lists.value[tid]?.items.orEmpty(), hideShort)
+                .filter { it.bvid !in given }
+            if (fresh.isEmpty()) return null
+            fresh.mapTo(given) { it.bvid }
+            return fresh.map { it.toRequest() }
+        }
+
+        repeat(QUEUE_PAGE_SCAN_LIMIT) {
+            _lists.first { map -> map[tid]?.let { !it.isLoading && !it.isLoadingMore } ?: true }
+            if (generation != gen) return null
+            takeFresh()?.let { return it }
+            val state = _lists.value[tid] ?: return null
+            if (state.errorMessage != null || !state.hasMore) return null
+            fetchPage(tid, state.page + 1)
+        }
+        return takeFresh()
     }
 
     private fun ensureLoaded(tid: Int) {
@@ -143,32 +177,44 @@ class RegionController(
         if (state == null || (state.page == 0 && !state.isLoading && state.errorMessage == null)) fetch(tid, 1)
     }
 
+    // 不等调度、立刻跑到第一次挂起：「正在取」标记同步打上，连点两下也只发一次
     private fun fetch(tid: Int, page: Int) {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { fetchPage(tid, page) }
+    }
+
+    /**
+     * 取 [tid] 的第 [page] 页——列表和队列续页唯一的请求路径。这个子分区已在取就什么都不做；
+     * 回来时列表代号变了（期间改了时间或排序，列表已清空重来）就丢掉结果，成功失败都不碰列表。
+     */
+    private suspend fun fetchPage(tid: Int, page: Int) {
         val first = page == 1
+        var claimed = false
         _lists.update { map ->
             val current = map[tid] ?: RegionListState()
-            map + (tid to current.copy(isLoading = first, isLoadingMore = !first, errorMessage = null))
+            claimed = !current.isLoading && !current.isLoadingMore
+            if (!claimed) map
+            else map + (tid to current.copy(isLoading = first, isLoadingMore = !first, errorMessage = null))
         }
+        if (!claimed) return
+        val gen = generation
         val settings = _settings.value
         val span = settings.span(today())
-        scope.launch {
-            repository.regionVideos(tid, settings.order.param, page, formatApiDate(span.from), formatApiDate(span.to))
-                .onSuccess { result ->
-                    // 等待期间改了时间或排序（列表被清空重来）：丢弃这次结果
-                    if (settings.order != _settings.value.order || span != _settings.value.span(today())) return@onSuccess
-                    applyPage(tid, page, result.items, result.totalPages, append = !first)
+        val result = repository.regionVideos(
+            tid, settings.order.param, page, formatApiDate(span.from), formatApiDate(span.to),
+        )
+        if (gen != generation) return
+        result
+            .onSuccess { applyPage(tid, page, it.items, it.totalPages, append = !first) }
+            .onFailure { error ->
+                _lists.update { map ->
+                    val current = map[tid] ?: return@update map
+                    map + (tid to current.copy(
+                        isLoading = false,
+                        isLoadingMore = false,
+                        errorMessage = error.message ?: "加载失败",
+                    ))
                 }
-                .onFailure { error ->
-                    _lists.update { map ->
-                        val current = map[tid] ?: return@update map
-                        map + (tid to current.copy(
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = error.message ?: "加载失败",
-                        ))
-                    }
-                }
-        }
+            }
     }
 
     private fun applyPage(tid: Int, page: Int, incoming: List<ChartItem>, totalPages: Int, append: Boolean) {
@@ -194,4 +240,9 @@ class RegionController(
         author = author,
         durationSec = durationSec,
     )
+
+    private companion object {
+        /** 队列续页一次最多往后取几页（整页都被过滤掉时才会连取）。 */
+        const val QUEUE_PAGE_SCAN_LIMIT = 3
+    }
 }
