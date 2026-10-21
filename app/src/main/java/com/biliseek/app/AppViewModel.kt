@@ -422,17 +422,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settingsStore.setQuickEntries(value)
     }
 
-    /** 首页点快捷入口：榜单类打开榜单页，视频播客只读打开官方公开收藏夹。 */
+    /** 首页点快捷入口：榜单类打开榜单页，视频播客只读打开官方公开收藏夹，分区进总览、子分区直达详情。 */
     fun openQuickEntry(entry: com.biliseek.app.data.QuickEntry) {
         when (entry) {
-            com.biliseek.app.data.QuickEntry.WEEKLY -> charts.open(com.biliseek.app.chart.ChartKind.WEEKLY)
-            com.biliseek.app.data.QuickEntry.PRECIOUS -> charts.open(com.biliseek.app.chart.ChartKind.PRECIOUS)
-            com.biliseek.app.data.QuickEntry.HOT_SONGS -> charts.open(com.biliseek.app.chart.ChartKind.HOT_SONGS)
-            com.biliseek.app.data.QuickEntry.ORIGINAL_SONGS -> charts.open(com.biliseek.app.chart.ChartKind.ORIGINAL_SONGS)
-            com.biliseek.app.data.QuickEntry.PODCAST -> charts.open(com.biliseek.app.chart.ChartKind.PODCAST)
-            com.biliseek.app.data.QuickEntry.RANKING -> charts.open(com.biliseek.app.chart.ChartKind.RANKING)
-            com.biliseek.app.data.QuickEntry.VIDEO_PODCAST ->
+            com.biliseek.app.data.FixedQuickEntry.WEEKLY -> charts.open(com.biliseek.app.chart.ChartKind.WEEKLY)
+            com.biliseek.app.data.FixedQuickEntry.PRECIOUS -> charts.open(com.biliseek.app.chart.ChartKind.PRECIOUS)
+            com.biliseek.app.data.FixedQuickEntry.HOT_SONGS -> charts.open(com.biliseek.app.chart.ChartKind.HOT_SONGS)
+            com.biliseek.app.data.FixedQuickEntry.ORIGINAL_SONGS -> charts.open(com.biliseek.app.chart.ChartKind.ORIGINAL_SONGS)
+            com.biliseek.app.data.FixedQuickEntry.PODCAST -> charts.open(com.biliseek.app.chart.ChartKind.PODCAST)
+            com.biliseek.app.data.FixedQuickEntry.RANKING -> charts.open(com.biliseek.app.chart.ChartKind.RANKING)
+            com.biliseek.app.data.FixedQuickEntry.VIDEO_PODCAST ->
                 remoteLibrary.openPublicFavorite(com.biliseek.app.data.VIDEO_PODCAST_MEDIA_ID, entry.title)
+            com.biliseek.app.data.FixedQuickEntry.REGIONS -> regions.openOverview()
+            is com.biliseek.app.data.RegionQuickEntry -> regions.openDetail(entry.region.tid)
         }
     }
 

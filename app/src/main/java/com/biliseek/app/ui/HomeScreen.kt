@@ -3,6 +3,7 @@ package com.biliseek.app.ui
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Leaderboard
 import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material.icons.outlined.Whatshot
@@ -47,7 +48,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.biliseek.app.data.FixedQuickEntry
 import com.biliseek.app.data.QuickEntry
+import com.biliseek.app.data.RegionQuickEntry
 import com.biliseek.app.hint.HintKey
 import com.biliseek.app.ui.components.HintBubble
 import com.biliseek.app.ui.components.HintTiming
@@ -164,13 +167,15 @@ private fun QuickEntryGrid(entries: List<QuickEntry>, onOpen: (QuickEntry) -> Un
 
 /** 快捷入口的图标；首页与设置页共用。 */
 internal fun quickEntryIcon(entry: QuickEntry): ImageVector = when (entry) {
-    QuickEntry.WEEKLY -> Icons.Outlined.CalendarMonth
-    QuickEntry.PRECIOUS -> Icons.Outlined.Whatshot
-    QuickEntry.HOT_SONGS -> Icons.Outlined.Leaderboard
-    QuickEntry.ORIGINAL_SONGS -> Icons.Outlined.MusicNote
-    QuickEntry.PODCAST -> Icons.Outlined.Podcasts
-    QuickEntry.VIDEO_PODCAST -> Icons.Outlined.Mic
-    QuickEntry.RANKING -> Icons.Outlined.EmojiEvents
+    FixedQuickEntry.WEEKLY -> Icons.Outlined.CalendarMonth
+    FixedQuickEntry.PRECIOUS -> Icons.Outlined.Whatshot
+    FixedQuickEntry.HOT_SONGS -> Icons.Outlined.Leaderboard
+    FixedQuickEntry.ORIGINAL_SONGS -> Icons.Outlined.MusicNote
+    FixedQuickEntry.PODCAST -> Icons.Outlined.Podcasts
+    FixedQuickEntry.VIDEO_PODCAST -> Icons.Outlined.Mic
+    FixedQuickEntry.RANKING -> Icons.Outlined.EmojiEvents
+    FixedQuickEntry.REGIONS -> Icons.Outlined.Category
+    is RegionQuickEntry -> regionGroupIcon(entry.region.group)
 }
 
 private const val QUICK_ENTRY_COLUMNS = 4
