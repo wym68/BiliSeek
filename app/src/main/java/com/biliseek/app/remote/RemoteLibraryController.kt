@@ -9,6 +9,7 @@ import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.TrackListId
 import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
+import com.biliseek.core.network.FavoriteResourcePage
 import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.FavoriteMedia
@@ -141,6 +142,21 @@ class RemoteLibraryController(
     private val _openedFavorite =
         MutableStateFlow<RemoteListState<FavoriteTrack>?>(null)
     val openedFavorite: StateFlow<RemoteListState<FavoriteTrack>?> = _openedFavorite.asStateFlow()
+
+    /**
+     * 首页「视频播客」：别人的公开收藏夹，只读。状态与 [openedFavorite] 分开——
+     * 那一份不为空时「我的」页就显示收藏夹内容页，共用会让「我的」页也冒出视频播客。
+     */
+    private val _openedPublicFavorite =
+        MutableStateFlow<RemoteListState<FavoriteTrack>?>(null)
+    val openedPublicFavorite: StateFlow<RemoteListState<FavoriteTrack>?> = _openedPublicFavorite.asStateFlow()
+
+    fun openPublicFavorite(mediaId: Long, title: String) {
+        _openedPublicFavorite.value = RemoteListState(id = TrackListId.Favorite(mediaId), title = title)
+        loadPublicFavoritePage(1)
+    }
+
+    fun closePublicFavorite() { _openedPublicFavorite.value = null }
 
     /** 收藏夹改名成功后（宿主调），开着的内容页标题跟着改。 */
     fun renameOpenedFavorite(mediaId: Long, title: String) {
@@ -383,8 +399,18 @@ class RemoteLibraryController(
      * 往下翻时不直接用 [page]：删过条目后服务器上的序号前移，改按已加载条数算该取哪一页（[favoriteFetchPage]），
      * 重叠和正等着提交移除的按 bvid 去掉（[appendUnseen]）。
      */
-    fun loadFavoritePage(page: Int) {
-        val state = _openedFavorite.value ?: return
+    fun loadFavoritePage(page: Int) = loadFavoritePageInto(_openedFavorite, page, repository::favoriteResources)
+
+    /** 公开收藏夹翻页：同一套逻辑，取数不要求登录；只读，没有待提交的移除。 */
+    fun loadPublicFavoritePage(page: Int) =
+        loadFavoritePageInto(_openedPublicFavorite, page, repository::publicFavoriteResources)
+
+    private fun loadFavoritePageInto(
+        target: MutableStateFlow<RemoteListState<FavoriteTrack>?>,
+        page: Int,
+        fetch: suspend (mediaId: Long, page: Int, pageSize: Int) -> Result<FavoriteResourcePage>,
+    ) {
+        val state = target.value ?: return
         val id = state.id as? TrackListId.Favorite ?: return
         if (state.isLoading || state.isLoadingMore) return
         if (page > 1 && !state.hasMore) return
@@ -395,21 +421,21 @@ class RemoteLibraryController(
             } else {
                 1
             }
-            _openedFavorite.value = state.copy(
+            target.value = state.copy(
                 isLoading = !loadingMore,
                 isLoadingMore = loadingMore,
                 errorMessage = null,
             )
-            repository.favoriteResources(id.mediaId, fetchPage, FAVORITE_PAGE_SIZE)
+            fetch(id.mediaId, fetchPage, FAVORITE_PAGE_SIZE)
                 .onSuccess { result ->
-                    val base = _openedFavorite.value ?: return@onSuccess
+                    val base = target.value ?: return@onSuccess
                     val existing = if (loadingMore) base.items else emptyList()
                     val items = appendUnseen(
                         existing,
                         result.items.map { it.toTrack() },
                         pendingFavoriteRemovals(id.mediaId),
                     ) { it.bvid }
-                    _openedFavorite.value = base.copy(
+                    target.value = base.copy(
                         items = items,
                         page = result.page,
                         // 往下翻却一条新的都没有（别处同时改了这个收藏夹）：停止自动加载，免得底部一直转圈
@@ -419,8 +445,8 @@ class RemoteLibraryController(
                     )
                 }
                 .onFailure {
-                    val base = _openedFavorite.value ?: return@onFailure
-                    _openedFavorite.value = base.copy(
+                    val base = target.value ?: return@onFailure
+                    target.value = base.copy(
                         isLoading = false,
                         isLoadingMore = false,
                         errorMessage = it.message ?: "加载失败",

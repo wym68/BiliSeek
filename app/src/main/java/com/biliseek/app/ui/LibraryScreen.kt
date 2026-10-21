@@ -895,9 +895,10 @@ private fun PlaylistDetail(
 /**
  * 收藏夹内容页：分页拉取，滚动到底自动加载下一页。
  * 标题右侧「编辑」「删除」管这个收藏夹；条目右滑或三点菜单「删除」从这个收藏夹移除（可撤销）。
+ * [readOnly] 时只能看、播。
  */
 @Composable
-private fun FavoriteDetail(
+internal fun FavoriteDetail(
     state: RemoteListState<FavoriteTrack>,
     onClose: () -> Unit,
     onTrackClick: (FavoriteTrack) -> Unit,
@@ -908,15 +909,21 @@ private fun FavoriteDetail(
     modifier: Modifier = Modifier,
     /** 视频行右侧三点菜单的动作，与搜索结果一致。 */
     videoActions: VideoMenuActions = VideoMenuActions(),
+    /** 别人的公开收藏夹（首页「视频播客」）：没有编辑 / 删除收藏夹、右滑移除、菜单里的「移除」。 */
+    readOnly: Boolean = false,
 ) {
-    val mediaId = (state.id as? TrackListId.Favorite)?.mediaId
+    val mediaId = (state.id as? TrackListId.Favorite)?.mediaId?.takeIf { !readOnly }
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
 
     // 三点菜单：当前打开菜单的那一条
     var menuFor by remember { mutableStateOf<FavoriteTrack?>(null) }
     menuFor?.let { track ->
-        VideoMenuSheet(track.toSearchVideo(), videoActions, onRemove = { onRemoveTrack(track) }) { menuFor = null }
+        VideoMenuSheet(
+            track.toSearchVideo(),
+            videoActions,
+            onRemove = if (readOnly) null else ({ onRemoveTrack(track) }),
+        ) { menuFor = null }
     }
 
     if (editing && mediaId != null) {
@@ -986,6 +993,7 @@ private fun FavoriteDetail(
                         SwipeToRemoveRow(
                             background = MaterialTheme.colorScheme.background,
                             onRemove = { onRemoveTrack(track) },
+                            enabled = !readOnly,
                             hintKey = HintKey.SWIPE_FAVORITE,
                             showHint = track.bvid == state.items.firstOrNull()?.bvid,
                         ) {
