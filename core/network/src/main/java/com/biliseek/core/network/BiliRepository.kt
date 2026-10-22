@@ -1536,6 +1536,7 @@ class BiliRepository internal constructor(
                 timestamp = f.getValue("msg[timestamp]").toLong(),
                 devId = f.getValue("msg[dev_id]"),
                 newFaceVersion = f.getValue("msg[new_face_version]").toInt(),
+                csrf = f.getValue("csrf"),
                 csrfToken = f.getValue("csrf_token"),
             )
         }.getOrThrow()
@@ -1557,9 +1558,10 @@ class BiliRepository internal constructor(
                 talkerId = f.getValue("talker_id").toLong(),
                 sessionType = f.getValue("session_type").toInt(),
                 ackSeqno = f.getValue("ack_seqno").toLong(),
+                csrf = f.getValue("csrf"),
                 csrfToken = f.getValue("csrf_token"),
             )
-        }
+        }.getOrThrow()
     }
 
     /**

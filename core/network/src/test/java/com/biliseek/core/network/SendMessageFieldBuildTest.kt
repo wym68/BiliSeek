@@ -4,7 +4,9 @@ import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.SendMessageData
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import retrofit2.http.Field
 
 /**
  * 钉住 `web_im/v1/web_im/send_msg` 的 `msg[*]` 嵌套字段形态——B 站按字段名取参，
@@ -39,5 +41,17 @@ class SendMessageFieldBuildTest {
         m.isAccessible = true
         val out = m.invoke(null, "path\\to\tfile") as String
         assertEquals("\"path\\\\to\\tfile\"", out)
+    }
+
+    /** 私信写接口要同时带 `csrf` 与 `csrf_token`：真机实测只带 `csrf_token` 时 update_ack 回 -111。 */
+    @Test
+    fun `send_msg 与 update_ack 同时声明 csrf 与 csrf_token`() {
+        listOf("postSendMsg", "postUpdateAck").forEach { name ->
+            val method = BiliApi::class.java.declaredMethods.first { it.name == name }
+            val fields = method.parameterAnnotations.flatMap { it.toList() }
+                .filterIsInstance<Field>().map { it.value }
+            assertTrue("$name 缺 csrf：$fields", "csrf" in fields)
+            assertTrue("$name 缺 csrf_token：$fields", "csrf_token" in fields)
+        }
     }
 }

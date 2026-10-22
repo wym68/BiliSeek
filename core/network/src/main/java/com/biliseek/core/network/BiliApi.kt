@@ -575,8 +575,8 @@ interface BiliApi {
         @Query("mobi_app") mobiApp: String = "web",
     ): BiliResponse<com.biliseek.core.network.dto.SessionUnreadData>
 
-    /** 发送私信（`api.vc.bilibili.com`）。注意：`csrf` 由 `writeRequest` 注入；
-     *  `csrf_token` 必须显式声明并由调用方从 `session.biliJct` 传入。 */
+    /** 发送私信（`api.vc.bilibili.com`）。`csrf` 与 `csrf_token` 两个都要，缺 `csrf` 服务端回 -111：
+     *  `csrf` 取 `writeRequest` 注入的字段，`csrf_token` 由调用方从 `session.biliJct` 传入。 */
     @FormUrlEncoded
     @POST("https://api.vc.bilibili.com/web_im/v1/web_im/send_msg")
     suspend fun postSendMsg(
@@ -588,16 +588,18 @@ interface BiliApi {
         @Field("msg[timestamp]") timestamp: Long,
         @Field("msg[dev_id]") devId: String,
         @Field("msg[new_face_version]") newFaceVersion: Int = 1,
+        @Field("csrf") csrf: String,
         @Field("csrf_token") csrfToken: String,
     ): BiliResponse<com.biliseek.core.network.dto.SendMessageData>
 
-    /** 标记会话已读（`api.vc.bilibili.com`）。同上：`csrf_token` 显式声明。 */
+    /** 标记会话已读（`api.vc.bilibili.com`）。同上：`csrf` 与 `csrf_token` 两个都要。 */
     @FormUrlEncoded
     @POST("https://api.vc.bilibili.com/session_svr/v1/session_svr/update_ack")
     suspend fun postUpdateAck(
         @Field("talker_id") talkerId: Long,
         @Field("session_type") sessionType: Int = 1,
         @Field("ack_seqno") ackSeqno: Long,
+        @Field("csrf") csrf: String,
         @Field("csrf_token") csrfToken: String,
     ): BiliResponse<com.biliseek.core.network.dto.BiliDtoUnit>
 

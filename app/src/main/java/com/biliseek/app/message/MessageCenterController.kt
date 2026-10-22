@@ -1,5 +1,6 @@
 package com.biliseek.app.message
 
+import android.util.Log
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.TrackListId
 import com.biliseek.core.network.BiliRepository
@@ -300,6 +301,8 @@ class MessageCenterController(
                     if (!isLoadMore && data.maxSeqno > 0L) {
                         repository.markSessionRead(talkerId, data.maxSeqno)
                             .onSuccess { clearSessionUnread(talkerId) }
+                            // 已读是 best-effort，不打扰用户；留一行日志，红点不消时能查到服务端的回码
+                            .onFailure { e -> Log.w("BiliSeekMessage", "update_ack failed talker=$talkerId: ${e.message}") }
                         refreshUnreadCount()
                     }
                 }
