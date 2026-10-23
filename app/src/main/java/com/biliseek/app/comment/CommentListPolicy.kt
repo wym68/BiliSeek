@@ -85,6 +85,7 @@ fun CommentThreadState.removeReply(rpid: Long, rootRpid: Long?): CommentThreadSt
             topReplies = topReplies.filterNot { it.rpid == rpid },
             comments = comments.copy(items = comments.items.filterNot { it.rpid == rpid }),
             expandedSubReplies = expandedSubReplies - rpid,
+            collapsedSubReplies = collapsedSubReplies - rpid,
         )
     }
     val patched = patchReply(rootRpid) { root ->
@@ -105,6 +106,10 @@ fun CommentThreadState.removeReply(rpid: Long, rootRpid: Long?): CommentThreadSt
  */
 fun resolveCommentHasMore(reset: Boolean, sizeBefore: Int, sizeAfter: Int, nextOffset: String?): Boolean =
     nextOffset != null && (reset || sizeAfter > sizeBefore)
+
+/** 楼中楼要不要（重新）拉第一页：没展开过要拉；第一页失败、一条都没拿到且没在加载也要拉（用户点了「点击重试」）。 */
+fun shouldLoadFirstSubReplyPage(existing: RemoteListState<ReplyItem>?): Boolean =
+    existing == null || (existing.items.isEmpty() && existing.errorMessage != null && !existing.isLoading)
 
 /** 界面上该一级评论的楼中楼按「已展开」显示的状态；没展开或已收起返回 null（显示预览 +「查看全部」）。 */
 fun CommentThreadState.visibleSubReplies(rpid: Long): RemoteListState<ReplyItem>? =

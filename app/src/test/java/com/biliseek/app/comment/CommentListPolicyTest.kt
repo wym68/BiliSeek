@@ -185,4 +185,24 @@ class CommentListPolicyTest {
         assertEquals(false, 2L in out.collapsedSubReplies)
         assertEquals(listOf(3L, 500L), out.visibleSubReplies(2)!!.items.map { it.rpid })
     }
+
+    @Test
+    fun `删一级评论也清掉它的收起记录`() {
+        val state = CommentThreadState(
+            oid = 1, type = 1,
+            comments = RemoteListState(items = listOf(r(2))),
+            expandedSubReplies = mapOf(2L to RemoteListState(items = listOf(r(9)))),
+            collapsedSubReplies = setOf(2L),
+        )
+        assertEquals(false, 2L in state.removeReply(rpid = 2, rootRpid = null).collapsedSubReplies)
+    }
+
+    @Test
+    fun `楼中楼第一页：没展开过或第一页失败才拉`() {
+        assertEquals(true, shouldLoadFirstSubReplyPage(null))
+        assertEquals(true, shouldLoadFirstSubReplyPage(RemoteListState<ReplyItem>(errorMessage = "楼中楼加载失败")))
+        assertEquals(false, shouldLoadFirstSubReplyPage(RemoteListState<ReplyItem>(isLoading = true)))
+        assertEquals(false, shouldLoadFirstSubReplyPage(RemoteListState(items = listOf(r(1)))))
+        assertEquals(false, shouldLoadFirstSubReplyPage(RemoteListState(items = listOf(r(1)), errorMessage = "楼中楼加载失败")))
+    }
 }

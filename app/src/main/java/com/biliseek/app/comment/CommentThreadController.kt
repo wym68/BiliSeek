@@ -202,14 +202,14 @@ class CommentThreadController(
         }
     }
 
-    /** 展开楼中楼：第一次点击才发请求；收起过的再展开直接复用已加载的状态，不再请求。 */
+    /** 展开楼中楼：第一次点击才发请求；第一页失败后点「点击重试」再拉一次；收起过的再展开直接复用已加载的状态，不再请求。 */
     fun expandSubReplies(reply: ReplyItem) {
         val cur = _state.value ?: return
         if (reply.rpid in cur.collapsedSubReplies) {
             _state.value = cur.copy(collapsedSubReplies = cur.collapsedSubReplies - reply.rpid)
             return
         }
-        if (cur.expandedSubReplies.containsKey(reply.rpid)) return
+        if (!shouldLoadFirstSubReplyPage(cur.expandedSubReplies[reply.rpid])) return
         _state.value = cur.copy(
             expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
         )
