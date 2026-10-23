@@ -29,7 +29,9 @@ import com.biliseek.core.network.dto.ReplyItem
 import com.biliseek.core.network.dto.DanmakuItem
 import com.biliseek.core.network.internal.DanmakuProto
 import com.biliseek.core.network.internal.IdempotentCodes
+import com.biliseek.core.network.internal.commentListParams
 import com.biliseek.core.network.internal.runCommentRead
+import com.biliseek.core.network.internal.toCommentPage
 import com.biliseek.core.network.internal.resolveUnreadSummary
 import com.biliseek.core.network.internal.RequestThrottle
 import com.biliseek.core.network.internal.RetryAction
@@ -1027,25 +1029,30 @@ class BiliRepository internal constructor(
     // ── 评论读（B5）────────────────────────────────────────
 
     /** 评论列表的一页。 */
-    data class CommentPage(val items: List<ReplyItem>, val count: Int)
+    data class CommentPage(
+        val items: List<ReplyItem>,
+        val count: Int,
+        /** 只有主评论第一页有：置顶评论。 */
+        val topReplies: List<ReplyItem> = emptyList(),
+        /** 作者 mid（标「UP」用），拿不到为 0。 */
+        val upMid: Long = 0,
+        /** 主评论下一页的游标；null = 没有下一页。楼中楼不用它（仍按 count 翻页）。 */
+        val nextOffset: String? = null,
+    )
 
     /**
      * 评论列表。先走 WBI 主链路，遇 -111/风控降级兼容链路一次（[runCommentRead]）。
      * `oid`/`type`：视频=用 aid + type=1；动态=按 [com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry] 算出的 oid + type(11/17)。
-     * `sort`：0 按时间 / 1 按热度。写侧（发评论/点赞）走 [addDynamicReply]/[replyAction]。
+     * `sort`：0 按时间 / 1 按热度（[commentListParams] 换成 mode）。`offset`：第一页传空串，之后传上一页的 [CommentPage.nextOffset]。
+     * 写侧（发评论/点赞/删除）走 [addDynamicReply]/[replyAction]/[deleteReply]。
      */
-    suspend fun comments(oid: Long, type: Int, page: Int = 1, sort: Int = 1): Result<CommentPage> = runCatching {
+    suspend fun comments(oid: Long, type: Int, sort: Int = 1, offset: String = ""): Result<CommentPage> = runCatching {
         val credentials = try {
             authGate.awaitReady()
         } catch (e: Exception) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "风控凭据不可用")
         }
-        val baseParams = mapOf(
-            "oid" to oid.toString(),
-            "type" to type.toString(),
-            "pn" to page.toString(),
-            "sort" to sort.toString(),
-        )
+        val baseParams = commentListParams(oid, type, sort, offset)
         ensureNotCoolingRead()
         val response = try {
             refreshingOn101 {
@@ -1081,8 +1088,7 @@ class BiliRepository internal constructor(
             )
         }
         riskCooldown.onSuccess()
-        val data = response.data
-        CommentPage(items = data?.replies.orEmpty(), count = data?.page?.count ?: 0)
+        toCommentPage(response.data, firstPage = offset.isEmpty())
     }
 
     /**

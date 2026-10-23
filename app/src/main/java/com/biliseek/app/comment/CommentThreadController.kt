@@ -27,9 +27,15 @@ data class CommentThreadState(
     val key: String = "",
     val content: String = "",
     val isPosting: Boolean = false,
-    /** 1=热度 0=时间，对应 [BiliRepository.comments] 的 sort 参数。 */
+    /** 1=热度 0=时间，对应 [BiliRepository.comments] 的 sort 参数（仓库里换成 mode）。 */
     val sort: Int = 1,
     val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
+    /** 置顶评论（第一页带回来，换排序时重取）。显示在列表最前面，普通列表里已去重。 */
+    val topReplies: List<ReplyItem> = emptyList(),
+    /** 作者 mid，用来给作者本人的评论标「UP」。0 = 不知道。 */
+    val upMid: Long = 0,
+    /** 主评论下一页的游标（[BiliRepository.comments] 的 offset）。 */
+    val nextOffset: String = "",
     /** key=一级评论 rpid，value=其楼中楼的分页状态。未展开的评论不在这个 map 里。 */
     val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
     val replyTarget: CommentReplyTarget? = null,
@@ -74,7 +80,7 @@ class CommentThreadController(
     fun setSort(sort: Int) {
         val cur = _state.value ?: return
         if (cur.sort == sort) return
-        _state.value = cur.copy(sort = sort, comments = RemoteListState.empty())
+        _state.value = cur.copy(sort = sort, comments = RemoteListState.empty(), topReplies = emptyList(), nextOffset = "")
         load(reset = true)
     }
 
@@ -84,26 +90,35 @@ class CommentThreadController(
         load(reset = false)
     }
 
-    /** 加载评论列表。reset=true 重新拉第 1 页；false 翻页追加。 */
+    /** 加载评论列表。reset=true 重新拉第 1 页；false 用游标翻页追加。 */
     private fun load(reset: Boolean) {
         val cur = _state.value ?: return
         val base = if (reset) RemoteListState.empty<ReplyItem>() else cur.comments
         if (base.isLoading || base.isLoadingMore) return
-        val nextPage = if (reset) 1 else base.page + 1
+        val offset = if (reset) "" else cur.nextOffset
         val loadingMore = !reset
         _state.value = cur.copy(
             comments = base.copy(isLoading = !loadingMore, isLoadingMore = loadingMore, errorMessage = null),
         )
         scope.launch {
-            repository.comments(cur.oid, cur.type, nextPage, cur.sort)
+            repository.comments(cur.oid, cur.type, cur.sort, offset)
                 .onSuccess { page ->
                     val dialog = _state.value ?: return@onSuccess
-                    val mergedItems = if (reset) page.items else dialog.comments.items + page.items
+                    // 等结果期间关了、换了评论区或换了排序：这页已经过时，丢掉
+                    if (!dialog.sameThreadAs(cur) || dialog.sort != cur.sort) return@onSuccess
+                    val pinned = if (reset) page.topReplies else dialog.topReplies
                     _state.value = dialog.copy(
+                        topReplies = pinned,
+                        upMid = if (page.upMid > 0) page.upMid else dialog.upMid,
+                        nextOffset = page.nextOffset.orEmpty(),
                         comments = dialog.comments.copy(
-                            items = mergedItems,
-                            page = nextPage,
-                            hasMore = mergedItems.size < page.count,
+                            items = mergeCommentPage(
+                                existing = if (reset) emptyList() else dialog.comments.items,
+                                incoming = page.items,
+                                pinned = pinned,
+                            ),
+                            page = if (reset) 1 else dialog.comments.page + 1,
+                            hasMore = page.nextOffset != null,
                             isLoading = false,
                             isLoadingMore = false,
                             errorMessage = null,
@@ -112,6 +127,7 @@ class CommentThreadController(
                 }
                 .onFailure { err ->
                     val dialog = _state.value ?: return@onFailure
+                    if (!dialog.sameThreadAs(cur) || dialog.sort != cur.sort) return@onFailure
                     _state.value = dialog.copy(
                         comments = dialog.comments.copy(
                             isLoading = false,
@@ -283,4 +299,6 @@ class CommentThreadController(
                 }
         }
     }
+
+    private fun CommentThreadState.sameThreadAs(other: CommentThreadState) = oid == other.oid && type == other.type
 }
