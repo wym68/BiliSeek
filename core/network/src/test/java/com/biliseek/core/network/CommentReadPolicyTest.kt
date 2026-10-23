@@ -16,13 +16,24 @@ class CommentReadPolicyTest {
     @Test
     fun `csrf 与 WBI 相关码触发降级`() {
         assertTrue(shouldFallbackCommentRead(-111))
-        assertTrue(shouldFallbackCommentRead(-412))
         assertTrue(shouldFallbackCommentRead(-403))
     }
 
     @Test
-    fun `负三五二风控拦截不降级`() {
+    fun `负三五二风控拦截与负四一二缺指纹不降级`() {
         assertFalse(shouldFallbackCommentRead(-352))
+        assertFalse(shouldFallbackCommentRead(-412))
+    }
+
+    @Test
+    fun `主链路负四一二不再打兼容链路，原样返回`() = runBlocking {
+        var compatCalled = false
+        val out = runCommentRead(
+            primary = { BiliResponse<ReplyData>(code = -412) },
+            compat = { compatCalled = true; BiliResponse<ReplyData>(code = 0) },
+        )
+        assertFalse("-412 应先重置设备凭据，不该立刻再请求", compatCalled)
+        assertEquals(-412, out.code)
     }
 
     @Test
