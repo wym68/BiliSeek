@@ -124,3 +124,11 @@ fun replyHintText(target: CommentReplyTarget): String {
 /** 回到 [entryId] 页面时：若弹层正是在这个页面藏起来的就恢复显示，否则不变。 */
 fun CommentThreadState.resumedOn(entryId: String?): CommentThreadState =
     if (hiddenUntilEntry != null && hiddenUntilEntry == entryId) copy(hiddenUntilEntry = null) else this
+
+/**
+ * 播放页评论区（[CommentThreadState.key] = 打开时的 bvid）是否该关掉：正在播的已经换了视频
+ * （UP 空间里点了别的视频、队列切到下一首、停止播放），再留着就会把评论发到上一个视频下面。
+ * 藏着的（跳去 UP 空间）也一样处理。
+ */
+fun shouldDropPlayerComments(state: CommentThreadState?, currentBvid: String): Boolean =
+    state != null && state.key != currentBvid

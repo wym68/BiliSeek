@@ -216,4 +216,14 @@ class CommentListPolicyTest {
         val shown = CommentThreadState(oid = 1, type = 1)
         assertEquals(shown, shown.resumedOn("dyn-1"))
     }
+
+    @Test
+    fun `播放页评论区不是当前视频的就关掉`() {
+        val a = CommentThreadState(oid = 1, type = 1, key = "BV1aaa")
+        assertEquals(false, shouldDropPlayerComments(null, "BV1bbb"))
+        assertEquals(false, shouldDropPlayerComments(a, "BV1aaa"))
+        assertEquals(true, shouldDropPlayerComments(a, "BV1bbb"))
+        assertEquals(true, shouldDropPlayerComments(a.copy(hiddenUntilEntry = "player-1"), "BV1bbb"))
+        assertEquals(true, shouldDropPlayerComments(a, ""))
+    }
 }

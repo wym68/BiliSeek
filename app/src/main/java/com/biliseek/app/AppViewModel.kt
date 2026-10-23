@@ -51,6 +51,7 @@ import com.biliseek.app.data.defaultVideoQuality
 import com.biliseek.app.data.resolveVideoGate
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.comment.CommentThreadController
+import com.biliseek.app.comment.shouldDropPlayerComments
 import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.app.chart.ChartController
@@ -1893,6 +1894,15 @@ return pages.map { p ->
         session = session,
         emitMessage = ::emitMessage,
     )
+
+    init {
+        // 换了视频就关掉上一个视频的评论区（草稿照常存）：否则返回 / 切歌后会把评论发到上一个视频
+        viewModelScope.launch {
+            connection.state.map { it.bvid }.distinctUntilChanged().collect { bvid ->
+                if (shouldDropPlayerComments(playerComments.state.value, bvid)) playerComments.dismiss()
+            }
+        }
+    }
 
     init {
         // 2026-10-05 去掉了「已充电」角标：删掉它存在本地的 UP 名单（DataStore biliseek_charged_ups），删过之后是空操作
