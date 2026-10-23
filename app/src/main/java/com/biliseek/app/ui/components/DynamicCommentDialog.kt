@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -51,6 +52,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.biliseek.app.comment.CommentThreadState
 import com.biliseek.app.comment.canDeleteReply
+import com.biliseek.app.comment.visibleSubReplies
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.ui.formatRelativeTime
 import com.biliseek.app.ui.richtext.CommentComposer
@@ -84,6 +86,7 @@ fun DynamicCommentDialog(
     onReply: (ReplyItem, Long?) -> Unit,
     onExpandSubReplies: (ReplyItem) -> Unit,
     onLoadMoreSubReplies: (Long) -> Unit,
+    onCollapseSubReplies: (Long) -> Unit = {},
     onContentChange: (String) -> Unit,
     onClearReplyTarget: () -> Unit,
     onSubmit: () -> Unit,
@@ -136,12 +139,13 @@ fun DynamicCommentDialog(
                             reply = reply,
                             pinned = true,
                             upMid = state.upMid,
-                            subReplies = state.expandedSubReplies[reply.rpid],
+                            subReplies = state.visibleSubReplies(reply.rpid),
                             actions = actions,
                             onLike = onLike,
                             onReply = onReply,
                             onExpandSubReplies = { onExpandSubReplies(reply) },
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
+                            onCollapseSubReplies = { onCollapseSubReplies(reply.rpid) },
                             myMid = myMid,
                             onDelete = { r, root -> pendingDelete = r to root },
                             onOpenImages = openImages,
@@ -154,12 +158,13 @@ fun DynamicCommentDialog(
                             reply = reply,
                             pinned = false,
                             upMid = state.upMid,
-                            subReplies = state.expandedSubReplies[reply.rpid],
+                            subReplies = state.visibleSubReplies(reply.rpid),
                             actions = actions,
                             onLike = onLike,
                             onReply = onReply,
                             onExpandSubReplies = { onExpandSubReplies(reply) },
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
+                            onCollapseSubReplies = { onCollapseSubReplies(reply.rpid) },
                             myMid = myMid,
                             onDelete = { r, root -> pendingDelete = r to root },
                             onOpenImages = openImages,
@@ -273,6 +278,7 @@ private fun CommentItemRow(
     onReply: (ReplyItem, Long?) -> Unit,
     onExpandSubReplies: () -> Unit,
     onLoadMoreSubReplies: () -> Unit,
+    onCollapseSubReplies: () -> Unit,
     myMid: Long,
     onDelete: (ReplyItem, Long?) -> Unit,
     onOpenImages: (List<String>, Int) -> Unit,
@@ -328,6 +334,9 @@ private fun CommentItemRow(
                         .padding(BsSpacing.sm),
                     verticalArrangement = Arrangement.spacedBy(BsSpacing.xs),
                 ) {
+                    if (subReplies != null) {
+                        CollapseSubRepliesText(onCollapseSubReplies, Modifier.align(Alignment.End))
+                    }
                     preview.forEach { sub ->
                         SubReplyRow(
                             sub = sub,
@@ -340,32 +349,48 @@ private fun CommentItemRow(
                             onOpenUser = onOpenUser,
                         )
                     }
-                    when {
-                        subReplies == null -> Text(
-                            "查看全部 ${reply.rcount} 条回复",
-                            Modifier.clickable(onClick = onExpandSubReplies),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        subReplies.isLoading || subReplies.isLoadingMore ->
-                            CircularProgressIndicator(Modifier.size(BsSize.iconSm), strokeWidth = 2.dp)
-                        subReplies.errorMessage != null -> Text(
-                            "加载失败，点击重试",
-                            Modifier.clickable(onClick = if (subReplies.items.isEmpty()) onExpandSubReplies else onLoadMoreSubReplies),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        subReplies.hasMore -> Text(
-                            "加载更多回复",
-                            Modifier.clickable(onClick = onLoadMoreSubReplies),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) {
+                            when {
+                                subReplies == null -> Text(
+                                    "查看全部 ${reply.rcount} 条回复",
+                                    Modifier.clickable(onClick = onExpandSubReplies),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                subReplies.isLoading || subReplies.isLoadingMore ->
+                                    CircularProgressIndicator(Modifier.size(BsSize.iconSm), strokeWidth = 2.dp)
+                                subReplies.errorMessage != null -> Text(
+                                    "加载失败，点击重试",
+                                    Modifier.clickable(onClick = if (subReplies.items.isEmpty()) onExpandSubReplies else onLoadMoreSubReplies),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                subReplies.hasMore -> Text(
+                                    "加载更多回复",
+                                    Modifier.clickable(onClick = onLoadMoreSubReplies),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        if (subReplies != null) CollapseSubRepliesText(onCollapseSubReplies)
                     }
                 }
             }
         }
     }
+}
+
+/** 楼中楼的「收起」（开头、末尾各一个，楼中楼很长时不用滑到底）。 */
+@Composable
+private fun CollapseSubRepliesText(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Text(
+        "收起",
+        modifier.clickable(onClick = onClick),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 /** 时间 + 回复 + 点赞（一级评论和楼中楼共用）。 */

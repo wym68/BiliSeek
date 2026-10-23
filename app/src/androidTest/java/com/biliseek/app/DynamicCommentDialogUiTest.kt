@@ -59,6 +59,7 @@ class DynamicCommentDialogUiTest {
         myMid: Long = 0,
         onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
         onOpenUser: ((Long) -> Unit)? = null,
+        onCollapseSubReplies: (Long) -> Unit = {},
     ) {
         compose.setContent {
             BiliSeekTheme {
@@ -70,6 +71,7 @@ class DynamicCommentDialogUiTest {
                     onReply = onReply,
                     onExpandSubReplies = {},
                     onLoadMoreSubReplies = {},
+                    onCollapseSubReplies = onCollapseSubReplies,
                     onContentChange = {},
                     onClearReplyTarget = onClearReplyTarget,
                     onSubmit = {},
@@ -198,5 +200,34 @@ class DynamicCommentDialogUiTest {
         setDialog(state(), onOpenUser = { opened = it })
         compose.onNodeWithText("用户B").performClick()
         check(opened == 20L) { "点昵称应打开 mid=20 的空间" }
+    }
+
+    @Test
+    fun 展开的楼中楼开头和末尾都能收起() {
+        val sub = ReplyItem(rpid = 11, content = ReplyContent(message = "楼中楼一条"), member = ReplyMember(uname = "用户C"))
+        val root = replies[0].copy(rcount = 1, replies = listOf(sub))
+        var collapsed: Long? = null
+        setDialog(
+            state(items = listOf(root)).copy(expandedSubReplies = mapOf(1L to RemoteListState(items = listOf(sub)))),
+            onCollapseSubReplies = { collapsed = it },
+        )
+        val nodes = compose.onAllNodesWithText("收起")
+        check(nodes.fetchSemanticsNodes().size == 2) { "展开后开头、末尾各一个「收起」" }
+        nodes[0].performClick()
+        check(collapsed == 1L) { "收起应回调所属一级评论 rpid" }
+    }
+
+    @Test
+    fun 收起后显示查看全部() {
+        val sub = ReplyItem(rpid = 11, content = ReplyContent(message = "楼中楼一条"), member = ReplyMember(uname = "用户C"))
+        val root = replies[0].copy(rcount = 3, replies = listOf(sub))
+        setDialog(
+            state(items = listOf(root)).copy(
+                expandedSubReplies = mapOf(1L to RemoteListState(items = listOf(sub))),
+                collapsedSubReplies = setOf(1L),
+            ),
+        )
+        compose.onNodeWithText("查看全部 3 条回复").assertIsDisplayed()
+        check(compose.onAllNodesWithText("收起").fetchSemanticsNodes().isEmpty())
     }
 }

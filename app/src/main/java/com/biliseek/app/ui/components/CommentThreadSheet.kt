@@ -23,6 +23,7 @@ fun CommentThreadSheet(
         onReply = controller::startReplyTo,
         onExpandSubReplies = controller::expandSubReplies,
         onLoadMoreSubReplies = controller::loadMoreSubReplies,
+        onCollapseSubReplies = controller::collapseSubReplies,
         onContentChange = controller::updateContent,
         onClearReplyTarget = controller::clearReplyTarget,
         onSubmit = controller::submit,

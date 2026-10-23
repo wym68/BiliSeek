@@ -38,6 +38,8 @@ data class CommentThreadState(
     val nextOffset: String = "",
     /** key=一级评论 rpid，value=其楼中楼的分页状态。未展开的评论不在这个 map 里。 */
     val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
+    /** 展开后又收起的楼中楼（rpid）。已加载的仍留在 [expandedSubReplies]，再展开直接复用、不重新请求。 */
+    val collapsedSubReplies: Set<Long> = emptySet(),
     val replyTarget: CommentReplyTarget? = null,
 )
 
@@ -194,9 +196,13 @@ class CommentThreadController(
         }
     }
 
-    /** 展开楼中楼：第一次点击才发请求，之后复用已加载的状态。 */
+    /** 展开楼中楼：第一次点击才发请求；收起过的再展开直接复用已加载的状态，不再请求。 */
     fun expandSubReplies(reply: ReplyItem) {
         val cur = _state.value ?: return
+        if (reply.rpid in cur.collapsedSubReplies) {
+            _state.value = cur.copy(collapsedSubReplies = cur.collapsedSubReplies - reply.rpid)
+            return
+        }
         if (cur.expandedSubReplies.containsKey(reply.rpid)) return
         _state.value = cur.copy(
             expandedSubReplies = cur.expandedSubReplies + (reply.rpid to RemoteListState<ReplyItem>().copy(isLoading = true)),
@@ -225,6 +231,13 @@ class CommentThreadController(
                     )
                 }
         }
+    }
+
+    /** 收起楼中楼：只是不显示，已加载的留着。 */
+    fun collapseSubReplies(rootRpid: Long) {
+        val cur = _state.value ?: return
+        if (!cur.expandedSubReplies.containsKey(rootRpid)) return
+        _state.value = cur.copy(collapsedSubReplies = cur.collapsedSubReplies + rootRpid)
     }
 
     fun loadMoreSubReplies(rootRpid: Long) {

@@ -148,4 +148,15 @@ class CommentListPolicyTest {
         assertEquals(false, resolveCommentHasMore(reset = false, sizeBefore = 20, sizeAfter = 20, nextOffset = "n"))
         assertEquals(true, resolveCommentHasMore(reset = false, sizeBefore = 20, sizeAfter = 25, nextOffset = "n"))
     }
+
+    @Test
+    fun `收起的楼中楼当作没展开，已加载的还留着`() {
+        val loaded = RemoteListState(items = listOf(r(8), r(9)))
+        val state = CommentThreadState(oid = 1, type = 1, expandedSubReplies = mapOf(2L to loaded))
+        assertEquals(loaded, state.visibleSubReplies(2))
+        val collapsed = state.copy(collapsedSubReplies = setOf(2L))
+        assertEquals(null, collapsed.visibleSubReplies(2))
+        assertEquals(loaded, collapsed.expandedSubReplies[2L])
+        assertEquals(null, state.visibleSubReplies(3))
+    }
 }

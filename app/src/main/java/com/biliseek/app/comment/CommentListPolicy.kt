@@ -1,5 +1,6 @@
 package com.biliseek.app.comment
 
+import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.dto.ReplyContent
 import com.biliseek.core.network.dto.ReplyItem
@@ -103,3 +104,7 @@ fun CommentThreadState.removeReply(rpid: Long, rootRpid: Long?): CommentThreadSt
  */
 fun resolveCommentHasMore(reset: Boolean, sizeBefore: Int, sizeAfter: Int, nextOffset: String?): Boolean =
     nextOffset != null && (reset || sizeAfter > sizeBefore)
+
+/** 界面上该一级评论的楼中楼按「已展开」显示的状态；没展开或已收起返回 null（显示预览 +「查看全部」）。 */
+fun CommentThreadState.visibleSubReplies(rpid: Long): RemoteListState<ReplyItem>? =
+    expandedSubReplies[rpid]?.takeUnless { rpid in collapsedSubReplies }
