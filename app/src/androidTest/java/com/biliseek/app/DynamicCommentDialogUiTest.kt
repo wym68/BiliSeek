@@ -3,6 +3,7 @@ package com.biliseek.app
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -146,5 +147,27 @@ class DynamicCommentDialogUiTest {
         compose.onNodeWithText("回复 @用户A").assertIsDisplayed()
         compose.onNodeWithContentDescription("取消回复").performClick()
         check(cleared) { "取消回复目标未回调" }
+    }
+
+    @Test
+    fun 置顶评论排在最前并标出置顶和UP() {
+        val pinned = ReplyItem(
+            rpid = 99, mid = 10,
+            content = ReplyContent(message = "置顶的那条"),
+            member = ReplyMember(uname = "作者"),
+        )
+        setDialog(state().copy(topReplies = listOf(pinned), upMid = 10))
+
+        compose.onNodeWithText("置顶的那条").assertIsDisplayed()
+        compose.onNodeWithText("置顶").assertIsDisplayed()
+        // 置顶那条和「第一条评论」（mid=10）都是作者本人
+        check(compose.onAllNodesWithText("UP").fetchSemanticsNodes().size == 2) { "作者的评论应标 UP" }
+    }
+
+    @Test
+    fun 只有置顶没有普通评论时不显示空状态() {
+        val pinned = ReplyItem(rpid = 99, content = ReplyContent(message = "唯一一条置顶"), member = ReplyMember(uname = "作者"))
+        setDialog(state(items = emptyList()).copy(topReplies = listOf(pinned)))
+        compose.onNodeWithText("唯一一条置顶").assertIsDisplayed()
     }
 }

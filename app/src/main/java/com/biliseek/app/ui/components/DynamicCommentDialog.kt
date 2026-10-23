@@ -2,6 +2,7 @@ package com.biliseek.app.ui.components
 
 import com.biliseek.app.ui.shouldAutoLoadMore
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -101,18 +102,20 @@ fun DynamicCommentDialog(
             HorizontalDivider()
 
             when {
-                comments.isLoading && comments.items.isEmpty() -> BsLoadingState(Modifier.weight(1f))
+                comments.isLoading && comments.items.isEmpty() && state.topReplies.isEmpty() -> BsLoadingState(Modifier.weight(1f))
 
-                comments.items.isEmpty() -> BsEmptyState(
+                comments.items.isEmpty() && state.topReplies.isEmpty() -> BsEmptyState(
                     comments.errorMessage ?: "还没有评论，来说两句吧",
                     Modifier.weight(1f),
                     icon = Icons.Outlined.ChatBubbleOutline,
                 )
 
                 else -> LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                    items(comments.items, key = { it.rpid }) { reply ->
+                    items(state.topReplies, key = { "top-${it.rpid}" }) { reply ->
                         CommentItemRow(
                             reply = reply,
+                            pinned = true,
+                            upMid = state.upMid,
                             subReplies = state.expandedSubReplies[reply.rpid],
                             actions = actions,
                             onLike = onLike,
@@ -120,10 +123,21 @@ fun DynamicCommentDialog(
                             onExpandSubReplies = { onExpandSubReplies(reply) },
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
                         )
-                        HorizontalDivider(
-                            Modifier.padding(start = BsSpacing.lg + BsSize.avatarSm + BsSpacing.sm),
-                            color = MaterialTheme.colorScheme.outlineVariant,
+                        CommentDivider()
+                    }
+                    items(comments.items, key = { "c-${it.rpid}" }) { reply ->
+                        CommentItemRow(
+                            reply = reply,
+                            pinned = false,
+                            upMid = state.upMid,
+                            subReplies = state.expandedSubReplies[reply.rpid],
+                            actions = actions,
+                            onLike = onLike,
+                            onReply = onReply,
+                            onExpandSubReplies = { onExpandSubReplies(reply) },
+                            onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
                         )
+                        CommentDivider()
                     }
                     if (comments.hasMore || comments.isLoadingMore) {
                         item(key = "comment_footer") {
@@ -166,10 +180,38 @@ private fun SortChip(label: String, selected: Boolean, onClick: () -> Unit) {
     )
 }
 
+@Composable
+private fun CommentDivider() {
+    HorizontalDivider(
+        Modifier.padding(start = BsSpacing.lg + BsSize.avatarSm + BsSpacing.sm),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
+/** 作者本人的评论（标「UP」）。 */
+private fun isUpReply(reply: ReplyItem, upMid: Long): Boolean = upMid > 0 && reply.mid == upMid
+
+/** 昵称后面的小标签：「UP」「置顶」。 */
+@Composable
+private fun CommentTag(text: String) {
+    val color = MaterialTheme.colorScheme.primary
+    Text(
+        text,
+        Modifier
+            .padding(start = BsSpacing.xs)
+            .border(1.dp, color, BsShapes.xs)
+            .padding(horizontal = BsSpacing.xxs),
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+    )
+}
+
 /** 一条一级评论：头像/昵称/时间/内容 + 回复/点赞 + 楼中楼预览与展开。 */
 @Composable
 private fun CommentItemRow(
     reply: ReplyItem,
+    pinned: Boolean,
+    upMid: Long,
     subReplies: RemoteListState<ReplyItem>?,
     actions: RichTextActions,
     onLike: (ReplyItem) -> Unit,
@@ -190,11 +232,15 @@ private fun CommentItemRow(
             contentScale = ContentScale.Crop,
         )
         Column(Modifier.padding(start = BsSpacing.sm).weight(1f)) {
-            Text(
-                reply.member.uname,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    reply.member.uname,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (isUpReply(reply, upMid)) CommentTag("UP")
+                if (pinned) CommentTag("置顶")
+            }
             RichText(
                 source = reply.content.toRichSource(),
                 modifier = Modifier.padding(top = BsSpacing.xs),
@@ -220,6 +266,7 @@ private fun CommentItemRow(
                     preview.forEach { sub ->
                         SubReplyRow(
                             sub = sub,
+                            upMid = upMid,
                             actions = actions,
                             onReply = { onReply(sub, reply.rpid) },
                             onLike = { onLike(sub) },
@@ -292,6 +339,7 @@ private fun CommentActionRow(
 @Composable
 private fun SubReplyRow(
     sub: ReplyItem,
+    upMid: Long,
     actions: RichTextActions,
     onReply: () -> Unit,
     onLike: () -> Unit,
@@ -305,6 +353,7 @@ private fun SubReplyRow(
             prefix = {
                 withStyle(SpanStyle(color = unameColor)) {
                     append(sub.member.uname)
+                    if (isUpReply(sub, upMid)) append(" UP")
                 }
                 append("：")
             },
@@ -312,7 +361,6 @@ private fun SubReplyRow(
         CommentActionRow(reply = sub, onReply = onReply, onLike = onLike)
     }
 }
-
 
 /** 评论正文 → 富文本素材。 */
 internal fun com.biliseek.core.network.dto.ReplyContent.toRichSource(): RichTextSource = RichTextSource(
