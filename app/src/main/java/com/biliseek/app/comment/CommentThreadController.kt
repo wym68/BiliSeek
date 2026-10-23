@@ -63,13 +63,29 @@ class CommentThreadController(
     /** 点赞防抖：记录每条评论最近一次发起请求的时间戳。 */
     private val likeRequestGate = ConcurrentHashMap<Long, Long>()
 
-    /** 打开对话框并立即加载第一页。未登录也可读。 */
+    /** 草稿：key = (oid, type)。只在内存里，App 被杀就没了；发送成功后删掉。 */
+    private val drafts = mutableMapOf<Pair<Long, Int>, CommentDraft>()
+
+    /** 打开对话框并立即加载第一页。未登录也可读。上次没发出去的草稿（含回复对象）填回输入框。 */
     fun open(oid: Long, type: Int, key: String = "") {
-        _state.value = CommentThreadState(oid = oid, type = type, key = key)
+        val draft = drafts[oid to type]
+        _state.value = CommentThreadState(
+            oid = oid,
+            type = type,
+            key = key,
+            content = draft?.content.orEmpty(),
+            replyTarget = draft?.replyTarget,
+        )
         load(reset = true)
     }
 
-    fun dismiss() { _state.value = null }
+    /** 关闭对话框：没发出去的内容按评论区记下来。 */
+    fun dismiss() {
+        val cur = _state.value ?: return
+        val draft = draftOnDismiss(cur)
+        if (draft != null) drafts[cur.oid to cur.type] = draft else drafts.remove(cur.oid to cur.type)
+        _state.value = null
+    }
 
     fun updateContent(text: String) {
         val cur = _state.value ?: return
@@ -285,15 +301,16 @@ class CommentThreadController(
                 parent = target?.parent ?: 0L,
             )
                 .onSuccess {
+                    drafts.remove(cur.oid to cur.type)
                     val dialog = _state.value
-                    if (dialog != null) {
+                    if (dialog != null && dialog.sameThreadAs(cur)) {
                         _state.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
+                        load(reset = true)
                     }
                     emitMessage("评论已发送")
-                    load(reset = true)
                 }
                 .onFailure { err ->
-                    _state.value = _state.value?.copy(isPosting = false)
+                    _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }?.copy(isPosting = false) ?: _state.value
                     onPostFailed(cur)
                     emitMessage("评论失败：${err.message ?: "未知错误"}")
                 }
