@@ -1069,6 +1069,13 @@ class BiliRepository internal constructor(
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        } catch (e: retrofit2.HttpException) {
+            // HTTP 412 是 B 站 WAF 的风控拦截：与 -352 同样进冷却、不重试
+            if (e.code() == 412) {
+                riskCooldown.onRiskControl()
+                throw SearchException(SearchError.Blocked, "触发风控（HTTP 412），已进入退避")
+            }
+            throw e
         }
         when (resolveRetryAction(response.code)) {
             RetryAction.BACKOFF_NO_RETRY -> {
@@ -1117,6 +1124,13 @@ class BiliRepository internal constructor(
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        } catch (e: retrofit2.HttpException) {
+            // HTTP 412 是 B 站 WAF 的风控拦截：与 -352 同样进冷却、不重试
+            if (e.code() == 412) {
+                riskCooldown.onRiskControl()
+                throw SearchException(SearchError.Blocked, "触发风控（HTTP 412），已进入退避")
+            }
+            throw e
         }
         when (resolveRetryAction(response.code)) {
             RetryAction.BACKOFF_NO_RETRY -> {
