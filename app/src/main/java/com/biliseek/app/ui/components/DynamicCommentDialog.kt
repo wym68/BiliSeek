@@ -40,7 +40,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -69,7 +72,7 @@ import com.biliseek.designsystem.theme.BsSpacing
  * 评论列表 Sheet（动态评论与播放页评论共用）。列表 + 楼中楼预览 + 排序 + 输入栏（含表情面板）。
  * 一级评论和楼中楼都能点赞 / 回复；一级评论可展开全部楼中楼。
  *
- * 正文走 [RichText]：表情图、@ 高亮（[onOpenUser] 非空时可点进空间）、蓝字关键词、链接。
+ * 正文走 [RichText]：表情图、@ 高亮、蓝字关键词、链接；[onOpenUser] 非空时 @、头像、昵称都可点进空间。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -142,6 +145,7 @@ fun DynamicCommentDialog(
                             myMid = myMid,
                             onDelete = { r, root -> pendingDelete = r to root },
                             onOpenImages = openImages,
+                            onOpenUser = onOpenUser,
                         )
                         CommentDivider()
                     }
@@ -159,6 +163,7 @@ fun DynamicCommentDialog(
                             myMid = myMid,
                             onDelete = { r, root -> pendingDelete = r to root },
                             onOpenImages = openImages,
+                            onOpenUser = onOpenUser,
                         )
                         CommentDivider()
                     }
@@ -271,7 +276,10 @@ private fun CommentItemRow(
     myMid: Long,
     onDelete: (ReplyItem, Long?) -> Unit,
     onOpenImages: (List<String>, Int) -> Unit,
+    onOpenUser: ((Long) -> Unit)?,
 ) {
+    val openUser: (() -> Unit)? = onOpenUser?.takeIf { reply.mid > 0 }?.let { open -> { open(reply.mid) } }
+    val userClick = if (openUser != null) Modifier.clickable(onClick = openUser) else Modifier
     Row(
         Modifier.fillMaxWidth().padding(start = BsSpacing.lg, end = BsSpacing.sm, top = BsSpacing.md, bottom = BsSpacing.xs),
     ) {
@@ -281,13 +289,15 @@ private fun CommentItemRow(
             modifier = Modifier
                 .size(BsSize.avatarSm)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .then(userClick),
             contentScale = ContentScale.Crop,
         )
         Column(Modifier.padding(start = BsSpacing.sm).weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     reply.member.uname,
+                    modifier = userClick,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -327,6 +337,7 @@ private fun CommentItemRow(
                             onLike = { onLike(sub) },
                             onDelete = if (canDeleteReply(sub, myMid)) ({ onDelete(sub, reply.rpid) }) else null,
                             onOpenImages = onOpenImages,
+                            onOpenUser = onOpenUser,
                         )
                     }
                     when {
@@ -411,6 +422,7 @@ private fun SubReplyRow(
     onLike: () -> Unit,
     onDelete: (() -> Unit)?,
     onOpenImages: (List<String>, Int) -> Unit,
+    onOpenUser: ((Long) -> Unit)?,
 ) {
     val unameColor = MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth()) {
@@ -419,9 +431,16 @@ private fun SubReplyRow(
             style = MaterialTheme.typography.bodySmall,
             actions = actions,
             prefix = {
-                withStyle(SpanStyle(color = unameColor)) {
-                    append(sub.member.uname)
-                    if (isUpReply(sub, upMid)) append(" UP")
+                val name: AnnotatedString.Builder.() -> Unit = {
+                    withStyle(SpanStyle(color = unameColor)) {
+                        append(sub.member.uname)
+                        if (isUpReply(sub, upMid)) append(" UP")
+                    }
+                }
+                if (onOpenUser != null && sub.mid > 0) {
+                    withLink(LinkAnnotation.Clickable(tag = "user:${sub.mid}") { onOpenUser(sub.mid) }) { name() }
+                } else {
+                    name()
                 }
                 append("：")
             },

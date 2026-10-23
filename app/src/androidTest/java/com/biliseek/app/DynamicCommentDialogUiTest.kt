@@ -58,6 +58,7 @@ class DynamicCommentDialogUiTest {
         onClearReplyTarget: () -> Unit = {},
         myMid: Long = 0,
         onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
+        onOpenUser: ((Long) -> Unit)? = null,
     ) {
         compose.setContent {
             BiliSeekTheme {
@@ -75,6 +76,7 @@ class DynamicCommentDialogUiTest {
                     onDismiss = {},
                     myMid = myMid,
                     onDelete = onDelete,
+                    onOpenUser = onOpenUser,
                 )
             }
         }
@@ -188,5 +190,13 @@ class DynamicCommentDialogUiTest {
         val confirm = compose.onAllNodesWithText("删除")
         confirm[confirm.fetchSemanticsNodes().lastIndex].performClick()
         check(deleted?.rpid == 2L) { "确认后应回调删除" }
+    }
+
+    @Test
+    fun 点昵称进入对方空间() {
+        var opened: Long? = null
+        setDialog(state(), onOpenUser = { opened = it })
+        compose.onNodeWithText("用户B").performClick()
+        check(opened == 20L) { "点昵称应打开 mid=20 的空间" }
     }
 }
