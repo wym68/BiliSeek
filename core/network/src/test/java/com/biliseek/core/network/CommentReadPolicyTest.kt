@@ -14,11 +14,26 @@ import org.junit.Test
 class CommentReadPolicyTest {
 
     @Test
-    fun `风控与 csrf 相关码触发降级`() {
+    fun `csrf 与 WBI 相关码触发降级`() {
         assertTrue(shouldFallbackCommentRead(-111))
-        assertTrue(shouldFallbackCommentRead(-352))
-        assertTrue(shouldFallbackCommentRead(-412))
         assertTrue(shouldFallbackCommentRead(-403))
+    }
+
+    @Test
+    fun `负三五二风控拦截与负四一二缺指纹不降级`() {
+        assertFalse(shouldFallbackCommentRead(-352))
+        assertFalse(shouldFallbackCommentRead(-412))
+    }
+
+    @Test
+    fun `主链路负四一二不再打兼容链路，原样返回`() = runBlocking {
+        var compatCalled = false
+        val out = runCommentRead(
+            primary = { BiliResponse<ReplyData>(code = -412) },
+            compat = { compatCalled = true; BiliResponse<ReplyData>(code = 0) },
+        )
+        assertFalse("-412 应先重置设备凭据，不该立刻再请求", compatCalled)
+        assertEquals(-412, out.code)
     }
 
     @Test
@@ -61,9 +76,20 @@ class CommentReadPolicyTest {
     }
 
     @Test
+    fun `主链路负三五二不再打兼容链路，原样返回`() = runBlocking {
+        var compatCalled = false
+        val out = runCommentRead(
+            primary = { BiliResponse<ReplyData>(code = -352) },
+            compat = { compatCalled = true; BiliResponse<ReplyData>(code = 0) },
+        )
+        assertFalse("-352 后再请求会把临时限制升级成长期封禁", compatCalled)
+        assertEquals(-352, out.code)
+    }
+
+    @Test
     fun `兼容链路也失败则返回兼容的失败`() = runBlocking {
         val out = runCommentRead(
-            primary = { BiliResponse(code = -352) },
+            primary = { BiliResponse(code = -111) },
             compat = { BiliResponse<ReplyData>(code = -352) },
         )
         assertEquals(-352, out.code)

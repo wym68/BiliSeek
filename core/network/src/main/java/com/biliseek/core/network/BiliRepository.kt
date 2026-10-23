@@ -1041,7 +1041,7 @@ class BiliRepository internal constructor(
     )
 
     /**
-     * 评论列表。先走 WBI 主链路，遇 -111/风控降级兼容链路一次（[runCommentRead]）。
+     * 评论列表。先走 WBI 主链路，遇 -111/-403 降级兼容链路一次（[runCommentRead]）；-352 / -412 不降级，分别进冷却 / 重置凭据。
      * `oid`/`type`：视频=用 aid + type=1；动态=按 [com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry] 算出的 oid + type(11/17)。
      * `sort`：0 按时间 / 1 按热度（[commentListParams] 换成 mode）。`offset`：第一页传空串，之后传上一页的 [CommentPage.nextOffset]。
      * 写侧（发评论/点赞/删除）走 [addDynamicReply]/[replyAction]/[deleteReply]。
