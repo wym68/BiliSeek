@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +86,7 @@ fun DynamicCommentDialog(
     state: CommentThreadState,
     onSortChange: (Int) -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit = {},
     onLike: (ReplyItem) -> Unit,
     onReply: (ReplyItem, Long?) -> Unit,
     onExpandSubReplies: (ReplyItem) -> Unit,
@@ -146,6 +148,9 @@ fun DynamicCommentDialog(
                     comments.errorMessage ?: "还没有评论，来说两句吧",
                     Modifier.weight(1f),
                     icon = Icons.Outlined.ChatBubbleOutline,
+                    action = if (comments.errorMessage != null && state.listErrorRetryable) {
+                        { TextButton(onClick = onRetry) { Text("重试") } }
+                    } else null,
                 )
 
                 else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {

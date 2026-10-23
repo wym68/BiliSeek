@@ -1083,7 +1083,7 @@ class BiliRepository internal constructor(
         }
         if (response.code != 0) {
             throw SearchException(
-                SearchError.Unknown("code=${response.code} ${response.message}"),
+                SearchError.Unknown(response.message),
                 "评论加载失败：code=${response.code} ${response.message}",
             )
         }
@@ -1131,7 +1131,7 @@ class BiliRepository internal constructor(
         }
         if (response.code != 0) {
             throw SearchException(
-                SearchError.Unknown("code=${response.code} ${response.message}"),
+                SearchError.Unknown(response.message),
                 "楼中楼加载失败：code=${response.code} ${response.message}",
             )
         }

@@ -37,6 +37,8 @@ data class CommentThreadState(
     val upMid: Long = 0,
     /** 主评论下一页的游标（[BiliRepository.comments] 的 offset）。 */
     val nextOffset: String = "",
+    /** 主列表最近一次失败能不能给「重试」（风控拦截时为 false）。 */
+    val listErrorRetryable: Boolean = true,
     /** key=一级评论 rpid，value=其楼中楼的分页状态。未展开的评论不在这个 map 里。 */
     val expandedSubReplies: Map<Long, RemoteListState<ReplyItem>> = emptyMap(),
     /** 展开后又收起的楼中楼（rpid）。已加载的仍留在 [expandedSubReplies]，再展开直接复用、不重新请求。 */
@@ -134,6 +136,9 @@ class CommentThreadController(
         load(reset = false)
     }
 
+    /** 第一页失败后点「重试」：重拉第一页（冷却期内本地直接失败，不会打到服务端）。 */
+    fun retry() = load(reset = true)
+
     /** 加载评论列表。reset=true 重新拉第 1 页；false 用游标翻页追加。 */
     private fun load(reset: Boolean) {
         val cur = _state.value ?: return
@@ -174,8 +179,9 @@ class CommentThreadController(
                         comments = dialog.comments.copy(
                             isLoading = false,
                             isLoadingMore = false,
-                            errorMessage = err.message ?: "评论加载失败",
+                            errorMessage = commentErrorText("评论加载", err),
                         ),
+                        listErrorRetryable = isRetryableCommentError(err),
                     )
                 }
         }
@@ -225,7 +231,7 @@ class CommentThreadController(
                 .onFailure { err ->
                     _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }
                         ?.patchReply(reply.rpid) { it.withLike(!like) } ?: _state.value
-                    emitMessage("点赞失败：${err.message ?: "未知错误"}")
+                    emitMessage(commentErrorText("点赞", err))
                 }
         }
     }
@@ -260,7 +266,7 @@ class CommentThreadController(
                     _state.value = dialog.copy(
                         expandedSubReplies = dialog.expandedSubReplies + (reply.rpid to prev.copy(
                             isLoading = false,
-                            errorMessage = err.message ?: "楼中楼加载失败",
+                            errorMessage = commentErrorText("楼中楼加载", err),
                         )),
                     )
                 }
@@ -304,7 +310,7 @@ class CommentThreadController(
                     _state.value = dialog.copy(
                         expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
                             isLoadingMore = false,
-                            errorMessage = err.message ?: "楼中楼加载失败",
+                            errorMessage = commentErrorText("楼中楼加载", err),
                         )),
                     )
                 }
@@ -323,7 +329,7 @@ class CommentThreadController(
                     onDeleted(cur)
                     emitMessage("已删除")
                 }
-                .onFailure { err -> emitMessage("删除失败：${err.message ?: "未知错误"}") }
+                .onFailure { err -> emitMessage(commentErrorText("删除", err)) }
             deleting.remove(reply.rpid)
         }
     }
@@ -363,7 +369,7 @@ class CommentThreadController(
                 .onFailure { err ->
                     _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }?.copy(isPosting = false) ?: _state.value
                     onPostFailed(cur)
-                    emitMessage("评论失败：${err.message ?: "未知错误"}")
+                    emitMessage(commentErrorText("评论", err))
                 }
         }
     }

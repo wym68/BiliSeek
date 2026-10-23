@@ -25,6 +25,7 @@ fun CommentThreadSheet(
         listState = listState,
         onSortChange = controller::setSort,
         onLoadMore = controller::loadMore,
+        onRetry = controller::retry,
         onLike = controller::toggleLike,
         onReply = controller::startReplyTo,
         onExpandSubReplies = controller::expandSubReplies,
