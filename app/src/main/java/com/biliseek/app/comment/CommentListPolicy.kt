@@ -69,3 +69,30 @@ fun CommentThreadState.insertPosted(reply: ReplyItem, target: CommentReplyTarget
         expandedSubReplies = patched.expandedSubReplies + (rootRpid to expanded.copy(items = expanded.items + reply)),
     )
 }
+
+/** 只能删自己的评论（UP 删别人评论的权限不做）。 */
+fun canDeleteReply(reply: ReplyItem, myMid: Long): Boolean = myMid > 0 && reply.mid == myMid
+
+/**
+ * 删除成功后从本地移除。`rootRpid == null`：一级评论，置顶 / 列表里去掉，它展开的楼中楼一并丢掉；
+ * 否则是楼中楼：所属一级评论的预览和展开列表里去掉，回复数 -1。
+ */
+fun CommentThreadState.removeReply(rpid: Long, rootRpid: Long?): CommentThreadState {
+    if (rootRpid == null) {
+        return copy(
+            topReplies = topReplies.filterNot { it.rpid == rpid },
+            comments = comments.copy(items = comments.items.filterNot { it.rpid == rpid }),
+            expandedSubReplies = expandedSubReplies - rpid,
+        )
+    }
+    val patched = patchReply(rootRpid) { root ->
+        root.copy(
+            rcount = (root.rcount - 1).coerceAtLeast(0),
+            replies = root.replies?.filterNot { it.rpid == rpid },
+        )
+    }
+    val expanded = patched.expandedSubReplies[rootRpid] ?: return patched
+    return patched.copy(
+        expandedSubReplies = patched.expandedSubReplies + (rootRpid to expanded.copy(items = expanded.items.filterNot { it.rpid == rpid })),
+    )
+}

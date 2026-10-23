@@ -97,4 +97,38 @@ class CommentListPolicyTest {
         assertEquals(listOf(3L), out.comments.items.single().replies!!.map { it.rpid })
         assertEquals(listOf(3L, 500L), out.expandedSubReplies.getValue(2).items.map { it.rpid })
     }
+
+    @Test
+    fun `只能删自己的评论，未登录谁的都不能删`() {
+        assertEquals(true, canDeleteReply(ReplyItem(rpid = 1, mid = 42), myMid = 42))
+        assertEquals(false, canDeleteReply(ReplyItem(rpid = 1, mid = 7), myMid = 42))
+        assertEquals(false, canDeleteReply(ReplyItem(rpid = 1, mid = 0), myMid = 0))
+    }
+
+    @Test
+    fun `删一级评论：从置顶、列表移除，并丢掉它展开的楼中楼`() {
+        val state = CommentThreadState(
+            oid = 1, type = 1,
+            topReplies = listOf(r(2)),
+            comments = RemoteListState(items = listOf(r(2), r(3))),
+            expandedSubReplies = mapOf(2L to RemoteListState(items = listOf(r(9)))),
+        )
+        val out = state.removeReply(rpid = 2, rootRpid = null)
+        assertEquals(emptyList<Long>(), out.topReplies.map { it.rpid })
+        assertEquals(listOf(3L), out.comments.items.map { it.rpid })
+        assertEquals(false, out.expandedSubReplies.containsKey(2L))
+    }
+
+    @Test
+    fun `删楼中楼：预览和展开列表都去掉，回复数减一`() {
+        val state = CommentThreadState(
+            oid = 1, type = 1,
+            comments = RemoteListState(items = listOf(ReplyItem(rpid = 2, rcount = 2, replies = listOf(r(8), r(9))))),
+            expandedSubReplies = mapOf(2L to RemoteListState(items = listOf(r(8), r(9)))),
+        )
+        val out = state.removeReply(rpid = 9, rootRpid = 2)
+        assertEquals(1, out.comments.items.single().rcount)
+        assertEquals(listOf(8L), out.comments.items.single().replies!!.map { it.rpid })
+        assertEquals(listOf(8L), out.expandedSubReplies.getValue(2).items.map { it.rpid })
+    }
 }

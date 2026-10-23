@@ -9,6 +9,7 @@ import com.biliseek.app.comment.CommentThreadController
 @Composable
 fun CommentThreadSheet(
     controller: CommentThreadController,
+    myMid: Long,
     onOpenUser: (Long) -> Unit,
 ) {
     val state by controller.state.collectAsState()
@@ -25,6 +26,8 @@ fun CommentThreadSheet(
         onClearReplyTarget = controller::clearReplyTarget,
         onSubmit = controller::submit,
         onDismiss = controller::dismiss,
+        myMid = myMid,
+        onDelete = controller::delete,
         onOpenUser = onOpenUser,
     )
 }

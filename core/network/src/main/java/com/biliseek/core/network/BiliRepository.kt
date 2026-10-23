@@ -1260,6 +1260,12 @@ class BiliRepository internal constructor(
             ),
         ) { f, _ -> api.replyAction(f) }.map { }
 
+    /** 删除自己的评论。`oid`/`type` 语义同 [comments]。 */
+    suspend fun deleteReply(oid: Long, type: Int, rpid: Long): Result<Unit> =
+        writeRequest(
+            payload = mapOf("oid" to oid.toString(), "type" to type.toString(), "rpid" to rpid.toString()),
+        ) { f, _ -> api.deleteReply(f) }.map { }
+
     /** 发弹幕。oid 用 cid，progress 单位毫秒。 */
     suspend fun sendDanmaku(cid: Long, aid: Long, msg: String, progressMs: Long): Result<Unit> =
         writeRequest(

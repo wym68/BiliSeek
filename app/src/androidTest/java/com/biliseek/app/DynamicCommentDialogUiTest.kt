@@ -56,6 +56,8 @@ class DynamicCommentDialogUiTest {
         onSortChange: (Int) -> Unit = {},
         onLoadMore: () -> Unit = {},
         onClearReplyTarget: () -> Unit = {},
+        myMid: Long = 0,
+        onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
     ) {
         compose.setContent {
             BiliSeekTheme {
@@ -71,6 +73,8 @@ class DynamicCommentDialogUiTest {
                     onClearReplyTarget = onClearReplyTarget,
                     onSubmit = {},
                     onDismiss = {},
+                    myMid = myMid,
+                    onDelete = onDelete,
                 )
             }
         }
@@ -169,5 +173,20 @@ class DynamicCommentDialogUiTest {
         val pinned = ReplyItem(rpid = 99, content = ReplyContent(message = "唯一一条置顶"), member = ReplyMember(uname = "作者"))
         setDialog(state(items = emptyList()).copy(topReplies = listOf(pinned)))
         compose.onNodeWithText("唯一一条置顶").assertIsDisplayed()
+    }
+
+    @Test
+    fun 只有自己的评论能删且要先确认() {
+        var deleted: ReplyItem? = null
+        setDialog(state(), myMid = 20, onDelete = { r, _ -> deleted = r })
+
+        // 只有「用户B」（mid=20）那条有删除
+        check(compose.onAllNodesWithContentDescription("删除").fetchSemanticsNodes().size == 1)
+        compose.onNodeWithContentDescription("删除").performClick()
+        check(deleted == null) { "未确认前不应删除" }
+        compose.onNodeWithText("删除后不能恢复。").assertIsDisplayed()
+        val confirm = compose.onAllNodesWithText("删除")
+        confirm[confirm.fetchSemanticsNodes().lastIndex].performClick()
+        check(deleted?.rpid == 2L) { "确认后应回调删除" }
     }
 }

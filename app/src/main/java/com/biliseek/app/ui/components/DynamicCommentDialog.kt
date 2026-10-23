@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +32,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +45,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.comment.CommentThreadState
+import com.biliseek.app.comment.canDeleteReply
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.ui.formatRelativeTime
 import com.biliseek.app.ui.richtext.CommentComposer
@@ -47,6 +53,7 @@ import com.biliseek.app.ui.richtext.RichText
 import com.biliseek.app.ui.richtext.RichTextActions
 import com.biliseek.app.ui.richtext.RichTextSource
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.component.BsEmptyState
 import com.biliseek.designsystem.component.BsIconAction
 import com.biliseek.designsystem.component.BsLoadMoreFooter
@@ -75,6 +82,9 @@ fun DynamicCommentDialog(
     onClearReplyTarget: () -> Unit,
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
+    /** 当前登录用户 mid；0 = 未登录（不显示删除）。 */
+    myMid: Long = 0,
+    onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
     onOpenUser: ((Long) -> Unit)? = null,
 ) {
     val comments = state.comments
@@ -82,6 +92,7 @@ fun DynamicCommentDialog(
     val replyTargetUname = state.replyTarget?.uname
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val actions = RichTextActions(onMention = onOpenUser)
+    var pendingDelete by remember { mutableStateOf<Pair<ReplyItem, Long?>?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, dragHandle = { CompactDragHandle() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
             Row(
@@ -122,6 +133,8 @@ fun DynamicCommentDialog(
                             onReply = onReply,
                             onExpandSubReplies = { onExpandSubReplies(reply) },
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
+                            myMid = myMid,
+                            onDelete = { r, root -> pendingDelete = r to root },
                         )
                         CommentDivider()
                     }
@@ -136,6 +149,8 @@ fun DynamicCommentDialog(
                             onReply = onReply,
                             onExpandSubReplies = { onExpandSubReplies(reply) },
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
+                            myMid = myMid,
+                            onDelete = { r, root -> pendingDelete = r to root },
                         )
                         CommentDivider()
                     }
@@ -165,6 +180,19 @@ fun DynamicCommentDialog(
                 isPosting = state.isPosting,
                 replyHint = replyTargetUname?.let { "回复 @$it" },
                 onClearReply = onClearReplyTarget,
+            )
+        }
+        pendingDelete?.let { (reply, root) ->
+            BsConfirmDialog(
+                title = "删除评论",
+                text = "删除后不能恢复。",
+                confirmLabel = "删除",
+                destructive = true,
+                onConfirm = {
+                    pendingDelete = null
+                    onDelete(reply, root)
+                },
+                onDismiss = { pendingDelete = null },
             )
         }
     }
@@ -218,6 +246,8 @@ private fun CommentItemRow(
     onReply: (ReplyItem, Long?) -> Unit,
     onExpandSubReplies: () -> Unit,
     onLoadMoreSubReplies: () -> Unit,
+    myMid: Long,
+    onDelete: (ReplyItem, Long?) -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(start = BsSpacing.lg, end = BsSpacing.sm, top = BsSpacing.md, bottom = BsSpacing.xs),
@@ -251,6 +281,7 @@ private fun CommentItemRow(
                 reply = reply,
                 onReply = { onReply(reply, null) },
                 onLike = { onLike(reply) },
+                onDelete = if (canDeleteReply(reply, myMid)) ({ onDelete(reply, null) }) else null,
             )
             if (reply.rcount > 0) {
                 val preview = subReplies?.items ?: reply.replies.orEmpty()
@@ -270,6 +301,7 @@ private fun CommentItemRow(
                             actions = actions,
                             onReply = { onReply(sub, reply.rpid) },
                             onLike = { onLike(sub) },
+                            onDelete = if (canDeleteReply(sub, myMid)) ({ onDelete(sub, reply.rpid) }) else null,
                         )
                     }
                     when {
@@ -306,6 +338,7 @@ private fun CommentActionRow(
     reply: ReplyItem,
     onReply: () -> Unit,
     onLike: () -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(top = BsSpacing.xxs),
@@ -317,6 +350,14 @@ private fun CommentActionRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline,
         )
+        if (onDelete != null) {
+            BsIconAction(
+                icon = Icons.Outlined.Delete,
+                label = "删除",
+                onClick = onDelete,
+                showLabelWhenEmpty = false,
+            )
+        }
         BsIconAction(
             icon = Icons.Outlined.ChatBubbleOutline,
             label = "回复",
@@ -343,6 +384,7 @@ private fun SubReplyRow(
     actions: RichTextActions,
     onReply: () -> Unit,
     onLike: () -> Unit,
+    onDelete: (() -> Unit)?,
 ) {
     val unameColor = MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth()) {
@@ -358,7 +400,7 @@ private fun SubReplyRow(
                 append("：")
             },
         )
-        CommentActionRow(reply = sub, onReply = onReply, onLike = onLike)
+        CommentActionRow(reply = sub, onReply = onReply, onLike = onLike, onDelete = onDelete)
     }
 }
 

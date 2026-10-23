@@ -51,6 +51,7 @@ class DynamicFeedController(
         emitMessage = emitMessage,
         onPostStarted = { s -> patchCommentCount(s.key, +1) },
         onPostFailed = { s -> patchCommentCount(s.key, -1) },
+        onDeleted = { s -> patchCommentCount(s.key, -1) },
     )
 
     /** 点赞防抖：记录每个 dyn_id_str 最近一次发起请求的时间戳。 */

@@ -46,7 +46,7 @@ data class CommentThreadState(
  *
  * 从 AppViewModel 拆出：动态评论与播放页评论原先各有一份几乎逐行相同的实现，现在各持一个实例。
  * 不是 ViewModel，生命周期挂在宿主的 [scope] 上。发表评论前后的外部副作用（如动态卡片评论数的
- * 乐观 +1 / 回滚）通过 [onPostStarted] / [onPostFailed] 交给宿主。
+ * 乐观 +1 / 回滚）通过 [onPostStarted] / [onPostFailed] / [onDeleted] 交给宿主。
  */
 class CommentThreadController(
     private val scope: CoroutineScope,
@@ -55,6 +55,7 @@ class CommentThreadController(
     private val emitMessage: (String) -> Unit,
     private val onPostStarted: (CommentThreadState) -> Unit = {},
     private val onPostFailed: (CommentThreadState) -> Unit = {},
+    private val onDeleted: (CommentThreadState) -> Unit = {},
 ) {
     private val _state = MutableStateFlow<CommentThreadState?>(null)
     /** null = 对话框关闭。 */
@@ -62,6 +63,9 @@ class CommentThreadController(
 
     /** 点赞防抖：记录每条评论最近一次发起请求的时间戳。 */
     private val likeRequestGate = ConcurrentHashMap<Long, Long>()
+
+    /** 正在删除的 rpid，防连点重复请求。 */
+    private val deleting = mutableSetOf<Long>()
 
     /** 草稿：key = (oid, type)。只在内存里，App 被杀就没了；发送成功后删掉。 */
     private val drafts = mutableMapOf<Pair<Long, Int>, CommentDraft>()
@@ -258,6 +262,23 @@ class CommentThreadController(
                         )),
                     )
                 }
+        }
+    }
+
+    /** 删除自己的评论（界面上已二次确认）。成功后本地移除，不重拉。`rootRpid` 非 null 表示楼中楼。 */
+    fun delete(reply: ReplyItem, rootRpid: Long?) {
+        val cur = _state.value ?: return
+        if (!session.value.isLoggedIn || !deleting.add(reply.rpid)) return
+        scope.launch {
+            repository.deleteReply(cur.oid, cur.type, reply.rpid)
+                .onSuccess {
+                    _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }
+                        ?.removeReply(reply.rpid, rootRpid) ?: _state.value
+                    onDeleted(cur)
+                    emitMessage("已删除")
+                }
+                .onFailure { err -> emitMessage("删除失败：${err.message ?: "未知错误"}") }
+            deleting.remove(reply.rpid)
         }
     }
 

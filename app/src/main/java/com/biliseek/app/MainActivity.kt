@@ -1179,6 +1179,7 @@ class MainActivity : ComponentActivity() {
                 for (comments in listOf(viewModel.dynamics.comments, viewModel.playerComments)) {
                     com.biliseek.app.ui.components.CommentThreadSheet(
                         controller = comments,
+                        myMid = session.dedeUserId.toLongOrNull() ?: 0L,
                         onOpenUser = { mid ->
                             comments.dismiss()
                             viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))

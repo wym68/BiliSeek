@@ -499,6 +499,10 @@ interface BiliApi {
     @POST("x/v2/reply/action")
     suspend fun replyAction(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>  // oid, type, rpid, action(1赞/0取消), csrf
 
+    @FormUrlEncoded
+    @POST("x/v2/reply/del")
+    suspend fun deleteReply(@FieldMap fields: Map<String, String>): BiliResponse<JsonElement>  // oid, type, rpid, csrf
+
     // ── 弹幕（「看」= GET seg.so 属读路径；此处为写）────────────
     @FormUrlEncoded
     @POST("x/v2/dm/post")
