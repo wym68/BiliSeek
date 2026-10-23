@@ -131,4 +131,21 @@ class CommentListPolicyTest {
         assertEquals(listOf(8L), out.comments.items.single().replies!!.map { it.rpid })
         assertEquals(listOf(8L), out.expandedSubReplies.getValue(2).items.map { it.rpid })
     }
+
+    @Test
+    fun `没有游标就没有下一页`() {
+        assertEquals(false, resolveCommentHasMore(reset = true, sizeBefore = 0, sizeAfter = 20, nextOffset = null))
+        assertEquals(false, resolveCommentHasMore(reset = false, sizeBefore = 20, sizeAfter = 40, nextOffset = null))
+    }
+
+    @Test
+    fun `第一页有游标就还有`() {
+        assertEquals(true, resolveCommentHasMore(reset = true, sizeBefore = 0, sizeAfter = 20, nextOffset = "n"))
+    }
+
+    @Test
+    fun `翻页一条新的都没加进来就当到底，免得底部一直转圈`() {
+        assertEquals(false, resolveCommentHasMore(reset = false, sizeBefore = 20, sizeAfter = 20, nextOffset = "n"))
+        assertEquals(true, resolveCommentHasMore(reset = false, sizeBefore = 20, sizeAfter = 25, nextOffset = "n"))
+    }
 }

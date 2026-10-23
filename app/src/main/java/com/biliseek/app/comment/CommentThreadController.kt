@@ -127,18 +127,16 @@ class CommentThreadController(
                     // 等结果期间关了、换了评论区或换了排序：这页已经过时，丢掉
                     if (!dialog.sameThreadAs(cur) || dialog.sort != cur.sort) return@onSuccess
                     val pinned = if (reset) page.topReplies else dialog.topReplies
+                    val before = if (reset) emptyList() else dialog.comments.items
+                    val merged = mergeCommentPage(existing = before, incoming = page.items, pinned = pinned)
                     _state.value = dialog.copy(
                         topReplies = pinned,
                         upMid = if (page.upMid > 0) page.upMid else dialog.upMid,
                         nextOffset = page.nextOffset.orEmpty(),
                         comments = dialog.comments.copy(
-                            items = mergeCommentPage(
-                                existing = if (reset) emptyList() else dialog.comments.items,
-                                incoming = page.items,
-                                pinned = pinned,
-                            ),
+                            items = merged,
                             page = if (reset) 1 else dialog.comments.page + 1,
-                            hasMore = page.nextOffset != null,
+                            hasMore = resolveCommentHasMore(reset, before.size, merged.size, page.nextOffset),
                             isLoading = false,
                             isLoadingMore = false,
                             errorMessage = null,

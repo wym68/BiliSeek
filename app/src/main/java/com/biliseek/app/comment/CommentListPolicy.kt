@@ -96,3 +96,10 @@ fun CommentThreadState.removeReply(rpid: Long, rootRpid: Long?): CommentThreadSt
         expandedSubReplies = patched.expandedSubReplies + (rootRpid to expanded.copy(items = expanded.items.filterNot { it.rpid == rpid })),
     )
 }
+
+/**
+ * 主评论还有没有下一页：服务端没给游标就没有；翻页（非第一页）一条新的都没加进来也当到底，
+ * 否则底部 footer 的自动加载（按条数触发）不会再触发，会一直转圈。
+ */
+fun resolveCommentHasMore(reset: Boolean, sizeBefore: Int, sizeAfter: Int, nextOffset: String?): Boolean =
+    nextOffset != null && (reset || sizeAfter > sizeBefore)
