@@ -1030,7 +1030,7 @@ class BiliRepository internal constructor(
     data class CommentPage(val items: List<ReplyItem>, val count: Int)
 
     /**
-     * 评论列表。先走 WBI 主链路，遇 -111/风控降级兼容链路一次（[runCommentRead]）。
+     * 评论列表。先走 WBI 主链路，遇 -111/-412/-403 降级兼容链路一次（[runCommentRead]）；-352 不降级，直接进冷却。
      * `oid`/`type`：视频=用 aid + type=1；动态=按 [com.biliseek.core.network.internal.resolveDynamicCommentTargetFromEntry] 算出的 oid + type(11/17)。
      * `sort`：0 按时间 / 1 按热度。写侧（发评论/点赞）走 [addDynamicReply]/[replyAction]。
      */
