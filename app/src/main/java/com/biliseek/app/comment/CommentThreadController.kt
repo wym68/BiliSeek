@@ -261,7 +261,7 @@ class CommentThreadController(
         }
     }
 
-    /** 提交评论：发新评论或回复 [CommentThreadState.replyTarget]；成功后清空输入框与回复目标并刷新列表首页。 */
+    /** 提交评论：发新评论或回复 [CommentThreadState.replyTarget]；成功后清空输入框与回复目标，把这条直接插进列表。 */
     fun submit() {
         val cur = _state.value ?: return
         if (!session.value.isLoggedIn) {
@@ -280,14 +280,18 @@ class CommentThreadController(
                 root = target?.root ?: 0L,
                 parent = target?.parent ?: 0L,
             )
-                .onSuccess {
+                .onSuccess { rpid ->
                     drafts.remove(cur.oid to cur.type)
-                    val dialog = _state.value
-                    if (dialog != null && dialog.sameThreadAs(cur)) {
-                        _state.value = dialog.copy(content = "", isPosting = false, replyTarget = null)
-                        load(reset = true)
-                    }
                     emitMessage("评论已发送")
+                    val dialog = _state.value?.takeIf { it.sameThreadAs(cur) } ?: return@onSuccess
+                    val cleared = dialog.copy(content = "", isPosting = false, replyTarget = null)
+                    if (rpid <= 0L) {
+                        _state.value = cleared
+                        load(reset = true)
+                        return@onSuccess
+                    }
+                    val posted = buildPostedReply(rpid, cur.oid, cur.content, session.value, System.currentTimeMillis() / 1000)
+                    _state.value = cleared.insertPosted(posted, target)
                 }
                 .onFailure { err ->
                     _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }?.copy(isPosting = false) ?: _state.value

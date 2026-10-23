@@ -1,6 +1,9 @@
 package com.biliseek.app.comment
 
+import com.biliseek.core.network.BiliSession
+import com.biliseek.core.network.dto.ReplyContent
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.dto.ReplyMember
 
 /**
  * 翻页合并：追加新一页，丢掉已经有的、以及置顶里出现过的 rpid
@@ -35,3 +38,34 @@ fun CommentThreadState.patchReply(rpid: Long, transform: (ReplyItem) -> ReplyIte
 /** 点赞 / 取消后的样子：赞数 ±1（不小于 0），action 1=已赞。 */
 fun ReplyItem.withLike(like: Boolean): ReplyItem =
     copy(like = (this.like + if (like) 1 else -1).coerceAtLeast(0), action = if (like) 1 else 0)
+
+/** 刚发出去的评论在本地的样子：自己的头像昵称 + 输入的原文（表情按 `[xx]` 文本由富文本渲染）。 */
+fun buildPostedReply(rpid: Long, oid: Long, message: String, session: BiliSession, nowSec: Long): ReplyItem =
+    ReplyItem(
+        rpid = rpid,
+        oid = oid,
+        mid = session.dedeUserId.toLongOrNull() ?: 0L,
+        ctime = nowSec,
+        content = ReplyContent(message = message),
+        member = ReplyMember(mid = session.dedeUserId, uname = session.uname, avatar = session.face),
+    )
+
+/**
+ * 发送成功后把自己的评论直接放进列表，不重拉（按热度排时新评论多半不在第一页，重拉了也看不到）。
+ * 一级评论插到普通列表最前；回复插进所属一级评论：已展开放展开列表末尾，没展开放预览末尾；回复数 +1。
+ */
+fun CommentThreadState.insertPosted(reply: ReplyItem, target: CommentReplyTarget?): CommentThreadState {
+    if (target == null) return copy(comments = comments.copy(items = listOf(reply) + comments.items))
+    val rootRpid = target.root
+    val expanded = expandedSubReplies[rootRpid]
+    val patched = patchReply(rootRpid) { root ->
+        root.copy(
+            rcount = root.rcount + 1,
+            replies = if (expanded != null) root.replies else root.replies.orEmpty() + reply,
+        )
+    }
+    if (expanded == null) return patched
+    return patched.copy(
+        expandedSubReplies = patched.expandedSubReplies + (rootRpid to expanded.copy(items = expanded.items + reply)),
+    )
+}
