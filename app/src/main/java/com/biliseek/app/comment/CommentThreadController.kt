@@ -238,7 +238,7 @@ class CommentThreadController(
                 .onSuccess { page ->
                     val dialog = _state.value ?: return@onSuccess
                     val prev = dialog.expandedSubReplies[rootRpid] ?: return@onSuccess
-                    val merged = prev.items + page.items
+                    val merged = mergeCommentPage(existing = prev.items, incoming = page.items, pinned = emptyList())
                     _state.value = dialog.copy(
                         expandedSubReplies = dialog.expandedSubReplies + (rootRpid to prev.copy(
                             items = merged,

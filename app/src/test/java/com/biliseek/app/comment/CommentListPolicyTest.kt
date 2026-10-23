@@ -21,6 +21,12 @@ class CommentListPolicyTest {
     }
 
     @Test
+    fun `楼中楼翻页时本地插入过的那条不会重复`() {
+        val merged = mergeCommentPage(existing = listOf(r(3), r(500)), incoming = listOf(r(4), r(500)), pinned = emptyList())
+        assertEquals(listOf(3L, 500L, 4L), merged.map { it.rpid })
+    }
+
+    @Test
     fun `第一页也要去掉置顶那条`() {
         val merged = mergeCommentPage(existing = emptyList(), incoming = listOf(r(1), r(5)), pinned = listOf(r(1)))
         assertEquals(listOf(5L), merged.map { it.rpid })
