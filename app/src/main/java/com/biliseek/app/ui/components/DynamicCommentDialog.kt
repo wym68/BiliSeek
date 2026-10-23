@@ -43,6 +43,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.biliseek.app.comment.CommentThreadState
 import com.biliseek.app.comment.canDeleteReply
@@ -85,6 +87,7 @@ fun DynamicCommentDialog(
     /** 当前登录用户 mid；0 = 未登录（不显示删除）。 */
     myMid: Long = 0,
     onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
+    onSaveImage: (String) -> Unit = {},
     onOpenUser: ((Long) -> Unit)? = null,
 ) {
     val comments = state.comments
@@ -93,6 +96,8 @@ fun DynamicCommentDialog(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val actions = RichTextActions(onMention = onOpenUser)
     var pendingDelete by remember { mutableStateOf<Pair<ReplyItem, Long?>?>(null) }
+    var preview by remember { mutableStateOf<Pair<List<String>, Int>?>(null) }
+    val openImages: (List<String>, Int) -> Unit = { pics, index -> preview = pics to index }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, dragHandle = { CompactDragHandle() }) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
             Row(
@@ -135,6 +140,7 @@ fun DynamicCommentDialog(
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
                             myMid = myMid,
                             onDelete = { r, root -> pendingDelete = r to root },
+                            onOpenImages = openImages,
                         )
                         CommentDivider()
                     }
@@ -151,6 +157,7 @@ fun DynamicCommentDialog(
                             onLoadMoreSubReplies = { onLoadMoreSubReplies(reply.rpid) },
                             myMid = myMid,
                             onDelete = { r, root -> pendingDelete = r to root },
+                            onOpenImages = openImages,
                         )
                         CommentDivider()
                     }
@@ -194,6 +201,20 @@ fun DynamicCommentDialog(
                 },
                 onDismiss = { pendingDelete = null },
             )
+        }
+        // 弹层有自己的窗口，主窗口里的全局图片预览会被挡住；这里另开一个 Dialog 窗口盖在弹层上
+        preview?.let { (pics, index) ->
+            Dialog(
+                onDismissRequest = { preview = null },
+                properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+            ) {
+                ImagePreviewDialog(
+                    pics = pics,
+                    initialIndex = index,
+                    onDismiss = { preview = null },
+                    onSaveImage = onSaveImage,
+                )
+            }
         }
     }
 }
@@ -248,6 +269,7 @@ private fun CommentItemRow(
     onLoadMoreSubReplies: () -> Unit,
     myMid: Long,
     onDelete: (ReplyItem, Long?) -> Unit,
+    onOpenImages: (List<String>, Int) -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(start = BsSpacing.lg, end = BsSpacing.sm, top = BsSpacing.md, bottom = BsSpacing.xs),
@@ -277,6 +299,7 @@ private fun CommentItemRow(
                 style = MaterialTheme.typography.bodyMedium,
                 actions = actions,
             )
+            CommentPictures(reply, onOpenImages)
             CommentActionRow(
                 reply = reply,
                 onReply = { onReply(reply, null) },
@@ -302,6 +325,7 @@ private fun CommentItemRow(
                             onReply = { onReply(sub, reply.rpid) },
                             onLike = { onLike(sub) },
                             onDelete = if (canDeleteReply(sub, myMid)) ({ onDelete(sub, reply.rpid) }) else null,
+                            onOpenImages = onOpenImages,
                         )
                     }
                     when {
@@ -385,6 +409,7 @@ private fun SubReplyRow(
     onReply: () -> Unit,
     onLike: () -> Unit,
     onDelete: (() -> Unit)?,
+    onOpenImages: (List<String>, Int) -> Unit,
 ) {
     val unameColor = MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth()) {
@@ -400,6 +425,7 @@ private fun SubReplyRow(
                 append("：")
             },
         )
+        CommentPictures(sub, onOpenImages)
         CommentActionRow(reply = sub, onReply = onReply, onLike = onLike, onDelete = onDelete)
     }
 }
@@ -411,3 +437,19 @@ internal fun com.biliseek.core.network.dto.ReplyContent.toRichSource(): RichText
     mentions = members.mapNotNull { m -> m.uname.takeIf { it.isNotBlank() }?.let { it to (m.mid.toLongOrNull() ?: 0L) } }.toMap(),
     keywords = jumpKeywords,
 )
+
+/** 评论图片：用动态同款九宫格，点开全屏预览。没有图什么都不画。 */
+@Composable
+private fun CommentPictures(reply: ReplyItem, onOpenImages: (List<String>, Int) -> Unit) {
+    val pics = reply.content.pictureUrls()
+    if (pics.isEmpty()) return
+    DrawGrid(
+        pics = pics,
+        onImageClick = { index -> onOpenImages(pics, index) },
+        modifier = Modifier.padding(top = BsSpacing.xs),
+    )
+}
+
+/** 评论图片地址（去掉空串）。 */
+internal fun com.biliseek.core.network.dto.ReplyContent.pictureUrls(): List<String> =
+    pictures.orEmpty().map { it.imgSrc }.filter { it.isNotBlank() }

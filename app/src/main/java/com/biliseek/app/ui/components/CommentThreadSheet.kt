@@ -10,6 +10,7 @@ import com.biliseek.app.comment.CommentThreadController
 fun CommentThreadSheet(
     controller: CommentThreadController,
     myMid: Long,
+    onSaveImage: (String) -> Unit,
     onOpenUser: (Long) -> Unit,
 ) {
     val state by controller.state.collectAsState()
@@ -28,6 +29,7 @@ fun CommentThreadSheet(
         onDismiss = controller::dismiss,
         myMid = myMid,
         onDelete = controller::delete,
+        onSaveImage = onSaveImage,
         onOpenUser = onOpenUser,
     )
 }

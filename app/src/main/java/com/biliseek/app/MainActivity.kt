@@ -1180,6 +1180,7 @@ class MainActivity : ComponentActivity() {
                     com.biliseek.app.ui.components.CommentThreadSheet(
                         controller = comments,
                         myMid = session.dedeUserId.toLongOrNull() ?: 0L,
+                        onSaveImage = viewModel::saveImageToAlbum,
                         onOpenUser = { mid ->
                             comments.dismiss()
                             viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
