@@ -120,3 +120,7 @@ fun replyHintText(target: CommentReplyTarget): String {
     val quote = target.content.replace(Regex("\\s+"), " ").trim()
     return if (quote.isEmpty()) "回复 @${target.uname}" else "回复 @${target.uname}：$quote"
 }
+
+/** 回到 [entryId] 页面时：若弹层正是在这个页面藏起来的就恢复显示，否则不变。 */
+fun CommentThreadState.resumedOn(entryId: String?): CommentThreadState =
+    if (hiddenUntilEntry != null && hiddenUntilEntry == entryId) copy(hiddenUntilEntry = null) else this

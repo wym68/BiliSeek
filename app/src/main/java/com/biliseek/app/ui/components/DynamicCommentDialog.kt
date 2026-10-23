@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -97,6 +99,7 @@ fun DynamicCommentDialog(
     onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
     onSaveImage: (String) -> Unit = {},
     onOpenUser: ((Long) -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val comments = state.comments
     val sort = state.sort
@@ -134,7 +137,7 @@ fun DynamicCommentDialog(
                     icon = Icons.Outlined.ChatBubbleOutline,
                 )
 
-                else -> LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState) {
                     items(state.topReplies, key = { "top-${it.rpid}" }) { reply ->
                         CommentItemRow(
                             reply = reply,

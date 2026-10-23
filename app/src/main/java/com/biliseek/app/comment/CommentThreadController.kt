@@ -42,6 +42,8 @@ data class CommentThreadState(
     /** 展开后又收起的楼中楼（rpid）。已加载的仍留在 [expandedSubReplies]，再展开直接复用、不重新请求。 */
     val collapsedSubReplies: Set<Long> = emptySet(),
     val replyTarget: CommentReplyTarget? = null,
+    /** 非 null = 弹层暂时藏着（跳去了别的页面），回到 id 为它的页面时再显示；状态全留着。 */
+    val hiddenUntilEntry: String? = null,
 )
 
 /**
@@ -75,6 +77,7 @@ class CommentThreadController(
 
     /** 打开对话框并立即加载第一页。未登录也可读。上次没发出去的草稿（含回复对象）填回输入框。 */
     fun open(oid: Long, type: Int, key: String = "") {
+        _state.value?.let { prev -> saveDraft(prev) }
         val draft = drafts[oid to type]
         _state.value = CommentThreadState(
             oid = oid,
@@ -89,9 +92,25 @@ class CommentThreadController(
     /** 关闭对话框：没发出去的内容按评论区记下来。 */
     fun dismiss() {
         val cur = _state.value ?: return
-        val draft = draftOnDismiss(cur)
-        if (draft != null) drafts[cur.oid to cur.type] = draft else drafts.remove(cur.oid to cur.type)
+        saveDraft(cur)
         _state.value = null
+    }
+
+    private fun saveDraft(state: CommentThreadState) {
+        val draft = draftOnDismiss(state)
+        if (draft != null) drafts[state.oid to state.type] = draft else drafts.remove(state.oid to state.type)
+    }
+
+    /** 跳去别的页面（点人进 UP 空间）：弹层先藏起来，状态全留着；回到 [entryId] 这个页面时由 [resumeOn] 再显示。 */
+    fun hideUntilBackOn(entryId: String) {
+        val cur = _state.value ?: return
+        _state.value = cur.copy(hiddenUntilEntry = entryId)
+    }
+
+    /** 当前页面变了：是藏起弹层时的那个页面就再显示。 */
+    fun resumeOn(entryId: String?) {
+        val cur = _state.value ?: return
+        _state.value = cur.resumedOn(entryId)
     }
 
     fun updateContent(text: String) {

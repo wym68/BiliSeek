@@ -271,6 +271,9 @@ class MainActivity : ComponentActivity() {
                 val tabSwitchRequests = remember { MutableSharedFlow<Destination>(extraBufferCapacity = 1) }
                 // UP 空间页导航信号：AppShell 收到后 push UP_SPACE destination。
                 val openUpSpaceRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+                // 栈顶页面（AppShell 回报）：评论弹层点人进 UP 空间时藏起，回到这个页面再显示
+                var topEntryId by remember { mutableStateOf<String?>(null) }
+                var topRoute by remember { mutableStateOf<String?>(null) }
                 // 打开自己的 UP 空间：搜索页头像、设置页账号卡片共用
                 val openOwnSpace: () -> Unit = {
                     viewModel.openUpSpace(
@@ -480,6 +483,12 @@ class MainActivity : ComponentActivity() {
                     expansion = expansion,
                     tabSwitchRequests = tabSwitchRequests,
                     openUpSpaceRequests = openUpSpaceRequests,
+                    onBackStackEntryChanged = { id, route ->
+                        topEntryId = id
+                        topRoute = route
+                        viewModel.dynamics.comments.resumeOn(id)
+                        viewModel.playerComments.resumeOn(id)
+                    },
                     openFollowingListRequests = openFollowingListRequests,
                     openMessagesRequests = viewModel.messages.openMessagesRequests,
                     openReplyFeedRequests = viewModel.messages.openReplyFeedRequests,
@@ -1182,7 +1191,13 @@ class MainActivity : ComponentActivity() {
                         myMid = session.dedeUserId.toLongOrNull() ?: 0L,
                         onSaveImage = viewModel::saveImageToAlbum,
                         onOpenUser = { mid ->
-                            comments.dismiss()
+                            val entry = topEntryId
+                            // UP 空间里打开的评论区：再进 UP 空间会复用同一页面，回不到原处，照旧关掉
+                            if (entry == null || topRoute == com.biliseek.app.ui.Destination.UP_SPACE.route) {
+                                comments.dismiss()
+                            } else {
+                                comments.hideUntilBackOn(entry)
+                            }
                             viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
                             openUpSpaceRequests.tryEmit(Unit)
                         },

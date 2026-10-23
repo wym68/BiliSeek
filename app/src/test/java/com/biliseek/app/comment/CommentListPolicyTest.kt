@@ -205,4 +205,15 @@ class CommentListPolicyTest {
         assertEquals(false, shouldLoadFirstSubReplyPage(RemoteListState(items = listOf(r(1)))))
         assertEquals(false, shouldLoadFirstSubReplyPage(RemoteListState(items = listOf(r(1)), errorMessage = "楼中楼加载失败")))
     }
+
+    @Test
+    fun `回到藏起弹层的那个页面才恢复`() {
+        val hidden = CommentThreadState(oid = 1, type = 1, content = "没写完", hiddenUntilEntry = "dyn-1")
+        assertEquals(null, hidden.resumedOn("dyn-1").hiddenUntilEntry)
+        assertEquals("没写完", hidden.resumedOn("dyn-1").content)
+        assertEquals("dyn-1", hidden.resumedOn("up-2").hiddenUntilEntry)
+        assertEquals("dyn-1", hidden.resumedOn(null).hiddenUntilEntry)
+        val shown = CommentThreadState(oid = 1, type = 1)
+        assertEquals(shown, shown.resumedOn("dyn-1"))
+    }
 }

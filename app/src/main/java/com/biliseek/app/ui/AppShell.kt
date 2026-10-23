@@ -229,9 +229,15 @@ fun AppShell(
     followerFeedContent: @Composable (onBack: () -> Unit) -> Unit = { },
     /** 私信聊天页内容。onBack 由 AppShell 传入。 */
     privateChatContent: @Composable (talkerId: Long, peerName: String, peerFace: String, onBack: () -> Unit) -> Unit = { _, _, _, _ -> },
+    /** 栈顶页面变化时回调（entry id 与路由），评论弹层据此在返回原页面时恢复。 */
+    onBackStackEntryChanged: (entryId: String?, route: String?) -> Unit = { _, _ -> },
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentOnBackStackEntryChanged by rememberUpdatedState(onBackStackEntryChanged)
+    LaunchedEffect(backStackEntry?.id) {
+        currentOnBackStackEntryChanged(backStackEntry?.id, backStackEntry?.destination?.route)
+    }
     val currentRoute = backStackEntry?.destination
     // MiniPlayer 常驻显示：只要有播放内容就显示。
     // 全屏模式或正在播放页（PLAYER route）时隐藏。
