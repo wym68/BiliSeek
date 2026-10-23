@@ -240,8 +240,6 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
-                val commentDialog by viewModel.dynamics.comments.state.collectAsState()
-                val playerComment by viewModel.playerComments.state.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val danmakuItems by viewModel.danmakuItems.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
@@ -1177,54 +1175,12 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Ch4：动态评论 / 图片预览
-                commentDialog?.let { state ->
-                    com.biliseek.app.ui.components.DynamicCommentDialog(
-                        comments = state.comments,
-                        sort = state.sort,
-                        replyTargetUname = state.replyTarget?.uname,
-                        content = state.content,
-                        isPosting = state.isPosting,
-                        expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel.dynamics.comments::setSort,
-                        onLoadMore = viewModel.dynamics.comments::loadMore,
-                        onLike = { reply, root -> viewModel.dynamics.comments.toggleLike(reply, root) },
-                        onReply = { reply, root -> viewModel.dynamics.comments.startReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel.dynamics.comments::expandSubReplies,
-                        onLoadMoreSubReplies = viewModel.dynamics.comments::loadMoreSubReplies,
-                        onContentChange = viewModel.dynamics.comments::updateContent,
-                        onClearReplyTarget = viewModel.dynamics.comments::clearReplyTarget,
-                        onSubmit = viewModel.dynamics.comments::submit,
-                        onDismiss = viewModel.dynamics.comments::dismiss,
+                // Ch4：动态评论 / 播放页评论区
+                for (comments in listOf(viewModel.dynamics.comments, viewModel.playerComments)) {
+                    com.biliseek.app.ui.components.CommentThreadSheet(
+                        controller = comments,
                         onOpenUser = { mid ->
-                            viewModel.dynamics.comments.dismiss()
-                            viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
-                            openUpSpaceRequests.tryEmit(Unit)
-                        },
-                    )
-                }
-
-                // 播放页评论区
-                playerComment?.let { state ->
-                    com.biliseek.app.ui.components.DynamicCommentDialog(
-                        comments = state.comments,
-                        sort = state.sort,
-                        replyTargetUname = state.replyTarget?.uname,
-                        content = state.content,
-                        isPosting = state.isPosting,
-                        expandedSubReplies = state.expandedSubReplies,
-                        onSortChange = viewModel.playerComments::setSort,
-                        onLoadMore = viewModel.playerComments::loadMore,
-                        onLike = { reply, root -> viewModel.playerComments.toggleLike(reply, root) },
-                        onReply = { reply, root -> viewModel.playerComments.startReplyTo(reply, root) },
-                        onExpandSubReplies = viewModel.playerComments::expandSubReplies,
-                        onLoadMoreSubReplies = viewModel.playerComments::loadMoreSubReplies,
-                        onContentChange = viewModel.playerComments::updateContent,
-                        onClearReplyTarget = viewModel.playerComments::clearReplyTarget,
-                        onSubmit = viewModel.playerComments::submit,
-                        onDismiss = viewModel.playerComments::dismiss,
-                        onOpenUser = { mid ->
-                            viewModel.playerComments.dismiss()
+                            comments.dismiss()
                             viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
                             openUpSpaceRequests.tryEmit(Unit)
                         },

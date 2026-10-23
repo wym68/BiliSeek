@@ -169,8 +169,8 @@ class CommentThreadController(
         _state.value = cur.copy(replyTarget = null)
     }
 
-    /** 评论点赞 / 取消：500ms 防抖，乐观更新，失败回滚。`rootRpid` 非 null 表示这是楼中楼里的评论。 */
-    fun toggleLike(reply: ReplyItem, rootRpid: Long? = null) {
+    /** 评论点赞 / 取消（一级评论和楼中楼都用它）：500ms 防抖，乐观更新，失败回滚。 */
+    fun toggleLike(reply: ReplyItem) {
         if (!session.value.isLoggedIn) {
             emitMessage("请先登录后再点赞")
             return
@@ -181,34 +181,14 @@ class CommentThreadController(
         val last = likeRequestGate[reply.rpid] ?: 0L
         if (now - last < 500) return
         likeRequestGate[reply.rpid] = now
-        patchLike(reply.rpid, rootRpid, like)
+        _state.value = cur.patchReply(reply.rpid) { it.withLike(like) }
         scope.launch {
             repository.replyAction(cur.oid, cur.type, reply.rpid, like)
                 .onFailure { err ->
-                    patchLike(reply.rpid, rootRpid, !like)
+                    _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }
+                        ?.patchReply(reply.rpid) { it.withLike(!like) } ?: _state.value
                     emitMessage("点赞失败：${err.message ?: "未知错误"}")
                 }
-        }
-    }
-
-    /** 乐观更新某条评论（或楼中楼）的点赞态，就地替换列表里的对应条目。 */
-    private fun patchLike(rpid: Long, rootRpid: Long?, like: Boolean) {
-        val cur = _state.value ?: return
-        fun patchList(items: List<ReplyItem>) = items.map { item ->
-            if (item.rpid == rpid) {
-                item.copy(
-                    like = (item.like + if (like) 1 else -1).coerceAtLeast(0),
-                    action = if (like) 1 else 0,
-                )
-            } else item
-        }
-        if (rootRpid == null) {
-            _state.value = cur.copy(comments = cur.comments.copy(items = patchList(cur.comments.items)))
-        } else {
-            val subState = cur.expandedSubReplies[rootRpid] ?: return
-            _state.value = cur.copy(
-                expandedSubReplies = cur.expandedSubReplies + (rootRpid to subState.copy(items = patchList(subState.items))),
-            )
         }
     }
 
