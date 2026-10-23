@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +59,9 @@ fun CommentComposer(
     replyHint: String? = null,
     onClearReply: (() -> Unit)? = null,
     maxLines: Int = 4,
+    /** 为 true 时聚焦输入框并弹出键盘一次，处理后调 [onFocusRequestHandled]。 */
+    requestFocus: Boolean = false,
+    onFocusRequestHandled: () -> Unit = {},
 ) {
     var value by remember { mutableStateOf(TextFieldValue(content, TextRange(content.length))) }
     // 本组件发出去、还没回流的文本（按发出顺序）。ViewModel 状态经 collectAsState 回流有延迟，
@@ -79,6 +83,14 @@ fun CommentComposer(
     var showEmotes by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(requestFocus) {
+        if (requestFocus) {
+            showEmotes = false
+            focusRequester.requestFocus()
+            keyboard?.show()
+            onFocusRequestHandled()
+        }
+    }
     val host = LocalEmotePanelHost.current
     val known = remember(host.state.packages) {
         host.state.packages.flatMap { p -> p.emote.orEmpty().map { it.text } }.toSet()

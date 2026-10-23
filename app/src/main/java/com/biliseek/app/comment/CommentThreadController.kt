@@ -42,6 +42,8 @@ data class CommentThreadState(
     /** 展开后又收起的楼中楼（rpid）。已加载的仍留在 [expandedSubReplies]，再展开直接复用、不重新请求。 */
     val collapsedSubReplies: Set<Long> = emptySet(),
     val replyTarget: CommentReplyTarget? = null,
+    /** 一次性请求：输入框聚焦并弹出键盘（点「回复」时置 true，输入栏处理后回调 [CommentThreadController.onComposerFocused] 清掉）。 */
+    val focusComposer: Boolean = false,
     /** 非 null = 弹层暂时藏着（跳去了别的页面），回到 id 为它的页面时再显示；状态全留着。 */
     val hiddenUntilEntry: String? = null,
 )
@@ -104,7 +106,7 @@ class CommentThreadController(
     /** 跳去别的页面（点人进 UP 空间）：弹层先藏起来，状态全留着；回到 [entryId] 这个页面时由 [resumeOn] 再显示。 */
     fun hideUntilBackOn(entryId: String) {
         val cur = _state.value ?: return
-        _state.value = cur.copy(hiddenUntilEntry = entryId)
+        _state.value = cur.copy(hiddenUntilEntry = entryId, focusComposer = false)
     }
 
     /** 当前页面变了：是藏起弹层时的那个页面就再显示。 */
@@ -184,6 +186,7 @@ class CommentThreadController(
         val cur = _state.value ?: return
         val (root, parent) = resolveReplyRootParent(reply.rpid, rootRpid)
         _state.value = cur.copy(
+            focusComposer = true,
             replyTarget = CommentReplyTarget(
                 root = root,
                 parent = parent,
@@ -196,6 +199,12 @@ class CommentThreadController(
     fun clearReplyTarget() {
         val cur = _state.value ?: return
         _state.value = cur.copy(replyTarget = null)
+    }
+
+    /** 输入栏已聚焦：清掉一次性请求，免得恢复弹层时又弹键盘。 */
+    fun onComposerFocused() {
+        val cur = _state.value ?: return
+        if (cur.focusComposer) _state.value = cur.copy(focusComposer = false)
     }
 
     /** 评论点赞 / 取消（一级评论和楼中楼都用它）：500ms 防抖，乐观更新，失败回滚。 */

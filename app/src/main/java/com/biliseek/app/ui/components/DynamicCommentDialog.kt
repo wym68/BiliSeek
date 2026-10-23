@@ -92,6 +92,7 @@ fun DynamicCommentDialog(
     onCollapseSubReplies: (Long) -> Unit = {},
     onContentChange: (String) -> Unit,
     onClearReplyTarget: () -> Unit,
+    onComposerFocused: () -> Unit = {},
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
     /** 当前登录用户 mid；0 = 未登录（不显示删除）。 */
@@ -202,6 +203,8 @@ fun DynamicCommentDialog(
                 isPosting = state.isPosting,
                 replyHint = state.replyTarget?.let(::replyHintText),
                 onClearReply = onClearReplyTarget,
+                requestFocus = state.focusComposer,
+                onFocusRequestHandled = onComposerFocused,
             )
         }
         pendingDelete?.let { (reply, root) ->

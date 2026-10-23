@@ -1,6 +1,8 @@
 package com.biliseek.app
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
@@ -60,6 +62,7 @@ class DynamicCommentDialogUiTest {
         onDelete: (ReplyItem, Long?) -> Unit = { _, _ -> },
         onOpenUser: ((Long) -> Unit)? = null,
         onCollapseSubReplies: (Long) -> Unit = {},
+        onComposerFocused: () -> Unit = {},
     ) {
         compose.setContent {
             BiliSeekTheme {
@@ -74,6 +77,7 @@ class DynamicCommentDialogUiTest {
                     onCollapseSubReplies = onCollapseSubReplies,
                     onContentChange = {},
                     onClearReplyTarget = onClearReplyTarget,
+                    onComposerFocused = onComposerFocused,
                     onSubmit = {},
                     onDismiss = {},
                     myMid = myMid,
@@ -235,5 +239,17 @@ class DynamicCommentDialogUiTest {
     fun 回复提示显示被回复那条的原文() {
         setDialog(state(replyTarget = CommentReplyTarget(root = 1, parent = 1, uname = "用户A", content = "第一条评论")))
         compose.onNodeWithText("回复 @用户A：第一条评论").assertIsDisplayed()
+    }
+
+    @Test
+    fun 点回复后输入框自动聚焦() {
+        var handled = false
+        setDialog(
+            state(replyTarget = CommentReplyTarget(root = 1, parent = 1, uname = "用户A")).copy(focusComposer = true),
+            onComposerFocused = { handled = true },
+        )
+        compose.waitForIdle()
+        compose.onNode(hasSetTextAction()).assertIsFocused()
+        check(handled) { "聚焦后应回调清掉一次性请求" }
     }
 }
