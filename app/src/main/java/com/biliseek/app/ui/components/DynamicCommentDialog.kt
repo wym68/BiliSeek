@@ -55,6 +55,7 @@ import com.biliseek.app.ui.richtext.RichText
 import com.biliseek.app.ui.richtext.RichTextActions
 import com.biliseek.app.ui.richtext.RichTextSource
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.component.BsEmptyState
 import com.biliseek.designsystem.component.BsIconAction
@@ -450,6 +451,6 @@ private fun CommentPictures(reply: ReplyItem, onOpenImages: (List<String>, Int) 
     )
 }
 
-/** 评论图片地址（去掉空串）。 */
+/** 评论图片地址：与动态图片同样经 [normalizeCoverUrl]（`http://` 会被 Android 9+ 拦成占位框），去掉空串。 */
 internal fun com.biliseek.core.network.dto.ReplyContent.pictureUrls(): List<String> =
-    pictures.orEmpty().map { it.imgSrc }.filter { it.isNotBlank() }
+    pictures.orEmpty().map { normalizeCoverUrl(it.imgSrc) }.filter { it.isNotBlank() }
