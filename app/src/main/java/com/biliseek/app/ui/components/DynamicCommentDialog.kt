@@ -52,6 +52,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.biliseek.app.comment.CommentThreadState
 import com.biliseek.app.comment.canDeleteReply
+import com.biliseek.app.comment.replyHintText
 import com.biliseek.app.comment.visibleSubReplies
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.ui.formatRelativeTime
@@ -196,7 +197,7 @@ fun DynamicCommentDialog(
                 onSubmit = onSubmit,
                 placeholder = if (replyTargetUname != null) "回复…" else "写评论…",
                 isPosting = state.isPosting,
-                replyHint = replyTargetUname?.let { "回复 @$it" },
+                replyHint = state.replyTarget?.let(::replyHintText),
                 onClearReply = onClearReplyTarget,
             )
         }

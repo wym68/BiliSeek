@@ -12,11 +12,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
-/** 评论回复目标：null=发表新评论；非 null=回复某条一级评论。 */
+/** 评论回复目标：null=发表新评论；非 null=回复某条评论（[content] 是被回复那条的原文，用于输入框上方的提示）。 */
 data class CommentReplyTarget(
     val root: Long,
     val parent: Long,
     val uname: String,
+    val content: String = "",
 )
 
 /** 一个评论区对话框的状态：列表 + 分页 + 楼中楼 + 回复目标 + 输入框。 */
@@ -164,7 +165,12 @@ class CommentThreadController(
         val cur = _state.value ?: return
         val (root, parent) = resolveReplyRootParent(reply.rpid, rootRpid)
         _state.value = cur.copy(
-            replyTarget = CommentReplyTarget(root = root, parent = parent, uname = reply.member.uname),
+            replyTarget = CommentReplyTarget(
+                root = root,
+                parent = parent,
+                uname = reply.member.uname,
+                content = reply.content.message,
+            ),
         )
     }
 

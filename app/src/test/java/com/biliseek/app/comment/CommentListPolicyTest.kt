@@ -159,4 +159,30 @@ class CommentListPolicyTest {
         assertEquals(loaded, collapsed.expandedSubReplies[2L])
         assertEquals(null, state.visibleSubReplies(3))
     }
+
+    @Test
+    fun `回复提示带上原文，换行和多余空白压成一个空格`() {
+        assertEquals(
+            "回复 @小明：这期讲得 太好了",
+            replyHintText(CommentReplyTarget(root = 1, parent = 1, uname = "小明", content = " 这期讲得\n\n太好了  ")),
+        )
+    }
+
+    @Test
+    fun `原文为空只写昵称`() {
+        assertEquals("回复 @小明", replyHintText(CommentReplyTarget(root = 1, parent = 1, uname = "小明")))
+    }
+
+    @Test
+    fun `回复已收起的楼中楼会自动展开，能看到刚发的那条`() {
+        val state = CommentThreadState(
+            oid = 1, type = 1,
+            comments = RemoteListState(items = listOf(ReplyItem(rpid = 2, rcount = 1))),
+            expandedSubReplies = mapOf(2L to RemoteListState(items = listOf(r(3)))),
+            collapsedSubReplies = setOf(2L),
+        )
+        val out = state.insertPosted(r(500), CommentReplyTarget(root = 2, parent = 3, uname = "x"))
+        assertEquals(false, 2L in out.collapsedSubReplies)
+        assertEquals(listOf(3L, 500L), out.visibleSubReplies(2)!!.items.map { it.rpid })
+    }
 }

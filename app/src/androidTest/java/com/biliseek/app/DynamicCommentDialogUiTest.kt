@@ -230,4 +230,10 @@ class DynamicCommentDialogUiTest {
         compose.onNodeWithText("查看全部 3 条回复").assertIsDisplayed()
         check(compose.onAllNodesWithText("收起").fetchSemanticsNodes().isEmpty())
     }
+
+    @Test
+    fun 回复提示显示被回复那条的原文() {
+        setDialog(state(replyTarget = CommentReplyTarget(root = 1, parent = 1, uname = "用户A", content = "第一条评论")))
+        compose.onNodeWithText("回复 @用户A：第一条评论").assertIsDisplayed()
+    }
 }

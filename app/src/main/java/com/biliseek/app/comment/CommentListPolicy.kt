@@ -53,7 +53,7 @@ fun buildPostedReply(rpid: Long, oid: Long, message: String, session: BiliSessio
 
 /**
  * 发送成功后把自己的评论直接放进列表，不重拉（按热度排时新评论多半不在第一页，重拉了也看不到）。
- * 一级评论插到普通列表最前；回复插进所属一级评论：已展开放展开列表末尾，没展开放预览末尾；回复数 +1。
+ * 一级评论插到普通列表最前；回复插进所属一级评论：已展开放展开列表末尾，没展开放预览末尾；回复数 +1；该楼中楼若已收起会自动展开。
  */
 fun CommentThreadState.insertPosted(reply: ReplyItem, target: CommentReplyTarget?): CommentThreadState {
     if (target == null) return copy(comments = comments.copy(items = listOf(reply) + comments.items))
@@ -68,6 +68,7 @@ fun CommentThreadState.insertPosted(reply: ReplyItem, target: CommentReplyTarget
     if (expanded == null) return patched
     return patched.copy(
         expandedSubReplies = patched.expandedSubReplies + (rootRpid to expanded.copy(items = expanded.items + reply)),
+        collapsedSubReplies = patched.collapsedSubReplies - rootRpid,
     )
 }
 
@@ -108,3 +109,9 @@ fun resolveCommentHasMore(reset: Boolean, sizeBefore: Int, sizeAfter: Int, nextO
 /** 界面上该一级评论的楼中楼按「已展开」显示的状态；没展开或已收起返回 null（显示预览 +「查看全部」）。 */
 fun CommentThreadState.visibleSubReplies(rpid: Long): RemoteListState<ReplyItem>? =
     expandedSubReplies[rpid]?.takeUnless { rpid in collapsedSubReplies }
+
+/** 输入框上方的回复提示：「回复 @昵称：原文」，原文里的换行 / 多余空白压成一个空格；原文为空只写昵称。截断交给界面单行省略。 */
+fun replyHintText(target: CommentReplyTarget): String {
+    val quote = target.content.replace(Regex("\\s+"), " ").trim()
+    return if (quote.isEmpty()) "回复 @${target.uname}" else "回复 @${target.uname}：$quote"
+}
