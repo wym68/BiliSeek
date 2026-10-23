@@ -121,8 +121,18 @@ fun DynamicCommentDialog(
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                 )
-                SortChip("热度", selected = sort == 1) { onSortChange(1) }
-                SortChip("时间", selected = sort == 0) { onSortChange(0) }
+                SortChip("热度", selected = sort == 1) {
+                    if (sort != 1) {
+                        listState.requestScrollToItem(0)
+                        onSortChange(1)
+                    }
+                }
+                SortChip("时间", selected = sort == 0) {
+                    if (sort != 0) {
+                        listState.requestScrollToItem(0)
+                        onSortChange(0)
+                    }
+                }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "关闭")
                 }

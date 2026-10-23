@@ -280,7 +280,7 @@ class CommentThreadController(
         if (!state.hasMore || state.isLoading || state.isLoadingMore) return
         val nextPage = state.page + 1
         _state.value = cur.copy(
-            expandedSubReplies = cur.expandedSubReplies + (rootRpid to state.copy(isLoadingMore = true)),
+            expandedSubReplies = cur.expandedSubReplies + (rootRpid to state.copy(isLoadingMore = true, errorMessage = null)),
         )
         scope.launch {
             repository.subReplies(cur.oid, cur.type, rootRpid, page = nextPage)
@@ -294,6 +294,7 @@ class CommentThreadController(
                             page = nextPage,
                             hasMore = merged.size < page.count,
                             isLoadingMore = false,
+                            errorMessage = null,
                         )),
                     )
                 }
