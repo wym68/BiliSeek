@@ -59,4 +59,52 @@ class ReplyDtoTest {
         assertEquals(0, reply?.action)
         assertNull(reply?.replies)
     }
+
+    @Test
+    fun `解析游标分页、置顶、UP 主与评论图片`() {
+        val data = json.decodeFromString<ReplyData>(
+            """
+            {
+              "cursor": {
+                "is_end": false,
+                "all_count": 321,
+                "pagination_reply": { "next_offset": "{\"type\":1,\"data\":{\"pn\":2}}" }
+              },
+              "replies": [{
+                "rpid": 2, "mid": 20,
+                "content": {
+                  "message": "普通",
+                  "pictures": [{ "img_src": "https://i0.hdslb.com/a.jpg", "img_width": 100, "img_height": 80 }]
+                },
+                "member": { "uname": "B" }
+              }],
+              "top_replies": [{ "rpid": 1, "mid": 10, "content": { "message": "置顶" }, "member": { "uname": "UP" } }],
+              "top": { "upper": { "rpid": 1, "content": { "message": "置顶" } }, "admin": null, "vote": null },
+              "upper": { "mid": 10, "top": null }
+            }
+            """.trimIndent(),
+        )
+        assertEquals(false, data.cursor.isEnd)
+        assertEquals(321, data.cursor.allCount)
+        assertEquals("{\"type\":1,\"data\":{\"pn\":2}}", data.cursor.paginationReply?.nextOffset)
+        assertEquals(1L, data.topReplies?.single()?.rpid)
+        assertEquals(1L, data.top?.upper?.rpid)
+        assertEquals(10L, data.upper?.mid)
+        assertNull(data.upper?.top)
+        assertEquals("https://i0.hdslb.com/a.jpg", data.replies?.single()?.content?.pictures?.single()?.imgSrc)
+    }
+
+    @Test
+    fun `没有新字段的旧响应照常解析`() {
+        val data = json.decodeFromString<ReplyData>(
+            """{ "page": { "count": 3 }, "replies": [{ "rpid": 1, "content": { "message": "x", "pictures": null } }] }""",
+        )
+        assertEquals(3, data.page.count)
+        assertEquals(false, data.cursor.isEnd)
+        assertNull(data.cursor.paginationReply)
+        assertNull(data.topReplies)
+        assertNull(data.top)
+        assertNull(data.upper)
+        assertNull(data.replies?.single()?.content?.pictures)
+    }
 }

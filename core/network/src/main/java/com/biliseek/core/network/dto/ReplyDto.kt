@@ -27,13 +27,47 @@ data class AddReplyData(
 // ── 评论读（B5）───────────────────────────────────────────
 //
 // 字段集：列表展示所需（rpid / 文本 / 作者 / 点赞 / 时间）+ 富文本（表情 / @ / 蓝字关键词）。
-// 置顶、图片评论等仍未建模，以抓包为准逐步补齐。
+// 置顶（top / top_replies / upper.top）、图片（content.pictures）已建模。
 
 /** `x/v2/reply/(wbi/)main` —— 评论列表。 */
 @Serializable
 data class ReplyData(
+    /** 旧版 `x/v2/reply` 与楼中楼 `x/v2/reply/reply` 用页码分页。 */
     val page: ReplyPage = ReplyPage(),
+    /** `wbi/main` / `main` 用游标分页：`pagination_reply.next_offset` 是下一页的 offset。 */
+    val cursor: ReplyCursor = ReplyCursor(),
     val replies: List<ReplyItem>? = null,
+    /** 置顶评论（新版字段，只在第一页出现）。 */
+    @SerialName("top_replies") val topReplies: List<ReplyItem>? = null,
+    /** 置顶：UP 主 / 管理员 / 投票。 */
+    val top: ReplyTop? = null,
+    /** 作者：`mid` 用来标「UP」，`top` 是 UP 主置顶的那条（旧字段）。 */
+    val upper: ReplyUpper? = null,
+)
+
+@Serializable
+data class ReplyCursor(
+    @SerialName("is_end") val isEnd: Boolean = false,
+    @SerialName("all_count") val allCount: Int = 0,
+    @SerialName("pagination_reply") val paginationReply: ReplyPaginationReply? = null,
+)
+
+@Serializable
+data class ReplyPaginationReply(
+    @SerialName("next_offset") val nextOffset: String = "",
+)
+
+@Serializable
+data class ReplyTop(
+    val upper: ReplyItem? = null,
+    val admin: ReplyItem? = null,
+    val vote: ReplyItem? = null,
+)
+
+@Serializable
+data class ReplyUpper(
+    val mid: Long = 0,
+    val top: ReplyItem? = null,
 )
 
 @Serializable
@@ -73,6 +107,8 @@ data class ReplyContent(
     @SerialName("jump_url")
     @Serializable(with = JumpKeywordsSerializer::class)
     val jumpKeywords: List<String> = emptyList(),
+    /** 带图评论的图片。 */
+    val pictures: List<ReplyPicture>? = null,
 )
 
 /** `content.members[]`。mid 在评论接口里是字符串。 */
@@ -104,4 +140,10 @@ data class ReplyMember(
     val mid: String = "",
     val uname: String = "",
     val avatar: String = "",
+)
+
+/** `content.pictures[]`：只取地址，缩略图和预览都用它。 */
+@Serializable
+data class ReplyPicture(
+    @SerialName("img_src") val imgSrc: String = "",
 )
