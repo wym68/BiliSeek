@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ThumbUp
@@ -332,12 +333,13 @@ private fun CommentItemRow(
                 if (isUpReply(reply, upMid)) CommentTag("UP")
                 if (pinned) CommentTag("置顶")
             }
-            RichText(
-                source = reply.content.toRichSource(),
-                modifier = Modifier.padding(top = BsSpacing.xs),
-                style = MaterialTheme.typography.bodyMedium,
-                actions = actions,
-            )
+            SelectionContainer(Modifier.padding(top = BsSpacing.xs)) {
+                RichText(
+                    source = reply.content.toRichSource(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    actions = actions,
+                )
+            }
             CommentPictures(reply, onOpenImages)
             CommentActionRow(
                 reply = reply,
@@ -473,25 +475,27 @@ private fun SubReplyRow(
 ) {
     val unameColor = MaterialTheme.colorScheme.primary
     Column(Modifier.fillMaxWidth()) {
-        RichText(
-            source = sub.content.toRichSource(),
-            style = MaterialTheme.typography.bodySmall,
-            actions = actions,
-            prefix = {
-                val name: AnnotatedString.Builder.() -> Unit = {
-                    withStyle(SpanStyle(color = unameColor)) {
-                        append(sub.member.uname)
-                        if (isUpReply(sub, upMid)) append(" UP")
+        SelectionContainer {
+            RichText(
+                source = sub.content.toRichSource(),
+                style = MaterialTheme.typography.bodySmall,
+                actions = actions,
+                prefix = {
+                    val name: AnnotatedString.Builder.() -> Unit = {
+                        withStyle(SpanStyle(color = unameColor)) {
+                            append(sub.member.uname)
+                            if (isUpReply(sub, upMid)) append(" UP")
+                        }
                     }
-                }
-                if (onOpenUser != null && sub.mid > 0) {
-                    withLink(LinkAnnotation.Clickable(tag = "user:${sub.mid}") { onOpenUser(sub.mid) }) { name() }
-                } else {
-                    name()
-                }
-                append("：")
-            },
-        )
+                    if (onOpenUser != null && sub.mid > 0) {
+                        withLink(LinkAnnotation.Clickable(tag = "user:${sub.mid}") { onOpenUser(sub.mid) }) { name() }
+                    } else {
+                        name()
+                    }
+                    append("：")
+                },
+            )
+        }
         CommentPictures(sub, onOpenImages)
         CommentActionRow(reply = sub, onReply = onReply, onLike = onLike, onDelete = onDelete)
     }
