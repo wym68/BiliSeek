@@ -1,6 +1,8 @@
 package com.biliseek.app.comment
 
 import com.biliseek.core.network.dto.UploadedImage
+import com.biliseek.core.player.PlaybackMode
+import com.biliseek.core.player.PresentationMode
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -34,6 +36,22 @@ class CommentImagePolicyTest {
         assertEquals(2, sampleSizeFor(2561, 1920))
         assertEquals(2, sampleSizeFor(4000, 3000))
         assertEquals(8, sampleSizeFor(3000, 12000))
+    }
+
+    @Test
+    fun `截图缩到长边不超过上限，小的不放大`() {
+        assertEquals(1440 to 810, scaledToMaxEdge(1440, 810))
+        assertEquals(2560 to 1440, scaledToMaxEdge(3840, 2160))
+        assertEquals(1440 to 2560, scaledToMaxEdge(2160, 3840))
+    }
+
+    @Test
+    fun `只有看模式且画面在播放页或全屏时才能截图`() {
+        assertTrue(canCaptureVideoFrame(PlaybackMode.VIDEO, PresentationMode.INLINE))
+        assertTrue(canCaptureVideoFrame(PlaybackMode.VIDEO, PresentationMode.FULLSCREEN))
+        assertEquals(false, canCaptureVideoFrame(PlaybackMode.VIDEO, PresentationMode.PIP))
+        assertEquals(false, canCaptureVideoFrame(PlaybackMode.AUDIO, PresentationMode.NONE))
+        assertEquals(false, canCaptureVideoFrame(PlaybackMode.IDLE, PresentationMode.INLINE))
     }
 
     @Test

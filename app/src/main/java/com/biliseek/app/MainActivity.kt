@@ -1206,6 +1206,19 @@ class MainActivity : ComponentActivity() {
                             viewModel.openUpSpace(SearchUser(mid = mid, uname = ""))
                             openUpSpaceRequests.tryEmit(Unit)
                         },
+                        // 播放页评论区、正在看画面时才能截当前帧当配图
+                        onCaptureFrame = if (
+                            comments === viewModel.playerComments &&
+                            com.biliseek.app.comment.canCaptureVideoFrame(playback.mode, playback.presentation)
+                        ) {
+                            {
+                                coroutineScope.launch {
+                                    comments.addVideoFrame(com.biliseek.app.ui.captureVideoFrame(surfaceView))
+                                }
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
                 val currentPreviewImage = previewImage

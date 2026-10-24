@@ -100,6 +100,8 @@ fun DynamicCommentDialog(
     onComposerFocused: () -> Unit = {},
     onAddImages: (List<Uri>) -> Unit = {},
     onRemoveImage: (CommentImage) -> Unit = {},
+    /** 非 null = 显示截图按钮（播放页评论区、正在看画面时）。 */
+    onCaptureFrame: (() -> Unit)? = null,
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
     /** 当前登录用户 mid；0 = 未登录（不显示删除）。 */
@@ -229,6 +231,7 @@ fun DynamicCommentDialog(
                 onAddImages = onAddImages,
                 onRemoveImage = onRemoveImage,
                 statusText = state.postingStatus,
+                onCaptureFrame = onCaptureFrame,
             )
         }
         pendingDelete?.let { (reply, root) ->

@@ -28,6 +28,24 @@ class CommentImageStore(private val dir: File, private val resolver: ContentReso
         }
     }
 
+    /** 视频截图存成 JPEG（长边超过 [REENCODE_MAX_EDGE] 先缩）。存完回收 [frame]。存不下返回 null。 */
+    suspend fun importFrame(frame: Bitmap): CommentImage? = withContext(Dispatchers.IO) {
+        try {
+            dir.mkdirs()
+            val (w, h) = scaledToMaxEdge(frame.width, frame.height)
+            val scaled = if (w == frame.width && h == frame.height) frame else Bitmap.createScaledBitmap(frame, w, h, true)
+            val file = newFile("jpg")
+            file.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
+            if (scaled !== frame) scaled.recycle()
+            CommentImage(file.path, "image/jpeg")
+        } catch (e: Exception) {
+            Log.w(TAG, "截图保存失败", e)
+            null
+        } finally {
+            frame.recycle()
+        }
+    }
+
     /** 上传时读字节。 */
     suspend fun read(image: CommentImage): ByteArray = withContext(Dispatchers.IO) { File(image.path).readBytes() }
 

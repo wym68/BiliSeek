@@ -14,6 +14,8 @@ fun CommentThreadSheet(
     myMid: Long,
     onSaveImage: (String) -> Unit,
     onOpenUser: (Long) -> Unit,
+    /** 非 null = 输入栏显示截图按钮。 */
+    onCaptureFrame: (() -> Unit)? = null,
 ) {
     val state by controller.state.collectAsState()
     val current = state
@@ -36,6 +38,7 @@ fun CommentThreadSheet(
         onComposerFocused = controller::onComposerFocused,
         onAddImages = controller::addImages,
         onRemoveImage = controller::removeImage,
+        onCaptureFrame = onCaptureFrame,
         onSubmit = controller::submit,
         onDismiss = controller::dismiss,
         myMid = myMid,

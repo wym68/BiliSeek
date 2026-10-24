@@ -5,6 +5,7 @@ import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.dto.ReplyItem
 import com.biliseek.core.network.internal.resolveReplyRootParent
+import android.graphics.Bitmap
 import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,6 +149,32 @@ class CommentThreadController(
                 imported.size < picked.size -> emitMessage("有 ${picked.size - imported.size} 张图片读不了，没加上")
                 uris.size > slots -> emitMessage("最多 $MAX_COMMENT_IMAGES 张图片，多出的没加上")
             }
+        }
+    }
+
+    /** 播放页截了当前画面：存成 JPEG 加到输入栏。[frame] 为 null = 没截到（画面还没出来、受保护的视频等）。 */
+    fun addVideoFrame(frame: Bitmap?) {
+        val cur = _state.value
+        if (cur == null || frame == null) {
+            frame?.recycle()
+            if (cur != null) emitMessage("这个画面截不了")
+            return
+        }
+        if (remainingImageSlots(cur.images.size) == 0) {
+            frame.recycle()
+            return
+        }
+        scope.launch {
+            val image = imageStore.importFrame(frame) ?: run {
+                emitMessage("截图没存下来")
+                return@launch
+            }
+            val dialog = _state.value?.takeIf { it.sameThreadAs(cur) }
+            if (dialog == null || remainingImageSlots(dialog.images.size) == 0) {
+                imageStore.delete(listOf(image))
+                return@launch
+            }
+            _state.value = dialog.copy(images = dialog.images + image)
         }
     }
 

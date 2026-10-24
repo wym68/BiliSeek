@@ -1,6 +1,8 @@
 package com.biliseek.app.comment
 
 import com.biliseek.core.network.dto.UploadedImage
+import com.biliseek.core.player.PlaybackMode
+import com.biliseek.core.player.PresentationMode
 
 /** 一条评论最多带几张图（与 B 站网页端一致）。 */
 const val MAX_COMMENT_IMAGES = 9
@@ -43,6 +45,21 @@ fun sampleSizeFor(width: Int, height: Int, maxEdge: Int = REENCODE_MAX_EDGE): In
     while (maxOf(width, height) / sample > maxEdge) sample *= 2
     return sample
 }
+
+/** 缩到长边不超过 [maxEdge] 后的宽高（截图用；不放大）。 */
+fun scaledToMaxEdge(width: Int, height: Int, maxEdge: Int = REENCODE_MAX_EDGE): Pair<Int, Int> {
+    val longEdge = maxOf(width, height)
+    if (longEdge <= maxEdge) return width to height
+    return (width.toLong() * maxEdge / longEdge).toInt().coerceAtLeast(1) to
+        (height.toLong() * maxEdge / longEdge).toInt().coerceAtLeast(1)
+}
+
+/**
+ * 播放页评论区给不给「截图」按钮：看模式、画面在播放页里或全屏才有画面可截。
+ * 只听时没有画面；小窗时评论区不在前台。
+ */
+fun canCaptureVideoFrame(mode: PlaybackMode, presentation: PresentationMode): Boolean =
+    mode == PlaybackMode.VIDEO && (presentation == PresentationMode.INLINE || presentation == PresentationMode.FULLSCREEN)
 
 /** 还能再加几张。 */
 fun remainingImageSlots(current: Int): Int = (MAX_COMMENT_IMAGES - current).coerceAtLeast(0)

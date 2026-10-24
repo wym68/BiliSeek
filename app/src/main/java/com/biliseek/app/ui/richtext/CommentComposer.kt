@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Screenshot
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -33,7 +35,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +55,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.io.File
 import coil3.compose.AsyncImage
@@ -70,6 +75,7 @@ import com.biliseek.designsystem.theme.BsSpacing
  * - [replyHint] 非空时在输入框上方显示「回复 @xxx ×」。
  * - [onAddImages] 非空时多一个配图按钮（系统相册选择器，不要权限）；已选的图在输入框上方排成一行缩略图，
  *   发送中不能增删。[statusText] 是发送中的进度（如「正在上传图片 2/5…」）。
+ * - [onCaptureFrame] 非空时多一个截图按钮：截下当前视频画面当一张配图（只有播放页评论区、正在看画面时才传）。
  */
 @Composable
 fun CommentComposer(
@@ -89,6 +95,7 @@ fun CommentComposer(
     onAddImages: ((List<Uri>) -> Unit)? = null,
     onRemoveImage: (CommentImage) -> Unit = {},
     statusText: String? = null,
+    onCaptureFrame: (() -> Unit)? = null,
 ) {
     var value by remember { mutableStateOf(TextFieldValue(content, TextRange(content.length))) }
     // 本组件发出去、还没回流的文本（按发出顺序）。ViewModel 状态经 collectAsState 回流有延迟，
@@ -197,31 +204,46 @@ fun CommentComposer(
                 maxLines = maxLines,
                 textStyle = MaterialTheme.typography.bodyMedium,
             )
-            if (onAddImages != null) {
-                IconButton(
-                    onClick = {
-                        showEmotes = false
-                        pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    enabled = !isPosting && remainingImageSlots(images.size) > 0,
-                ) {
-                    Icon(Icons.Outlined.Image, contentDescription = "添加图片")
+            // 配图 / 截图 / 表情挨着放、按钮收窄到 36dp（默认 48dp + 4dp 间隔），给输入框多留地方
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                Row(Modifier.height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (onAddImages != null) {
+                        IconButton(
+                            onClick = {
+                                showEmotes = false
+                                pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                            enabled = !isPosting && remainingImageSlots(images.size) > 0,
+                            modifier = Modifier.size(ComposerActionSize),
+                        ) {
+                            Icon(Icons.Outlined.Image, contentDescription = "添加图片")
+                        }
+                    }
+                    if (onCaptureFrame != null) {
+                        IconButton(
+                            onClick = onCaptureFrame,
+                            enabled = !isPosting && remainingImageSlots(images.size) > 0,
+                            modifier = Modifier.size(ComposerActionSize),
+                        ) {
+                            Icon(Icons.Outlined.Screenshot, contentDescription = "截取当前画面")
+                        }
+                    }
+                    IconButton(modifier = Modifier.size(ComposerActionSize), onClick = {
+                        if (showEmotes) {
+                            showEmotes = false
+                            focusRequester.requestFocus()
+                            keyboard?.show()
+                        } else {
+                            keyboard?.hide()
+                            showEmotes = true
+                        }
+                    }) {
+                        Icon(
+                            if (showEmotes) Icons.Filled.Keyboard else Icons.Outlined.EmojiEmotions,
+                            contentDescription = if (showEmotes) "键盘" else "表情",
+                        )
+                    }
                 }
-            }
-            IconButton(onClick = {
-                if (showEmotes) {
-                    showEmotes = false
-                    focusRequester.requestFocus()
-                    keyboard?.show()
-                } else {
-                    keyboard?.hide()
-                    showEmotes = true
-                }
-            }) {
-                Icon(
-                    if (showEmotes) Icons.Filled.Keyboard else Icons.Outlined.EmojiEmotions,
-                    contentDescription = if (showEmotes) "键盘" else "表情",
-                )
             }
             FilledIconButton(
                 onClick = {
@@ -255,6 +277,9 @@ fun CommentComposer(
         }
     }
 }
+
+/** 输入框右侧配图 / 截图 / 表情按钮的尺寸（比默认 48dp 窄，给输入框多留地方）。 */
+private val ComposerActionSize = 36.dp
 
 /** 输入栏里一张待发图的缩略图，右上角 × 移除。 */
 @Composable
