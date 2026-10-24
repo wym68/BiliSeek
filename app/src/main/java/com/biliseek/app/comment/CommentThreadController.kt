@@ -5,11 +5,13 @@ import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.dto.ReplyItem
 import com.biliseek.core.network.internal.resolveReplyRootParent
+import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /** 评论回复目标：null=发表新评论；非 null=回复某条评论（[content] 是被回复那条的原文，用于输入框上方的提示）。 */
@@ -27,7 +29,11 @@ data class CommentThreadState(
     /** 宿主自定的来源标识（动态 = dyn_id_str，播放页 = bvid），回调里用来定位要同步的外部状态。 */
     val key: String = "",
     val content: String = "",
+    /** 输入栏里待发的图（已存进 App 缓存）。 */
+    val images: List<CommentImage> = emptyList(),
     val isPosting: Boolean = false,
+    /** 发送中的进度提示（如「正在上传图片 2/5…」），null = 不显示。 */
+    val postingStatus: String? = null,
     /** 1=热度 0=时间，对应 [BiliRepository.comments] 的 sort 参数（仓库里换成 mode）。 */
     val sort: Int = 1,
     val comments: RemoteListState<ReplyItem> = RemoteListState.empty(),
@@ -62,6 +68,7 @@ class CommentThreadController(
     private val repository: BiliRepository,
     private val session: StateFlow<BiliSession>,
     private val emitMessage: (String) -> Unit,
+    private val imageStore: CommentImageStore,
     private val onPostStarted: (CommentThreadState) -> Unit = {},
     private val onPostFailed: (CommentThreadState) -> Unit = {},
     private val onDeleted: (CommentThreadState) -> Unit = {},
@@ -88,6 +95,7 @@ class CommentThreadController(
             type = type,
             key = key,
             content = draft?.content.orEmpty(),
+            images = draft?.images.orEmpty(),
             replyTarget = draft?.replyTarget,
         )
         load(reset = true)
@@ -120,6 +128,34 @@ class CommentThreadController(
     fun updateContent(text: String) {
         val cur = _state.value ?: return
         _state.value = cur.copy(content = text)
+    }
+
+    /** 从相册选了图：复制进缓存后加到输入栏，超出 [MAX_COMMENT_IMAGES] 的不要。 */
+    fun addImages(uris: List<Uri>) {
+        val cur = _state.value ?: return
+        val slots = remainingImageSlots(cur.images.size)
+        val picked = uris.take(slots)
+        if (picked.isEmpty()) return
+        scope.launch {
+            val imported = imageStore.import(picked)
+            val dialog = _state.value?.takeIf { it.sameThreadAs(cur) }
+            if (dialog == null) {
+                imageStore.delete(imported)
+                return@launch
+            }
+            _state.value = dialog.copy(images = dialog.images + imported)
+            when {
+                imported.size < picked.size -> emitMessage("有 ${picked.size - imported.size} 张图片读不了，没加上")
+                uris.size > slots -> emitMessage("最多 $MAX_COMMENT_IMAGES 张图片，多出的没加上")
+            }
+        }
+    }
+
+    fun removeImage(image: CommentImage) {
+        val cur = _state.value ?: return
+        if (cur.isPosting) return
+        _state.value = cur.copy(images = cur.images - image)
+        imageStore.delete(listOf(image))
     }
 
     /** 切换热度/时间排序：清空列表重新拉第 1 页。 */
@@ -341,29 +377,49 @@ class CommentThreadController(
             emitMessage("请先登录后再评论")
             return
         }
+        // 只有图没有字 B 站会拒（12066「不可发送空白内容」），所以仍要求有字
         if (cur.isPosting || cur.content.isBlank()) return
         _state.value = cur.copy(isPosting = true)
         val target = cur.replyTarget
         onPostStarted(cur)
         scope.launch {
+            val pictures = uploadPendingImages(
+                cur.images,
+                upload = { img -> repository.uploadCommentImage(imageStore.read(img), img.mimeType, File(img.path).name) },
+                onProgress = { images, uploading ->
+                    // 传好的结果写回状态：发送失败再点发送时跳过已传的
+                    _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }?.copy(
+                        images = images,
+                        postingStatus = if (uploading < images.size) uploadStatusText(uploading, images.size) else null,
+                    ) ?: _state.value
+                },
+            ).getOrElse { err ->
+                _state.value = _state.value?.takeIf { it.sameThreadAs(cur) }
+                    ?.copy(isPosting = false, postingStatus = null) ?: _state.value
+                onPostFailed(cur)
+                emitMessage(commentErrorText("图片上传", err))
+                return@launch
+            }
             repository.addDynamicReply(
                 oid = cur.oid,
                 type = cur.type,
                 message = cur.content,
                 root = target?.root ?: 0L,
                 parent = target?.parent ?: 0L,
+                pictures = pictures,
             )
                 .onSuccess { rpid ->
                     drafts.remove(cur.oid to cur.type)
+                    imageStore.delete(cur.images)
                     emitMessage("评论已发送")
                     val dialog = _state.value?.takeIf { it.sameThreadAs(cur) } ?: return@onSuccess
-                    val cleared = dialog.copy(content = "", isPosting = false, replyTarget = null)
+                    val cleared = dialog.copy(content = "", images = emptyList(), isPosting = false, replyTarget = null)
                     if (rpid <= 0L) {
                         _state.value = cleared
                         load(reset = true)
                         return@onSuccess
                     }
-                    val posted = buildPostedReply(rpid, cur.oid, cur.content, session.value, System.currentTimeMillis() / 1000)
+                    val posted = buildPostedReply(rpid, cur.oid, cur.content, session.value, System.currentTimeMillis() / 1000, pictures)
                     _state.value = cleared.insertPosted(posted, target)
                 }
                 .onFailure { err ->

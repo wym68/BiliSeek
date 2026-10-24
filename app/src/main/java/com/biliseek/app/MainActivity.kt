@@ -1033,6 +1033,11 @@ class MainActivity : ComponentActivity() {
                             onSubmitReply = { aid, root, parent, content, onResult ->
                                 viewModel.messages.submitCommentReply(aid, root, parent, content, onResult)
                             },
+                            replyImages = viewModel.messages.replyImages.collectAsState().value,
+                            replyStatus = viewModel.messages.replyStatus.collectAsState().value,
+                            onAddReplyImages = viewModel.messages::addReplyImages,
+                            onRemoveReplyImage = viewModel.messages::removeReplyImage,
+                            onClearReplyImages = viewModel.messages::clearReplyImages,
                         )
                     },
                     likeFeedContent = { onBack ->

@@ -30,6 +30,17 @@ class BiliNetwork private constructor(context: Context) {
 
     private val client: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(HeaderInterceptor())
+        // 评论配图上传（multipart）：几 MB 的图在手机网络上，下面默认的读 20 秒 / 写 10 秒不够（10-24 真机超时）。
+        // 只放宽等待时间，不重试
+        .addInterceptor { chain ->
+            if (chain.request().body is okhttp3.MultipartBody) {
+                chain.withWriteTimeout(UPLOAD_TIMEOUT_S, TimeUnit.SECONDS)
+                    .withReadTimeout(UPLOAD_TIMEOUT_S, TimeUnit.SECONDS)
+                    .proceed(chain.request())
+            } else {
+                chain.proceed(chain.request())
+            }
+        }
         .apply {
             if (BuildConfig.DEBUG) {
                 // 应用拦截器：先读取原始 gzip 字节并打日志，再将 body 替换为解压后的明文，
@@ -55,11 +66,15 @@ class BiliNetwork private constructor(context: Context) {
                         response
                     }
                 }
-                addInterceptor(
-                    okhttp3.logging.HttpLoggingInterceptor { line ->
-                        android.util.Log.d("BiliSeekHttp", line)
-                    }.apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY },
-                )
+                val logLine = okhttp3.logging.HttpLoggingInterceptor.Logger { line -> android.util.Log.d("BiliSeekHttp", line) }
+                val bodyLogger = okhttp3.logging.HttpLoggingInterceptor(logLine)
+                    .apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BODY }
+                // multipart（评论配图上传）只记请求行和结果：整张图的字节打进 logcat 会把缓冲区冲掉、上传也被拖慢
+                val basicLogger = okhttp3.logging.HttpLoggingInterceptor(logLine)
+                    .apply { level = okhttp3.logging.HttpLoggingInterceptor.Level.BASIC }
+                addInterceptor { chain ->
+                    if (chain.request().body is okhttp3.MultipartBody) basicLogger.intercept(chain) else bodyLogger.intercept(chain)
+                }
             }
         }
         .cookieJar(BiliCookieJar({ authGate.current }, { sessionStore.current }))
@@ -101,6 +116,8 @@ class BiliNetwork private constructor(context: Context) {
     )
 
     companion object {
+        private const val UPLOAD_TIMEOUT_S = 60
+
         @Volatile
         private var instance: BiliNetwork? = null
 

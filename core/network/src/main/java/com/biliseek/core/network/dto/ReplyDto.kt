@@ -24,6 +24,16 @@ data class AddReplyData(
     @SerialName("rpid_str") val rpidStr: String = "",
 )
 
+/** `x/dynamic/feed/draw/upload_bfs` 的返回：上传到 B 站图床的一张图。发带图评论时原样带进 `pictures`。 */
+@Serializable
+data class UploadedImage(
+    @SerialName("image_url") val url: String = "",
+    @SerialName("image_width") val width: Int = 0,
+    @SerialName("image_height") val height: Int = 0,
+    /** 单位 KB。 */
+    @SerialName("img_size") val sizeKb: Double = 0.0,
+)
+
 // ── 评论读（B5）───────────────────────────────────────────
 //
 // 字段集：列表展示所需（rpid / 文本 / 作者 / 点赞 / 时间）+ 富文本（表情 / @ / 蓝字关键词）。

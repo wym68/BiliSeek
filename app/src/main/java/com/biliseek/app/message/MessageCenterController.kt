@@ -1,6 +1,14 @@
 package com.biliseek.app.message
 
+import android.net.Uri
 import android.util.Log
+import com.biliseek.app.comment.CommentImage
+import com.biliseek.app.comment.CommentImageStore
+import com.biliseek.app.comment.MAX_COMMENT_IMAGES
+import com.biliseek.app.comment.commentErrorText
+import com.biliseek.app.comment.remainingImageSlots
+import com.biliseek.app.comment.uploadPendingImages
+import com.biliseek.app.comment.uploadStatusText
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.TrackListId
 import com.biliseek.core.network.BiliRepository
@@ -23,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * 消息中心（私信 + 回复与@ + 收到喜欢 + 新增粉丝 + 未读角标）的状态与动作。
@@ -38,6 +47,7 @@ class MessageCenterController(
     private val emitMessage: (String) -> Unit,
     private val play: (PlaybackRequest) -> Unit,
     private val openUpSpace: (SearchUser) -> Unit,
+    private val imageStore: CommentImageStore,
 ) {
 
     /** 消息中心主体：私信会话列表。 */
@@ -416,7 +426,40 @@ class MessageCenterController(
         // UP 空间跳转由调用方持有 openUpSpaceRequests 信号触发（与现有约定一致）。
     }
 
-    /** 在站内向一条评论发回复。 */
+    private val _replyImages = MutableStateFlow<List<CommentImage>>(emptyList())
+    /** 「回复与@」详情里回复框已选的图。 */
+    val replyImages: StateFlow<List<CommentImage>> = _replyImages.asStateFlow()
+
+    private val _replyStatus = MutableStateFlow<String?>(null)
+    /** 回复发送中的进度提示（上传图片时），null = 不显示。 */
+    val replyStatus: StateFlow<String?> = _replyStatus.asStateFlow()
+
+    fun addReplyImages(uris: List<Uri>) {
+        val slots = remainingImageSlots(_replyImages.value.size)
+        val picked = uris.take(slots)
+        if (picked.isEmpty()) return
+        scope.launch {
+            val imported = imageStore.import(picked)
+            _replyImages.value = _replyImages.value + imported
+            when {
+                imported.size < picked.size -> emitMessage("有 ${picked.size - imported.size} 张图片读不了，没加上")
+                uris.size > slots -> emitMessage("最多 $MAX_COMMENT_IMAGES 张图片，多出的没加上")
+            }
+        }
+    }
+
+    fun removeReplyImage(image: CommentImage) {
+        _replyImages.value = _replyImages.value - image
+        imageStore.delete(listOf(image))
+    }
+
+    /** 换了要回复的那条消息：上一条没发出去的图不要了。 */
+    fun clearReplyImages() {
+        imageStore.delete(_replyImages.value)
+        _replyImages.value = emptyList()
+    }
+
+    /** 在站内向一条评论发回复（带上 [replyImages] 里的图，先逐张上传）。 */
     fun submitCommentReply(
         aid: Long,
         root: Long,
@@ -425,8 +468,22 @@ class MessageCenterController(
         onResult: (Boolean, String?) -> Unit = { _, _ -> },
     ) {
         scope.launch {
-            repository.postCommentReply(aid, root, parent, content)
+            val pictures = uploadPendingImages(
+                _replyImages.value,
+                upload = { img -> repository.uploadCommentImage(imageStore.read(img), img.mimeType, File(img.path).name) },
+                onProgress = { images, uploading ->
+                    _replyImages.value = images
+                    _replyStatus.value = if (uploading < images.size) uploadStatusText(uploading, images.size) else null
+                },
+            ).getOrElse { e ->
+                _replyStatus.value = null
+                emitMessage(commentErrorText("图片上传", e))
+                onResult(false, e.message)
+                return@launch
+            }
+            repository.postCommentReply(aid, root, parent, content, pictures)
                 .onSuccess {
+                    clearReplyImages()
                     emitMessage("已回复")
                     onResult(true, null)
                 }

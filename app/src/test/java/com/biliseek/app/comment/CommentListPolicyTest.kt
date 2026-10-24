@@ -3,6 +3,7 @@ package com.biliseek.app.comment
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.dto.UploadedImage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -67,6 +68,14 @@ class CommentListPolicyTest {
         assertEquals("//f.jpg", r.member.avatar)
         assertEquals("你好", r.content.message)
         assertEquals(1700L, r.ctime)
+        assertEquals(null, r.content.pictures)
+    }
+
+    @Test
+    fun `buildPostedReply 带上刚传的图`() {
+        val pics = listOf(UploadedImage(url = "https://i0.hdslb.com/bfs/a.jpg"), UploadedImage(url = "https://i0.hdslb.com/bfs/b.jpg"))
+        val r = buildPostedReply(rpid = 500, oid = 1, message = "", session = me, nowSec = 1700, pictures = pics)
+        assertEquals(listOf("https://i0.hdslb.com/bfs/a.jpg", "https://i0.hdslb.com/bfs/b.jpg"), r.content.pictures?.map { it.imgSrc })
     }
 
     @Test

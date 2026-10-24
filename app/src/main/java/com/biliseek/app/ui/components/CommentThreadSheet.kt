@@ -34,6 +34,8 @@ fun CommentThreadSheet(
         onContentChange = controller::updateContent,
         onClearReplyTarget = controller::clearReplyTarget,
         onComposerFocused = controller::onComposerFocused,
+        onAddImages = controller::addImages,
+        onRemoveImage = controller::removeImage,
         onSubmit = controller::submit,
         onDismiss = controller::dismiss,
         myMid = myMid,

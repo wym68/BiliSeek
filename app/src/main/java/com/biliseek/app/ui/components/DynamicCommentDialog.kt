@@ -1,5 +1,6 @@
 package com.biliseek.app.ui.components
 
+import android.net.Uri
 import com.biliseek.app.ui.shouldAutoLoadMore
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
+import com.biliseek.app.comment.CommentImage
 import com.biliseek.app.comment.CommentThreadState
 import com.biliseek.app.comment.canDeleteReply
 import com.biliseek.app.comment.replyHintText
@@ -96,6 +98,8 @@ fun DynamicCommentDialog(
     onContentChange: (String) -> Unit,
     onClearReplyTarget: () -> Unit,
     onComposerFocused: () -> Unit = {},
+    onAddImages: (List<Uri>) -> Unit = {},
+    onRemoveImage: (CommentImage) -> Unit = {},
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
     /** 当前登录用户 mid；0 = 未登录（不显示删除）。 */
@@ -221,6 +225,10 @@ fun DynamicCommentDialog(
                 onClearReply = onClearReplyTarget,
                 requestFocus = state.focusComposer,
                 onFocusRequestHandled = onComposerFocused,
+                images = state.images,
+                onAddImages = onAddImages,
+                onRemoveImage = onRemoveImage,
+                statusText = state.postingStatus,
             )
         }
         pendingDelete?.let { (reply, root) ->

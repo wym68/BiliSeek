@@ -1,6 +1,18 @@
 package com.biliseek.app.ui.richtext
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.outlined.EmojiEmotions
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -28,6 +41,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -36,6 +52,11 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.io.File
+import coil3.compose.AsyncImage
+import com.biliseek.app.comment.CommentImage
+import com.biliseek.app.comment.MAX_COMMENT_IMAGES
+import com.biliseek.app.comment.remainingImageSlots
 import com.biliseek.designsystem.theme.BsShapes
 import com.biliseek.designsystem.theme.BsSize
 import com.biliseek.designsystem.theme.BsSpacing
@@ -47,6 +68,8 @@ import com.biliseek.designsystem.theme.BsSpacing
  *   以便在光标处插入表情；外部清空（发送成功）时同步重置。
  * - 表情按钮与键盘互斥：打开面板收起键盘，点输入框收起面板。
  * - [replyHint] 非空时在输入框上方显示「回复 @xxx ×」。
+ * - [onAddImages] 非空时多一个配图按钮（系统相册选择器，不要权限）；已选的图在输入框上方排成一行缩略图，
+ *   发送中不能增删。[statusText] 是发送中的进度（如「正在上传图片 2/5…」）。
  */
 @Composable
 fun CommentComposer(
@@ -62,6 +85,10 @@ fun CommentComposer(
     /** 为 true 时聚焦输入框并弹出键盘一次，处理后调 [onFocusRequestHandled]。 */
     requestFocus: Boolean = false,
     onFocusRequestHandled: () -> Unit = {},
+    images: List<CommentImage> = emptyList(),
+    onAddImages: ((List<Uri>) -> Unit)? = null,
+    onRemoveImage: (CommentImage) -> Unit = {},
+    statusText: String? = null,
 ) {
     var value by remember { mutableStateOf(TextFieldValue(content, TextRange(content.length))) }
     // 本组件发出去、还没回流的文本（按发出顺序）。ViewModel 状态经 collectAsState 回流有延迟，
@@ -107,7 +134,30 @@ fun CommentComposer(
         }
     }
 
+    val pickImages = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_COMMENT_IMAGES),
+    ) { uris -> if (uris.isNotEmpty()) onAddImages?.invoke(uris) }
+
     Column(modifier.fillMaxWidth()) {
+        if (statusText != null) {
+            Text(
+                statusText,
+                Modifier.padding(horizontal = BsSpacing.lg),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (images.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = BsSpacing.md),
+                horizontalArrangement = Arrangement.spacedBy(BsSpacing.sm),
+                modifier = Modifier.padding(top = BsSpacing.sm),
+            ) {
+                items(images, key = { it.path }) { image ->
+                    ComposerImageThumb(image, removable = !isPosting, onRemove = { onRemoveImage(image) })
+                }
+            }
+        }
         if (replyHint != null) {
             Row(
                 Modifier.fillMaxWidth().padding(start = BsSpacing.lg, end = BsSpacing.xs),
@@ -136,7 +186,8 @@ fun CommentComposer(
             OutlinedTextField(
                 value = value,
                 onValueChange = ::update,
-                placeholder = { Text(placeholder) },
+                // B 站不收只有图没有字的评论（12066），配了图就提醒一句
+                placeholder = { Text(if (images.isNotEmpty()) "配图也要写点文字…" else placeholder) },
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
@@ -146,6 +197,17 @@ fun CommentComposer(
                 maxLines = maxLines,
                 textStyle = MaterialTheme.typography.bodyMedium,
             )
+            if (onAddImages != null) {
+                IconButton(
+                    onClick = {
+                        showEmotes = false
+                        pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    enabled = !isPosting && remainingImageSlots(images.size) > 0,
+                ) {
+                    Icon(Icons.Outlined.Image, contentDescription = "添加图片")
+                }
+            }
             IconButton(onClick = {
                 if (showEmotes) {
                     showEmotes = false
@@ -190,6 +252,33 @@ fun CommentComposer(
                     update(TextFieldValue(text, TextRange(cursor)))
                 },
             )
+        }
+    }
+}
+
+/** 输入栏里一张待发图的缩略图，右上角 × 移除。 */
+@Composable
+private fun ComposerImageThumb(image: CommentImage, removable: Boolean, onRemove: () -> Unit) {
+    Box(Modifier.size(64.dp)) {
+        AsyncImage(
+            model = File(image.path),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().clip(BsShapes.sm),
+        )
+        if (removable) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(BsSpacing.xs)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Close, contentDescription = "移除图片", tint = Color.White, modifier = Modifier.size(14.dp))
+            }
         }
     }
 }

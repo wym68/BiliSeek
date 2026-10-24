@@ -5,6 +5,8 @@ import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.dto.ReplyContent
 import com.biliseek.core.network.dto.ReplyItem
 import com.biliseek.core.network.dto.ReplyMember
+import com.biliseek.core.network.dto.ReplyPicture
+import com.biliseek.core.network.dto.UploadedImage
 
 /**
  * 翻页合并：追加新一页，丢掉已经有的、以及置顶里出现过的 rpid
@@ -40,14 +42,24 @@ fun CommentThreadState.patchReply(rpid: Long, transform: (ReplyItem) -> ReplyIte
 fun ReplyItem.withLike(like: Boolean): ReplyItem =
     copy(like = (this.like + if (like) 1 else -1).coerceAtLeast(0), action = if (like) 1 else 0)
 
-/** 刚发出去的评论在本地的样子：自己的头像昵称 + 输入的原文（表情按 `[xx]` 文本由富文本渲染）。 */
-fun buildPostedReply(rpid: Long, oid: Long, message: String, session: BiliSession, nowSec: Long): ReplyItem =
+/** 刚发出去的评论在本地的样子：自己的头像昵称 + 输入的原文（表情按 `[xx]` 文本由富文本渲染）+ 配图。 */
+fun buildPostedReply(
+    rpid: Long,
+    oid: Long,
+    message: String,
+    session: BiliSession,
+    nowSec: Long,
+    pictures: List<UploadedImage> = emptyList(),
+): ReplyItem =
     ReplyItem(
         rpid = rpid,
         oid = oid,
         mid = session.dedeUserId.toLongOrNull() ?: 0L,
         ctime = nowSec,
-        content = ReplyContent(message = message),
+        content = ReplyContent(
+            message = message,
+            pictures = pictures.map { ReplyPicture(imgSrc = it.url) }.ifEmpty { null },
+        ),
         member = ReplyMember(mid = session.dedeUserId, uname = session.uname, avatar = session.face),
     )
 

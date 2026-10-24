@@ -5,6 +5,7 @@ import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.NavData
 import com.biliseek.core.network.dto.NewlistRankData
 import com.biliseek.core.network.dto.ReplyData
+import com.biliseek.core.network.dto.UploadedImage
 import com.biliseek.core.network.dto.PageItem
 import com.biliseek.core.network.dto.VideoViewInfo
 import com.biliseek.core.network.dto.PlayUrlData
@@ -45,6 +46,7 @@ import com.biliseek.core.network.dto.RankingData
 import com.biliseek.core.network.dto.WeeklySeriesListData
 import com.biliseek.core.network.dto.WeeklySeriesOneData
 import kotlinx.serialization.json.JsonElement
+import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -55,7 +57,10 @@ import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.Headers
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
+import retrofit2.http.PartMap
 import retrofit2.http.Query
 import retrofit2.http.QueryMap
 import retrofit2.http.Url
@@ -493,7 +498,15 @@ interface BiliApi {
     // ── 评论 ──────────────────────────────────────────────────
     @FormUrlEncoded
     @POST("x/v2/reply/add")
-    suspend fun addReply(@FieldMap fields: Map<String, String>): BiliResponse<AddReplyData>    // oid(aid), type(1), message, root?, parent?, plat(1), csrf → data.rpid
+    suspend fun addReply(@FieldMap fields: Map<String, String>): BiliResponse<AddReplyData>    // oid(aid), type(1), message, root?, parent?, plat(1), pictures?, csrf → data.rpid
+
+    /** 评论配图上传到 B 站图床。图片放 `file_up`，其余文本字段（biz、category、csrf）走 [fields]。 */
+    @Multipart
+    @POST("x/dynamic/feed/draw/upload_bfs")
+    suspend fun uploadBfs(
+        @Part file: MultipartBody.Part,
+        @PartMap fields: Map<String, @JvmSuppressWildcards RequestBody>,
+    ): BiliResponse<UploadedImage>
 
     @FormUrlEncoded
     @POST("x/v2/reply/action")

@@ -26,9 +26,13 @@ import com.biliseek.core.network.dto.CollectionSeasonInfo
 import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.dto.UploadedImage
 import com.biliseek.core.network.dto.DanmakuItem
 import com.biliseek.core.network.internal.DanmakuProto
 import com.biliseek.core.network.internal.IdempotentCodes
+import com.biliseek.core.network.internal.buildReplyPictures
+import com.biliseek.core.network.internal.imageFilePart
+import com.biliseek.core.network.internal.textParts
 import com.biliseek.core.network.internal.commentListParams
 import com.biliseek.core.network.internal.runCommentRead
 import com.biliseek.core.network.internal.toCommentPage
@@ -1348,6 +1352,8 @@ class BiliRepository internal constructor(
         message: String,
         root: Long = 0,
         parent: Long = 0,
+        /** 配图（先经 [uploadCommentImage] 上传）。空 = 纯文字评论。 */
+        pictures: List<UploadedImage> = emptyList(),
     ): Result<Long> =
         writeRequest(
             payload = buildMap {
@@ -1357,9 +1363,26 @@ class BiliRepository internal constructor(
                 put("plat", "1")
                 if (root > 0) put("root", root.toString())
                 if (parent > 0) put("parent", parent.toString())
+                buildReplyPictures(pictures)?.let { put("pictures", it) }
             },
             referer = "https://t.bilibili.com/",
         ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
+
+    /**
+     * 评论配图上传到 B 站图床（`x/dynamic/feed/draw/upload_bfs`），返回的结果交给 [addDynamicReply] /
+     * [postCommentReply] 的 `pictures`。multipart 请求：csrf 仍由 writeRequest 统一注入，block 里把
+     * 注入后的文本字段转成 part；风控冷却、WRITE 节流、-111 / -101 续期重试一次都与其他写操作相同。
+     */
+    suspend fun uploadCommentImage(bytes: ByteArray, mimeType: String, fileName: String): Result<UploadedImage> =
+        writeRequest(
+            payload = mapOf("biz" to "new_dyn", "category" to "daily"),
+            referer = "https://t.bilibili.com/",
+        ) { f, _ ->
+            api.uploadBfs(imageFilePart(bytes, mimeType, fileName), textParts(f))
+        }.mapCatching { image ->
+            image?.takeIf { it.url.isNotBlank() }
+                ?: throw WriteException(WriteError.Unknown(0, "上传结果为空"), "图片上传结果为空")
+        }
 
     /**
      * 拉取 `fid` 的关注状态。仅登录后有效；未登录会 -101，由调用方按现有错误分支处理。
@@ -1600,6 +1623,8 @@ class BiliRepository internal constructor(
         root: Long,
         parent: Long,
         content: String,
+        /** 配图（先经 [uploadCommentImage] 上传）。空 = 纯文字回复。 */
+        pictures: List<UploadedImage> = emptyList(),
     ): Result<Long> = runCatching {
         requireLoggedInMid()
         writeRequest(
@@ -1610,6 +1635,7 @@ class BiliRepository internal constructor(
                 put("parent", parent.toString())
                 put("message", content)
                 put("plat", "1")
+                buildReplyPictures(pictures)?.let { put("pictures", it) }
             },
         ) { f, _ -> api.addReply(f) }
             .getOrThrow()

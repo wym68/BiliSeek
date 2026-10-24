@@ -2,6 +2,7 @@ package com.biliseek.app.dynamic
 
 import com.biliseek.app.DynamicInitState
 import com.biliseek.app.DynamicUiState
+import com.biliseek.app.comment.CommentImageStore
 import com.biliseek.app.comment.CommentThreadController
 import com.biliseek.app.data.DynamicExpandState
 import com.biliseek.app.data.LibraryRepository
@@ -39,6 +40,7 @@ class DynamicFeedController(
     private val library: LibraryRepository,
     private val session: StateFlow<BiliSession>,
     private val emitMessage: (String) -> Unit,
+    commentImages: CommentImageStore,
     private val patchOtherEntry: (idStr: String, transform: (DynamicEntry) -> DynamicEntry) -> Unit,
     private val findOtherEntry: (idStr: String) -> DynamicEntry?,
 ) {
@@ -49,6 +51,7 @@ class DynamicFeedController(
         repository = repository,
         session = session,
         emitMessage = emitMessage,
+        imageStore = commentImages,
         onPostStarted = { s -> patchCommentCount(s.key, +1) },
         onPostFailed = { s -> patchCommentCount(s.key, -1) },
         onDeleted = { s -> patchCommentCount(s.key, -1) },

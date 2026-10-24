@@ -1,5 +1,6 @@
 package com.biliseek.app.ui
 
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.biliseek.app.comment.CommentImage
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.ui.components.CompactDragHandle
 import com.biliseek.app.ui.components.miniBarContentPadding
@@ -70,6 +72,12 @@ fun ReplyAtScreen(
     onPlayItem: (ReplyAtItem) -> Unit,
     onSubmitReply: (aid: Long, root: Long, parent: Long, content: String, onResult: (Boolean, String?) -> Unit) -> Unit,
     modifier: Modifier = Modifier,
+    replyImages: List<CommentImage> = emptyList(),
+    replyStatus: String? = null,
+    onAddReplyImages: (List<Uri>) -> Unit = {},
+    onRemoveReplyImage: (CommentImage) -> Unit = {},
+    /** 换了要回复的那条消息时调用：上一条没发出去的图不要了。 */
+    onClearReplyImages: () -> Unit = {},
 ) {
     val emoteHost = LocalEmotePanelHost.current
     LaunchedEffect(Unit) {
@@ -104,6 +112,7 @@ fun ReplyAtScreen(
                         ReplyAtRow(
                             item = entry,
                             onClick = {
+                                if (detail != entry) onClearReplyImages()
                                 detail = entry
                                 replyDraft = ""
                             },
@@ -138,6 +147,10 @@ fun ReplyAtScreen(
                         onContentChange = { replyDraft = it },
                         placeholder = "回复 ${target.user?.name.orEmpty()}…",
                         isPosting = replySubmitting,
+                        images = replyImages,
+                        onAddImages = onAddReplyImages,
+                        onRemoveImage = onRemoveReplyImage,
+                        statusText = replyStatus,
                         onSubmit = {
                             replySubmitting = true
                             onSubmitReply(

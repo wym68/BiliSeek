@@ -446,6 +446,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         repository = network.repository,
     )
 
+    /** 评论配图暂存（三处评论输入栏共用）。草稿只在内存，启动时清掉上次留下的文件。 */
+    private val commentImages = com.biliseek.app.comment.CommentImageStore(
+        java.io.File(app.cacheDir, "comment_images"),
+        app.contentResolver,
+    ).also { store -> viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { store.clearAll() } }
+
     // ── Ch4 状态 ──────────────────────────────────────
 
     /** 动态：关注流 + 卡片互动（评论对话框在 `dynamics.comments`）。 */
@@ -455,6 +461,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         library = library,
         session = session,
         emitMessage = ::emitMessage,
+        commentImages = commentImages,
         patchOtherEntry = { idStr, transform -> upSpace.patchDynamicEntry(idStr, transform) },
         findOtherEntry = { idStr -> upSpace.state.value.dynamic.items.firstOrNull { it.idStr == idStr } },
     )
@@ -1883,6 +1890,7 @@ return pages.map { p ->
         emitMessage = ::emitMessage,
         play = ::play,
         openUpSpace = ::openUpSpace,
+        imageStore = commentImages,
     )
 
     // ── 播放页：评论区、弹幕开关、分享 ──
@@ -1893,6 +1901,7 @@ return pages.map { p ->
         repository = network.repository,
         session = session,
         emitMessage = ::emitMessage,
+        imageStore = commentImages,
     )
 
     init {

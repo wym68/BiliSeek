@@ -21,4 +21,10 @@ class CommentDraftPolicyTest {
         assertNull(draftOnDismiss(base.copy(content = "  \n")))
         assertNull(draftOnDismiss(base.copy(replyTarget = target)))
     }
+
+    @Test
+    fun `只有图没有字也留草稿`() {
+        val images = listOf(CommentImage("/cache/a.jpg", "image/jpeg"))
+        assertEquals(CommentDraft("", target, images), draftOnDismiss(base.copy(replyTarget = target, images = images)))
+    }
 }
