@@ -19,6 +19,8 @@ internal object ThrottleBucket {
     const val DANMAKU = "danmaku"
     /** AI 总结的字幕 / 官方总结查询：只在用户点「AI 总结」时发，与其他页面读隔离 */
     const val SUMMARY = "summary"
+    /** 写评论时 @ 的候选人：随打字查询，与搜索隔离，不拖慢搜索框 */
+    const val MENTION = "mention"
 }
 
 /**

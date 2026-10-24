@@ -191,6 +191,7 @@ class MainActivity : ComponentActivity() {
                 // 表情：进程级字典（富文本兜底）+ 表情面板宿主（评论输入栏用）
                 val emoteDictionary by viewModel.emotes.dictionary.collectAsState()
                 val emotePanel by viewModel.emotes.panel.collectAsState()
+                val mentionPanel by viewModel.mentions.state.collectAsState()
                 val showMessage = remember { { msg: String -> showReplacingToast(msg) } }
                 androidx.compose.runtime.CompositionLocalProvider(
                     com.biliseek.app.ui.components.LocalShowMessage provides showMessage,
@@ -199,6 +200,10 @@ class MainActivity : ComponentActivity() {
                     com.biliseek.app.ui.richtext.LocalEmotePanelHost provides com.biliseek.app.ui.richtext.EmotePanelHost(
                         state = emotePanel,
                         ensureLoaded = viewModel.emotes::ensureLoaded,
+                    ),
+                    com.biliseek.app.ui.richtext.LocalMentionHost provides com.biliseek.app.ui.richtext.MentionHost(
+                        state = mentionPanel,
+                        search = viewModel.mentions::search,
                     ),
                 ) {
                 val playback by viewModel.connection.state.collectAsState()

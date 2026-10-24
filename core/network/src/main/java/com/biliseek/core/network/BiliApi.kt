@@ -4,6 +4,7 @@ import com.biliseek.core.network.dto.AddReplyData
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.NavData
 import com.biliseek.core.network.dto.NewlistRankData
+import com.biliseek.core.network.dto.MentionSearchData
 import com.biliseek.core.network.dto.ReplyData
 import com.biliseek.core.network.dto.UploadedImage
 import com.biliseek.core.network.dto.PageItem
@@ -499,6 +500,10 @@ interface BiliApi {
     @FormUrlEncoded
     @POST("x/v2/reply/add")
     suspend fun addReply(@FieldMap fields: Map<String, String>): BiliResponse<AddReplyData>    // oid(aid), type(1), message, root?, parent?, plat(1), pictures?, csrf → data.rpid
+
+    /** 写评论时 @ 的候选人。不带 keyword 返回默认分组（最近 @ 过的、关注的）；需要登录。 */
+    @GET("x/polymer/web-dynamic/v1/mention/search")
+    suspend fun mentionSearch(@Query("keyword") keyword: String?): BiliResponse<MentionSearchData>
 
     /** 评论配图上传到 B 站图床。图片放 `file_up`，其余文本字段（biz、category、csrf）走 [fields]。 */
     @Multipart

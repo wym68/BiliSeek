@@ -26,11 +26,13 @@ import com.biliseek.core.network.dto.CollectionSeasonInfo
 import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.BiliResponse
 import com.biliseek.core.network.dto.ReplyItem
+import com.biliseek.core.network.dto.MentionUser
 import com.biliseek.core.network.dto.UploadedImage
 import com.biliseek.core.network.dto.DanmakuItem
 import com.biliseek.core.network.internal.DanmakuProto
 import com.biliseek.core.network.internal.IdempotentCodes
 import com.biliseek.core.network.internal.buildReplyPictures
+import com.biliseek.core.network.internal.flattenMentionUsers
 import com.biliseek.core.network.internal.imageFilePart
 import com.biliseek.core.network.internal.textParts
 import com.biliseek.core.network.internal.commentListParams
@@ -1369,6 +1371,19 @@ class BiliRepository internal constructor(
         ) { f, _ -> api.addReply(f) }.map { it?.rpid ?: 0L }
 
     /**
+     * 写评论时 @ 的候选人（`x/polymer/web-dynamic/v1/mention/search`）。[keyword] 为空返回默认分组
+     * （最近 @ 过的、关注的）。需要登录。走 [accountRead] 的风控分流，请求套 MENTION 限速桶；**不重试**。
+     */
+    suspend fun searchMentionUsers(keyword: String): Result<List<MentionUser>> = runCatching {
+        requireLoggedInMid()
+        accountRead("@ 候选人") {
+            requestThrottle.gate(ThrottleBucket.MENTION, MENTION_MIN_INTERVAL_MS, THROTTLE_JITTER_MS) {
+                api.mentionSearch(keyword.trim().ifEmpty { null })
+            }
+        }.flattenMentionUsers()
+    }
+
+    /**
      * 评论配图上传到 B 站图床（`x/dynamic/feed/draw/upload_bfs`），返回的结果交给 [addDynamicReply] /
      * [postCommentReply] 的 `pictures`。multipart 请求：csrf 仍由 writeRequest 统一注入，block 里把
      * 注入后的文本字段转成 part；风控冷却、WRITE 节流、-111 / -101 续期重试一次都与其他写操作相同。
@@ -1682,6 +1697,8 @@ class BiliRepository internal constructor(
         const val WRITE_MIN_INTERVAL_MS = 1_000L
         /** 消息中心限速：B 站私信接口对连发敏感，按 800ms/req 起步。 */
         const val MESSAGE_MIN_INTERVAL_MS = 800L
+        /** @ 候选人：调用方已按 350ms 防抖 + 同词缓存，这里再兜一道最小间隔。 */
+        const val MENTION_MIN_INTERVAL_MS = 600L
         const val THROTTLE_JITTER_MS = 300L
 
         /** 热门播客：运营搭建的 H5 活动页（App 热门页的「热门播客」入口分享出来的页面）。 */

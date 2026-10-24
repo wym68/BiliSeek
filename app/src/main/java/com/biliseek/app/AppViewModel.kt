@@ -452,6 +452,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         app.contentResolver,
     ).also { store -> viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { store.clearAll() } }
 
+    /** 写评论时 @ 的候选人（评论区、「回复与@」共用）。 */
+    val mentions = com.biliseek.app.comment.MentionController(viewModelScope, network.repository, session)
+
     // ── Ch4 状态 ──────────────────────────────────────
 
     /** 动态：关注流 + 卡片互动（评论对话框在 `dynamics.comments`）。 */

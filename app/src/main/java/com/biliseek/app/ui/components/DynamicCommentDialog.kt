@@ -232,6 +232,7 @@ fun DynamicCommentDialog(
                 onRemoveImage = onRemoveImage,
                 statusText = state.postingStatus,
                 onCaptureFrame = onCaptureFrame,
+                mentionsEnabled = true,
             )
         }
         pendingDelete?.let { (reply, root) ->

@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +62,9 @@ import java.io.File
 import coil3.compose.AsyncImage
 import com.biliseek.app.comment.CommentImage
 import com.biliseek.app.comment.MAX_COMMENT_IMAGES
+import com.biliseek.app.comment.insertMention
 import com.biliseek.app.comment.remainingImageSlots
+import com.biliseek.app.comment.resolveActiveMention
 import com.biliseek.designsystem.theme.BsShapes
 import com.biliseek.designsystem.theme.BsSize
 import com.biliseek.designsystem.theme.BsSpacing
@@ -75,6 +78,7 @@ import com.biliseek.designsystem.theme.BsSpacing
  * - [replyHint] 非空时在输入框上方显示「回复 @xxx ×」。
  * - [onAddImages] 非空时多一个配图按钮（系统相册选择器，不要权限）；已选的图在输入框上方排成一行缩略图，
  *   发送中不能增删。[statusText] 是发送中的进度（如「正在上传图片 2/5…」）。
+ * - [mentionsEnabled] 为 true 时，光标前打出 `@` 就在输入框上方弹出候选人（[LocalMentionHost]），点一个插入 `@昵称 `。
  * - [onCaptureFrame] 非空时多一个截图按钮：截下当前视频画面当一张配图（只有播放页评论区、正在看画面时才传）。
  */
 @Composable
@@ -96,6 +100,7 @@ fun CommentComposer(
     onRemoveImage: (CommentImage) -> Unit = {},
     statusText: String? = null,
     onCaptureFrame: (() -> Unit)? = null,
+    mentionsEnabled: Boolean = false,
 ) {
     var value by remember { mutableStateOf(TextFieldValue(content, TextRange(content.length))) }
     // 本组件发出去、还没回流的文本（按发出顺序）。ViewModel 状态经 collectAsState 回流有延迟，
@@ -141,6 +146,16 @@ fun CommentComposer(
         }
     }
 
+    val mentionHost = LocalMentionHost.current
+    val activeMention = if (mentionsEnabled && value.selection.collapsed) {
+        resolveActiveMention(value.text, value.selection.start)
+    } else {
+        null
+    }
+    LaunchedEffect(activeMention?.query) { mentionHost.search(activeMention?.query) }
+    // 输入栏收起时把面板也收掉，免得下次打开别的输入栏还挂着旧候选
+    DisposableEffect(mentionsEnabled) { onDispose { if (mentionsEnabled) mentionHost.search(null) } }
+
     val pickImages = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(MAX_COMMENT_IMAGES),
     ) { uris -> if (uris.isNotEmpty()) onAddImages?.invoke(uris) }
@@ -164,6 +179,12 @@ fun CommentComposer(
                     ComposerImageThumb(image, removable = !isPosting, onRemove = { onRemoveImage(image) })
                 }
             }
+        }
+        if (activeMention != null && mentionHost.state.keyword == activeMention.query) {
+            MentionPanel(mentionHost.state, onPick = { user ->
+                val (text, cursor) = insertMention(value.text, activeMention, value.selection.start, user.name)
+                update(TextFieldValue(text, TextRange(cursor)))
+            })
         }
         if (replyHint != null) {
             Row(

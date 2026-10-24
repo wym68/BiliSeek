@@ -151,6 +151,7 @@ fun ReplyAtScreen(
                         onAddImages = onAddReplyImages,
                         onRemoveImage = onRemoveReplyImage,
                         statusText = replyStatus,
+                        mentionsEnabled = true,
                         onSubmit = {
                             replySubmitting = true
                             onSubmitReply(
