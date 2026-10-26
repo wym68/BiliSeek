@@ -92,6 +92,11 @@ data class VideoViewInfo(
     val pic: String = "",
     /** 时长（秒，全部分 P 合计）。 */
     val duration: Long = 0,
+    /**
+     * 所属合集（新版合集）；不属于合集时为 null。播放页合集入口与弹层用：各小节各集都在里面，不另外翻页
+     * （几百集的大合集是否全量返回待真机确认）。
+     */
+    @SerialName("ugc_season") val ugcSeason: UgcSeason? = null,
 )
 
 /** `x/web-interface/view` 的 `data.stat`。 */
@@ -106,6 +111,42 @@ data class VideoStat(
     val like: Long = 0,
 )
 
+/** `x/web-interface/view` 的 `data.ugc_season`：视频所属的合集。 */
+@Serializable
+data class UgcSeason(
+    val id: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val mid: Long = 0,
+    @SerialName("ep_count") val epCount: Int = 0,
+    val sections: List<UgcSection> = emptyList(),
+)
+
+/** 合集的一个小节（只有一个小节时 B 站默认叫「正片」之类）。 */
+@Serializable
+data class UgcSection(
+    val id: Long = 0,
+    val title: String = "",
+    val episodes: List<UgcEpisode> = emptyList(),
+)
+
+@Serializable
+data class UgcEpisode(
+    val aid: Long = 0,
+    val bvid: String = "",
+    val cid: Long = 0,
+    val title: String = "",
+    val arc: UgcEpisodeArc? = null,
+)
+
+@Serializable
+data class UgcEpisodeArc(
+    /** 封面（`//` 或 `http:` 开头，展示前规整）。 */
+    val pic: String = "",
+    /** 秒。 */
+    val duration: Long = 0,
+)
+
 /** `x/web-interface/archive/relation`：当前账号对视频的互动状态。 */
 @Serializable
 data class ArchiveRelation(
@@ -115,6 +156,9 @@ data class ArchiveRelation(
     @Serializable(with = FlexibleBooleanSerializer::class) val dislike: Boolean = false,
     /** 已投币数（0 / 1 / 2）。 */
     val coin: Int = 0,
+    /** 当前视频所在合集已订阅（1/0 或 true/false）。播放页合集弹层的「订阅 / 已订阅」用。 */
+    @SerialName("season_fav")
+    @Serializable(with = FlexibleBooleanSerializer::class) val seasonFav: Boolean = false,
 )
 
 @Serializable
@@ -328,11 +372,10 @@ data class SeriesItem(
     val description: String = "",
 )
 
-/** `x/series/archives` —— 合集内容（分页）。需登录。 */
+/** `x/series/archives` —— 旧版系列的内容（分页）。不需登录。 */
 @Serializable
 data class SeriesArchivesData(
-    val count: Int = 0,
-    val list: List<SeriesArchive> = emptyList(),
+    val archives: List<SpaceCollectionArchive> = emptyList(),
     val page: SeriesPage = SeriesPage(),
 )
 
@@ -350,9 +393,80 @@ data class SeriesArchive(
 
 @Serializable
 data class SeriesPage(
-    val pn: Int = 1,
-    val ps: Int = 20,
-    val count: Int = 0,
+    val num: Int = 0,
+    val size: Int = 0,
+    val total: Int = 0,
+)
+
+// ── UP 空间的合集与系列（x/polymer/web-space）────────────────
+
+/** `x/polymer/web-space/seasons_series_list` —— UP 主的合集与系列。不需登录。 */
+@Serializable
+data class SeasonsSeriesListData(
+    @SerialName("items_lists") val itemsLists: SeasonsSeriesItems = SeasonsSeriesItems(),
+)
+
+@Serializable
+data class SeasonsSeriesItems(
+    val page: SpaceCollectionPage = SpaceCollectionPage(),
+    @SerialName("seasons_list") val seasonsList: List<SpaceSeasonItem> = emptyList(),
+    @SerialName("series_list") val seriesList: List<SpaceSeriesItem> = emptyList(),
+)
+
+@Serializable
+data class SpaceCollectionPage(
+    @SerialName("page_num") val pageNum: Int = 0,
+    @SerialName("page_size") val pageSize: Int = 0,
+    val total: Int = 0,
+)
+
+@Serializable
+data class SpaceSeasonItem(
+    val meta: SpaceSeasonMeta = SpaceSeasonMeta(),
+)
+
+@Serializable
+data class SpaceSeasonMeta(
+    @SerialName("season_id") val seasonId: Long = 0,
+    val name: String = "",
+    val cover: String = "",
+    /** 视频数。 */
+    val total: Int = 0,
+    val mid: Long = 0,
+)
+
+@Serializable
+data class SpaceSeriesItem(
+    val meta: SpaceSeriesMeta = SpaceSeriesMeta(),
+)
+
+@Serializable
+data class SpaceSeriesMeta(
+    @SerialName("series_id") val seriesId: Long = 0,
+    val name: String = "",
+    val cover: String = "",
+    /** 视频数。 */
+    val total: Int = 0,
+    val mid: Long = 0,
+)
+
+/** `x/polymer/web-space/seasons_archives_list` —— UP 空间合集的内容（分页）。不需登录。 */
+@Serializable
+data class SeasonArchivesData(
+    val archives: List<SpaceCollectionArchive> = emptyList(),
+    val page: SpaceCollectionPage = SpaceCollectionPage(),
+)
+
+/** UP 空间合集 / 系列内容的一条。接口不带 UP 主名，由调用方补。 */
+@Serializable
+data class SpaceCollectionArchive(
+    val aid: Long = 0,
+    val bvid: String = "",
+    val title: String = "",
+    val pic: String = "",
+    /** 秒。 */
+    val duration: Long = 0,
+    val pubdate: Long = 0,
 )
 
 // ── 订阅合集（x/v3/fav/folder/collected/list）────────────

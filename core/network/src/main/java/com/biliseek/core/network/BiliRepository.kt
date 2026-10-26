@@ -19,9 +19,7 @@ import com.biliseek.core.network.dto.SearchUser
 import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.dto.SeriesItem
-import com.biliseek.core.network.dto.SeriesArchivesData
 import com.biliseek.core.network.dto.SeriesArchive
-import com.biliseek.core.network.dto.SeriesPage
 import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.dto.CollectionSeasonInfo
 import com.biliseek.core.network.dto.CollectionMediaItem
@@ -315,22 +313,6 @@ class BiliRepository internal constructor(
             page = page,
             hasMore = data.has_more,
             totalCount = data.count,
-        )
-    }
-
-    /** 合集内容（分页，`ps ≤ 20`）。必须登录。 */
-    suspend fun seriesArchives(
-        seriesId: Long,
-        page: Int,
-        pageSize: Int = 20,
-    ): Result<SeriesArchivesPage> = runCatching {
-        requireLoggedInMid()
-        val data = accountRead("合集内容") { api.seriesArchives(seriesId, pn = page, ps = pageSize) }
-            ?: throw IllegalStateException("合集内容为空")
-        SeriesArchivesPage(
-            items = data.list.filter { it.bvid.isNotBlank() },
-            page = page,
-            hasMore = data.list.size >= pageSize,
         )
     }
 
