@@ -82,6 +82,30 @@ fun sampleBufferSize(maxInputSize: Int?): Int = maxOf(maxInputSize ?: 0, MIN_SAM
 fun grownSampleBufferSize(current: Int): Int? =
     if (current >= MAX_SAMPLE_BUFFER) null else (current.toLong() * 2).coerceAtMost(MAX_SAMPLE_BUFFER.toLong()).toInt()
 
+/**
+ * 合成时这一帧写不写。样本按解码顺序读出，时间戳是显示时间：
+ * 视频轨有 B 帧时本来就会倒退，必须全写（MediaMuxer 自 API 25 起支持乱序显示时间）——
+ * 早先一律丢掉不递增的帧，B 帧全被丢，下载的视频只剩约四分之一的帧，播放卡顿。
+ * 音频轨没有重排，重复 / 倒挂的样本丢掉即可。
+ */
+fun shouldWriteSample(isVideo: Boolean, timeUs: Long, lastTimeUs: Long): Boolean =
+    isVideo || timeUs > lastTimeUs
+
+/** 合成时下一帧从哪条轨取。 */
+enum class MuxPick { AUDIO, VIDEO }
+
+/**
+ * 音视频按时间交错写进 MP4：谁的下一帧早先写谁，同一时刻先音频；一条读完（null）只写另一条，都读完返回 null。
+ * 早先先写完整条音频再写视频，文件里音视频不交错，边下边播（拷到别处、网盘预览）要来回跳着读。
+ */
+fun nextMuxPick(audioTimeUs: Long?, videoTimeUs: Long?): MuxPick? = when {
+    audioTimeUs == null && videoTimeUs == null -> null
+    videoTimeUs == null -> MuxPick.AUDIO
+    audioTimeUs == null -> MuxPick.VIDEO
+    audioTimeUs <= videoTimeUs -> MuxPick.AUDIO
+    else -> MuxPick.VIDEO
+}
+
 /** 离线命中检查的结果。 */
 sealed interface OfflineLookupResult {
     /** 本地文件可播。 */

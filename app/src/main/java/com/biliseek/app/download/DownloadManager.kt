@@ -33,10 +33,14 @@ import com.biliseek.app.data.isPartialStale
 import com.biliseek.app.data.nextStalledCount
 import com.biliseek.app.data.sampleBufferSize
 import com.biliseek.app.data.shouldResumeDownload
+import com.biliseek.app.data.shouldWriteSample
+import com.biliseek.app.data.MuxPick
+import com.biliseek.app.data.nextMuxPick
 import com.biliseek.app.data.stagedProgress
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.player.AudioQuality
 import com.biliseek.core.player.DownloadSource
+import com.biliseek.core.player.VIDEO_QUALITY_AUTO
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -94,6 +98,8 @@ data class DownloadRequest(
     val location: String,
     /** SAF 授权树 uri（location == SAF 时非空） */
     val safTreeUri: String = "",
+    /** 下载画质（qn），[VIDEO_QUALITY_AUTO] = 最高一档。只音频时不用。 */
+    val videoQn: Int = VIDEO_QUALITY_AUTO,
 )
 
 /**
@@ -141,7 +147,7 @@ class DownloadManager private constructor(private val app: Application) {
     val tasks: StateFlow<List<DownloadTask>> = _tasks.asStateFlow()
 
     /** 取流直链。由 AppViewModel 注入（挂在 PlayerConnection 上，同一份解析器）。 */
-    var resolveSource: (suspend (String, Long?, AudioQuality) -> DownloadSource)? = null
+    var resolveSource: (suspend (String, Long?, AudioQuality, Int) -> DownloadSource)? = null
 
     /** 下载档位。由 AppViewModel 注入（读设置）。 */
     var qualityProvider: (() -> AudioQuality)? = null
@@ -532,7 +538,7 @@ class DownloadManager private constructor(private val app: Application) {
         if (wait > 0) kotlinx.coroutines.delay(wait)
         try {
             requireNotNull(resolveSource) { "下载取流未接线" }
-                .invoke(row.bvid, row.cid.takeIf { it > 0 }, downloadQuality())
+                .invoke(row.bvid, row.cid.takeIf { it > 0 }, downloadQuality(), row.videoQn)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -688,15 +694,27 @@ class DownloadManager private constructor(private val app: Application) {
 
     // ── mux：只封装、不重编码 ────────────────────────────
 
-    /** AAC + H.264/HEVC/AV1 都能进 MP4。失败时由调用方删掉半成品并报「可重试」。 */
+    /**
+     * AAC + H.264/HEVC/AV1 都能进 MP4。失败时由调用方删掉半成品并报「可重试」。
+     * 两条轨按时间交错写（[nextMuxPick]），文件里音视频交错存放。
+     */
     private fun muxToMp4(audioFile: File, videoFile: File, outFile: File) {
         val muxer = MediaMuxer(outFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         try {
             val audioTrack = addTrack(muxer, audioFile)
             val videoTrack = addTrack(muxer, videoFile)
             muxer.start()
-            copyTrackSamples(muxer, audioFile, audioTrack)
-            copyTrackSamples(muxer, videoFile, videoTrack)
+            TrackSamples(audioFile, audioTrack).use { audio ->
+                TrackSamples(videoFile, videoTrack).use { video ->
+                    while (true) {
+                        when (nextMuxPick(audio.nextTimeUs, video.nextTimeUs)) {
+                            MuxPick.AUDIO -> audio.writeNext(muxer)
+                            MuxPick.VIDEO -> video.writeNext(muxer)
+                            null -> break
+                        }
+                    }
+                }
+            }
             muxer.stop()
         } finally {
             muxer.release()
@@ -713,42 +731,57 @@ class DownloadManager private constructor(private val app: Application) {
         }
     }
 
-    private fun copyTrackSamples(muxer: MediaMuxer, file: File, track: Int) {
-        val extractor = MediaExtractor()
-        extractor.setDataSource(file.absolutePath)
-        extractor.selectTrack(0)
-        // 高码率视频的关键帧常超过 64KB：按轨道的最大帧大小分配，至少 1MB（sampleBufferSize）
-        val format = extractor.getTrackFormat(0)
-        val maxInput = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
-            format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
-        } else {
-            null
+    /** 一条轨的样本读取器：按解码顺序一帧一帧写进 muxer 的 [track]。 */
+    private class TrackSamples(file: File, private val track: Int) : AutoCloseable {
+        private val extractor = MediaExtractor().apply {
+            setDataSource(file.absolutePath)
+            selectTrack(0)
         }
-        var buffer = ByteBuffer.allocate(sampleBufferSize(maxInput))
-        val info = MediaCodec.BufferInfo()
-        // muxer 要求同轨样本时间戳严格递增，B 站文件偶有重复/倒挂，丢掉即可
-        var lastTimeUs = Long.MIN_VALUE
-        try {
+        private val isVideo: Boolean
+        private var buffer: ByteBuffer
+        private val info = MediaCodec.BufferInfo()
+        private var lastTimeUs = Long.MIN_VALUE
+
+        init {
+            // 高码率视频的关键帧常超过 64KB：按轨道的最大帧大小分配，至少 1MB（sampleBufferSize）
+            val format = extractor.getTrackFormat(0)
+            val maxInput = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+            } else {
+                null
+            }
+            buffer = ByteBuffer.allocate(sampleBufferSize(maxInput))
+            isVideo = format.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true
+        }
+
+        /** 下一帧的时间戳；读完了为 null。 */
+        val nextTimeUs: Long? get() = extractor.sampleTime.takeIf { it >= 0 }
+
+        /** 写下一帧并前进一帧。 */
+        fun writeNext(muxer: MediaMuxer) {
+            val size = readSample()
+            val timeUs = extractor.sampleTime
+            // 读不出数据（文件尾坏帧）：跳过它，不然 nextTimeUs 不变会原地打转
+            if (size >= 0 && shouldWriteSample(isVideo, timeUs, lastTimeUs)) {
+                info.set(0, size, timeUs, extractor.sampleFlags)
+                muxer.writeSampleData(track, buffer, info)
+                lastTimeUs = timeUs
+            }
+            extractor.advance()
+        }
+
+        private fun readSample(): Int {
             while (true) {
-                val size = try {
-                    extractor.readSampleData(buffer, 0)
+                try {
+                    return extractor.readSampleData(buffer, 0)
                 } catch (e: IllegalArgumentException) {
                     // 这一帧比缓冲区还大：翻倍后重读同一帧（读失败时 extractor 不前进）
                     buffer = ByteBuffer.allocate(grownSampleBufferSize(buffer.capacity()) ?: throw e)
-                    continue
                 }
-                if (size < 0) break
-                val timeUs = extractor.sampleTime
-                if (timeUs > lastTimeUs) {
-                    info.set(0, size, timeUs, extractor.sampleFlags)
-                    muxer.writeSampleData(track, buffer, info)
-                    lastTimeUs = timeUs
-                }
-                extractor.advance()
             }
-        } finally {
-            extractor.release()
         }
+
+        override fun close() = extractor.release()
     }
 
     // ── 保存位置 ──────────────────────────────────────────
@@ -946,6 +979,7 @@ class DownloadManager private constructor(private val app: Application) {
         status = status,
         error = error,
         downloadedAt = System.currentTimeMillis(),
+        videoQn = request.videoQn,
     )
 
     private fun deleteFileByUri(uri: Uri) {

@@ -49,6 +49,22 @@ internal fun resolveVideoTrackIndex(
 }
 
 /**
+ * 下载挑哪条视频轨，返回下标；没有视频轨返回 null。
+ *
+ * 与 [resolveVideoTrackIndex] 的区别只在自动：下载没有自适应，自动就是取能拿到的最高一档（不设上限，含 4K）。
+ * 选了档位时规则相同——有就用、没有往下找、同档按 [codecRank] 优先 AVC。
+ * 取流时还不知道设备解不解得了，一律当作能播。
+ */
+internal fun resolveDownloadVideoTrackIndex(
+    candidates: List<VideoTrackCandidate>,
+    preferredQn: Int,
+): Int? {
+    if (candidates.isEmpty()) return null
+    val qn = if (preferredQn == VIDEO_QUALITY_AUTO) candidates.maxOf { it.qn } else preferredQn
+    return resolveVideoTrackIndex(candidates, qn)
+}
+
+/**
  * 编码优先级，越小越优先：AVC > HEVC > AV1 > 其他。
  *
  * AVC 在所有设备上都有硬解；HEVC 在老设备上偶有只能软解、发热掉帧的情况；

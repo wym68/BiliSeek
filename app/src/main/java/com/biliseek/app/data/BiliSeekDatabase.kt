@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ListenDayEntity::class,
         ListenEntryEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class BiliSeekDatabase : RoomDatabase() {
@@ -47,7 +47,7 @@ abstract class BiliSeekDatabase : RoomDatabase() {
 
         private fun build(context: Context): BiliSeekDatabase =
             Room.databaseBuilder(context, BiliSeekDatabase::class.java, "biliseek.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .build()
 
         /**
@@ -234,6 +234,15 @@ abstract class BiliSeekDatabase : RoomDatabase() {
                         "`cid` INTEGER NOT NULL, `listenedMs` INTEGER NOT NULL, `lastListenedAt` INTEGER NOT NULL, " +
                         "PRIMARY KEY(`epochDay`, `bvid`, `cid`))",
                 )
+            }
+        }
+
+        /**
+         * v10 → v11：下载记录加画质（qn）。写法同 [MIGRATION_8_9]：带默认值加列，旧记录都是自动。
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE download ADD COLUMN videoQn INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

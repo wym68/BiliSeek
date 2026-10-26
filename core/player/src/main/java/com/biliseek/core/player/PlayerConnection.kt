@@ -126,6 +126,12 @@ class PlayerConnection(private val context: Context) {
      *  以及 togglePlayPause 时改走「取流续播」而非直接 play controller。 */
     private var hasRestoredQueue: Boolean = false
 
+    /**
+     * 当前条目取流失败、播放器已清空（[dropStaleMedia]）。和 [hasRestoredQueue] 一样算「有媒体」——
+     * 迷你条和错误提示要留着；按播放改走 [retry] 重新取流。
+     */
+    private var resolveFailed: Boolean = false
+
     /** 恢复会话时记下的上次播放位置，供 [resumeFromRestoredPosition] 续播。 */
     private var restoredPositionMs: Long = 0L
 
@@ -548,11 +554,13 @@ class PlayerConnection(private val context: Context) {
                 )
                 return
             }
+            if (!reload) dropStaleMedia(c)
             _state.value = _state.value.copy(
                 isResolving = false,
                 error = e.message ?: "取流失败",
                 isOffline = false,
             )
+            pushState()
             return
         }
 
@@ -629,6 +637,7 @@ class PlayerConnection(private val context: Context) {
 
         c.setMediaItem(item, startPosition)
         loadedRequest = request
+        resolveFailed = false
         pendingQualityApply = true
 
         // 换内容即回到听（全屏例外：下一条有画面就接着全屏看）。
@@ -674,13 +683,15 @@ class PlayerConnection(private val context: Context) {
      *
      * 下载管理器用它拿到 [DownloadSource] 后自行流式写盘。
      * 不走离线拦截（重新下载已下过的内容时不能命中本地文件）。
+     * [videoQn] 为下载画质（qn），[VIDEO_QUALITY_AUTO] 取最高一档。
      */
     suspend fun resolveDownloadSource(
         bvid: String,
         cid: Long?,
         quality: AudioQuality = AudioQuality.AUTO,
+        videoQn: Int = VIDEO_QUALITY_AUTO,
     ): DownloadSource {
-        val (resolvedCid, media) = resolver.resolveForDownload(bvid, cid, quality)
+        val (resolvedCid, media) = resolver.resolveForDownload(bvid, cid, quality, videoQn)
         require(media.audioUrl.isNotBlank()) { "该内容没有可下载的音频轨" }
         return DownloadSource(
             cid = resolvedCid,
@@ -1001,6 +1012,11 @@ class PlayerConnection(private val context: Context) {
             resumeFromRestoredPosition()
             return
         }
+        // 取流失败、播放器已清空：按播放就是重试
+        if (c.mediaItemCount == 0 && resolveFailed) {
+            retry()
+            return
+        }
         // 播放中断停在 IDLE：按播放就是「重试」——重新取流原位续上，
         // 而不是把同一份（多半已失效的）manifest 原样再 prepare 一遍
         if (c.playbackState == Player.STATE_IDLE && c.playerError != null) {
@@ -1226,6 +1242,26 @@ class PlayerConnection(private val context: Context) {
         }
     }
 
+    /**
+     * 换一条内容时取流失败：播放器里还装着上一条，不清掉的话界面已换成新的这条，
+     * 声音却还是上一条（真机：没网时播完本地视频、点一条没下载的，旧的接着放）。
+     * 呈现态按「下一条没有画面」复位，与换内容时同一套规则。
+     */
+    private fun dropStaleMedia(c: MediaController) {
+        c.stop()
+        c.clearMediaItems()
+        loadedRequest = null
+        resolveFailed = true
+        currentIsOffline = false
+        currentOfflineHasVideo = false
+        val next = resolvePresentationOnTrackChange(presentation, sameContent = false, nextHasVideo = false)
+        applyVideoTrack(enabled = shouldEnableVideoTrack(next))
+        if (next != presentation) {
+            presentation = next
+            c.clearVideoSurface()
+        }
+    }
+
     private fun applyVideoTrack(enabled: Boolean) {
         val c = controller ?: return
         c.trackSelectionParameters =
@@ -1298,7 +1334,7 @@ class PlayerConnection(private val context: Context) {
         checkSleepTimer()
         val now = System.currentTimeMillis()
         // hasMedia: player 有媒体项，或已从持久化恢复队列
-        val hasMedia = c.mediaItemCount > 0 || hasRestoredQueue
+        val hasMedia = c.mediaItemCount > 0 || hasRestoredQueue || resolveFailed
         val videoSelected = c.currentTracks.groups.any { group ->
             group.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && group.isSelected
         }

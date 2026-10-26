@@ -69,6 +69,35 @@ class VideoQualityPolicyTest {
         assertTrue(codecRank("av01.0.08M.08") < codecRank("vp09"))
     }
 
+    // ── 下载选轨 ──
+
+    @Test
+    fun `下载自动取最高一档 不设上限 同档优先 AVC`() {
+        val tracks = listOf(
+            track(120, "hev1.2.4.L153.90"), track(120, "av01.0.12M.10"),
+            track(80, "av01.0.08M.08"), track(80, "avc1.640032"),
+        )
+        assertEquals(0, resolveDownloadVideoTrackIndex(tracks, VIDEO_QUALITY_AUTO))
+        // 顺序打乱也一样：480P HEVC, 480P AVC … 1080P HEVC, 1080P AVC → 1080P AVC
+        assertEquals(5, resolveDownloadVideoTrackIndex(typical.reversed(), VIDEO_QUALITY_AUTO))
+    }
+
+    @Test
+    fun `下载选了档位 有就用 没有往下找 同档优先 AVC`() {
+        assertEquals(2, resolveDownloadVideoTrackIndex(typical, 64))
+        // 这个视频没有 1080P：落到 720P，不往上跳
+        val noFhd = listOf(track(120, "hev1.2.4.L153.90"), track(64, "hev1.1.6.L120.90"), track(64, "avc1.640028"))
+        assertEquals(2, resolveDownloadVideoTrackIndex(noFhd, 80))
+        // 连更低的都没有：选最低一档
+        assertEquals(4, resolveDownloadVideoTrackIndex(typical, 16))
+    }
+
+    @Test
+    fun `下载没有视频轨时返回 null`() {
+        assertNull(resolveDownloadVideoTrackIndex(emptyList(), VIDEO_QUALITY_AUTO))
+        assertNull(resolveDownloadVideoTrackIndex(emptyList(), 80))
+    }
+
     // ── 档位列表 ──
 
     @Test

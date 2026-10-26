@@ -1249,8 +1249,8 @@ return pages.map { p ->
             library.lookupOffline(bvid, cid) { uri -> fileExists(uri) }
         }
         // 下载取流：与播放共用同一份解析器（同一份缓存与降级链）
-        downloadManager.resolveSource = { bvid, cid, quality ->
-            connection.resolveDownloadSource(bvid, cid, quality)
+        downloadManager.resolveSource = { bvid, cid, quality, videoQn ->
+            connection.resolveDownloadSource(bvid, cid, quality, videoQn)
         }
         downloadManager.qualityProvider = { settingsStore.current.audioQuality }
         downloadManager.concurrencyProvider = { settingsStore.current.downloadConcurrency }
@@ -1570,6 +1570,9 @@ return pages.map { p ->
 
     // ── 下载 ────────────────────────────────────────────
 
+    /** 下载弹窗默认带入的画质：设置里当前网络（Wi-Fi / 移动网络）的画质。 */
+    fun defaultDownloadVideoQuality(): Int = settingsStore.current.defaultVideoQuality(isMetered())
+
     /** 入队下载。内容（只音频/视频）与位置在调用前由 UI 弹窗定好。 */
     fun enqueueDownloads(requests: List<com.biliseek.app.download.DownloadRequest>) {
         if (requests.isEmpty()) return
@@ -1752,7 +1755,8 @@ return pages.map { p ->
             }
             com.biliseek.app.data.OfflineWatch.NORMAL, com.biliseek.app.data.OfflineWatch.ONLINE -> Unit
         }
-        when (resolveVideoGate(settingsStore.current, isMetered())) {
+        val playingLocalVideo = connection.state.value.isOffline && !connection.needsOnlineForVideo
+        when (resolveVideoGate(settingsStore.current, isMetered(), playingLocalVideo)) {
             VideoGate.ALLOW -> applyPresentation(target, surfaceView)
             VideoGate.BLOCKED_BY_METERED -> _videoBlocked.value = target
         }

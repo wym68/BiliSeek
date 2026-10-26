@@ -318,4 +318,33 @@ class DialogsUiTest {
         check(request.bvid == "BV1xx411c7mD")
         check(request.content == DownloadContent.AUDIO)
     }
+
+    @Test
+    fun 下载对话框_选视频后可选画质_默认带入设置() {
+        var requests: List<DownloadRequest>? = null
+        compose.setContent {
+            BiliSeekTheme {
+                DownloadDialog(
+                    targets = listOf(SearchVideo(bvid = "BV1xx411c7mD", title = "下载测试曲目", author = "UP").toDownloadTarget()),
+                    settings = AppSettings(),
+                    defaultVideoQuality = 80,
+                    onDismiss = {},
+                    onConfirm = { requests = it },
+                    onRememberLocation = {},
+                    onRememberSafTree = {},
+                )
+            }
+        }
+
+        // 只音频时没有画质
+        compose.onNodeWithText("720P").assertDoesNotExist()
+        compose.onNodeWithText("视频（mp4）").performScrollTo().performClick()
+        compose.onNodeWithText("1080P").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("720P").performScrollTo().performClick()
+        compose.onNodeWithText("开始下载").performScrollTo().performClick()
+        val request = requests?.singleOrNull()
+        check(request != null) { "未触发 onConfirm 或条数不对" }
+        check(request.content == DownloadContent.VIDEO)
+        check(request.videoQn == 64) { "画质没带出来：${request.videoQn}" }
+    }
 }

@@ -5,10 +5,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.data.AppSettings
 import com.biliseek.app.data.DownloadContent
 import com.biliseek.app.data.DownloadLocation
+import com.biliseek.app.data.VideoQualityDefaults
 import com.biliseek.app.download.DownloadRequest
 import com.biliseek.app.ui.components.SettingsRadioRow
 import com.biliseek.app.ui.components.SettingsSheet
@@ -33,6 +37,8 @@ import com.biliseek.app.ui.components.SettingsSheetSection
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.network.stripHighlight
+import com.biliseek.core.player.VIDEO_QUALITY_AUTO
+import com.biliseek.designsystem.theme.BsSpacing
 
 /**
  * 下载弹窗的输入。从 SearchVideo 泛化出来：多 P 面板的分 P 与 UP 空间投稿
@@ -55,23 +61,28 @@ fun SearchVideo.toDownloadTarget(): DownloadTarget = DownloadTarget(
 )
 
 /**
- * 下载确认面板（底部弹层，与设置页同一套外观）：内容（只音频 / 视频）+ 保存位置（私有 / 公共 / 自定义目录）。
- * 一次可以确认多条（多 P 选完分 P、批量选择后）：内容与位置选一次，对全部生效。
+ * 下载确认面板（底部弹层，与设置页同一套外观）：内容（只音频 / 视频）+ 画质（选了视频时）+
+ * 保存位置（私有 / 公共 / 自定义目录）。
+ * 一次可以确认多条（多 P 选完分 P、批量选择后）：内容、画质与位置选一次，对全部生效。
+ * 画质默认带入 [defaultVideoQuality]（设置里当前网络的画质）；自动 = 最高一档，不设上限。
  *
  * 两个维度正交（M9 §9.2）。位置记住上次选择，下次默认带入。
  * SAF 选目录用 [androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree]，
  * 选中即 `takePersistableUriPermission`——下次重进 App 不必重选。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DownloadDialog(
     targets: List<DownloadTarget>,
     settings: AppSettings,
+    defaultVideoQuality: Int = VIDEO_QUALITY_AUTO,
     onDismiss: () -> Unit,
     onConfirm: (List<DownloadRequest>) -> Unit,
     onRememberLocation: (String) -> Unit,
     onRememberSafTree: (String) -> Unit,
 ) {
     var content by remember { mutableStateOf(DownloadContent.AUDIO) }
+    var videoQn by remember { mutableStateOf(defaultVideoQuality) }
     var location by remember { mutableStateOf(settings.lastDownloadLocation) }
     var safTreeUri by remember { mutableStateOf(settings.lastDownloadSafTreeUri) }
 
@@ -114,6 +125,27 @@ fun DownloadDialog(
             selected = content == DownloadContent.VIDEO,
             onClick = { content = DownloadContent.VIDEO },
         )
+        if (content == DownloadContent.VIDEO) {
+            SettingsSheetSection("画质")
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = BsSpacing.xl),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                VideoQualityDefaults.CHOICES.forEach { (qn, label) ->
+                    FilterChip(
+                        selected = videoQn == qn,
+                        onClick = { videoQn = qn },
+                        label = { Text(label) },
+                    )
+                }
+            }
+            Text(
+                "自动取这个视频的最高画质；所选画质没有时用低一档的",
+                Modifier.padding(horizontal = BsSpacing.xl),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         SettingsSheetSection("保存位置")
         SettingsRadioRow(
@@ -174,6 +206,7 @@ fun DownloadDialog(
                                 content = content,
                                 location = location,
                                 safTreeUri = if (location == DownloadLocation.SAF) safTreeUri else "",
+                                videoQn = videoQn,
                             )
                         },
                     )

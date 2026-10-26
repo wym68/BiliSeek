@@ -40,8 +40,7 @@ class VideoInteractionController(
             _state.value = null
             return
         }
-        val cur = _state.value
-        if (cur?.bvid == bvid) return
+        if (!VideoActionPolicy.shouldLoad(_state.value, bvid)) return
         cache[bvid]?.let { cached ->
             _state.value = cached
             return
@@ -68,6 +67,7 @@ class VideoInteractionController(
                 desc = view?.desc.orEmpty(),
                 viewCount = stat?.view ?: 0,
                 pubDate = view?.pubdate ?: 0,
+                loadFailed = view == null,
             )
             // 读失败也落一个「全 0 未激活」的态，按钮照样能点；只有成功才进缓存
             if (_state.value?.bvid == bvid) _state.value = loaded

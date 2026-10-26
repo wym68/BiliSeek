@@ -4,8 +4,10 @@ import android.util.Base64
 import android.util.Log
 import com.biliseek.core.network.BiliNetwork
 import com.biliseek.core.network.WbiSigner
+import com.biliseek.core.network.dto.DashTrack
 import com.biliseek.core.network.dto.PlayUrlData
 import com.biliseek.core.player.AudioQuality
+import com.biliseek.core.player.VIDEO_QUALITY_AUTO
 import java.util.concurrent.ConcurrentHashMap
 
 /** 一次取流的结果。 */
@@ -31,6 +33,8 @@ internal data class ResolvedMedia(
     val audioUrl: String = "",
     /** 视频轨直链。带 codec / 宽高的轨道信息在 DTO 里，mux 时从文件里读即可。 */
     val videoUrl: String = "",
+    /** 全部视频轨，下载按所选画质从中挑一条（[PlayUrlResolver.resolveForDownload]）。durl 回退时为空。 */
+    val videoTracks: List<DashTrack> = emptyList(),
     /**
      * 本地已下载文件命中。
      *
@@ -113,12 +117,22 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
     /**
      * 下载专用取流。与 [resolve] 的唯一区别：**不走离线拦截**——
      * 已下载过的内容再次下载（换位置 / 重新下载）时，不能命中本地文件。
+     * 视频轨按 [videoQn] 挑（[resolveDownloadVideoTrackIndex]）；没有轨道可挑（durl 回退）时沿用原直链。
      */
     suspend fun resolveForDownload(
         bvid: String,
         cid: Long?,
         quality: AudioQuality = AudioQuality.AUTO,
-    ): DownloadResult = resolveNetwork(bvid, cid, quality)
+        videoQn: Int = VIDEO_QUALITY_AUTO,
+    ): DownloadResult {
+        val result = resolveNetwork(bvid, cid, quality)
+        val tracks = result.media.videoTracks
+        val index = resolveDownloadVideoTrackIndex(
+            tracks.map { VideoTrackCandidate(it.id, it.codecs, it.height, supported = true) },
+            videoQn,
+        ) ?: return result
+        return result.copy(media = result.media.copy(videoUrl = tracks[index].url()))
+    }
 
     private suspend fun resolveNetwork(
         bvid: String,
@@ -159,9 +173,8 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
             subKey = credentials.wbiSubKey,
         )
 
-        val response = network.api.getPlayUrl(params)
-        require(response.code == 0) { "playurl 失败: code=${response.code} ${response.message}" }
-        val data = requireNotNull(response.data) { "playurl 返回 data 为空" }
+        // 风控分流（冷却、-352 / HTTP 412 不重试、-412 重置凭据）在仓库里做，这里不直连 api
+        val data = network.repository.playUrl(params)
 
         val media = toMedia(data, quality)
         cache[key] = CacheEntry(media, System.currentTimeMillis())
@@ -169,9 +182,8 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
     }
 
     private suspend fun firstCid(bvid: String): Long {
-        val response = network.api.getPageList(bvid)
-        require(response.code == 0) { "pagelist 失败: code=${response.code} ${response.message}" }
-        val pages = requireNotNull(response.data?.takeIf { it.isNotEmpty() }) { "pagelist 为空" }
+        val pages = network.repository.pages(bvid).getOrThrow().takeIf { it.isNotEmpty() }
+            ?: error("pagelist 为空")
         return pages.first().cid
     }
 
@@ -213,6 +225,7 @@ internal class PlayUrlResolver(private val network: BiliNetwork) {
                 // 视频轨可能不存在——只下了音频的 m4a 就是这条路径的产物
                 audioUrl = tracks.audios.first().url(),
                 videoUrl = tracks.videos.firstOrNull()?.url().orEmpty(),
+                videoTracks = tracks.videos,
                 acceptQualities = data.acceptQuality.mapIndexed { i, qn ->
                     qn to data.acceptDescription.getOrElse(i) { "" }
                 },

@@ -156,6 +156,26 @@ class DownloadPolicyTest {
     }
 
     @Test
+    fun `合成时视频轨的 B 帧时间戳倒退也要写 音频轨只写递增的`() {
+        // 解码顺序 I P B B：B 帧的显示时间比前面的 P 帧早，丢掉就只剩约四分之一的帧
+        assertTrue(shouldWriteSample(isVideo = true, timeUs = 33_333, lastTimeUs = 100_000))
+        assertTrue(shouldWriteSample(isVideo = true, timeUs = 100_000, lastTimeUs = 0))
+        assertTrue(shouldWriteSample(isVideo = false, timeUs = 23_219, lastTimeUs = 0))
+        assertFalse(shouldWriteSample(isVideo = false, timeUs = 23_219, lastTimeUs = 23_219))
+        assertFalse(shouldWriteSample(isVideo = false, timeUs = 0, lastTimeUs = 23_219))
+    }
+
+    @Test
+    fun `合成时音视频按时间交错写 一条写完只写另一条`() {
+        assertEquals(MuxPick.AUDIO, nextMuxPick(audioTimeUs = 0, videoTimeUs = 0))
+        assertEquals(MuxPick.VIDEO, nextMuxPick(audioTimeUs = 46_000, videoTimeUs = 33_000))
+        assertEquals(MuxPick.AUDIO, nextMuxPick(audioTimeUs = 23_000, videoTimeUs = 33_000))
+        assertEquals(MuxPick.VIDEO, nextMuxPick(audioTimeUs = null, videoTimeUs = 33_000))
+        assertEquals(MuxPick.AUDIO, nextMuxPick(audioTimeUs = 23_000, videoTimeUs = null))
+        assertNull(nextMuxPick(audioTimeUs = null, videoTimeUs = null))
+    }
+
+    @Test
     fun `暂停时的进度按已下的部分算 有一段不知道总长就不显示百分比`() {
         assertEquals(0.5f, stagedProgress(listOf(50L to 100L)), 0.001f)
         // 视频：音轨下完、视频轨下了一半

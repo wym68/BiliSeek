@@ -11,6 +11,16 @@ class VideoActionPolicyTest {
     private val base = VideoInteractionState(bvid = "BV1", likeCount = 10, coinCount = 5, favoriteCount = 3)
 
     @Test
+    fun `同一视频已拉到就不重拉 上次失败了再进播放页重拉`() {
+        assertTrue(VideoActionPolicy.shouldLoad(null, "BV1"))
+        assertTrue(VideoActionPolicy.shouldLoad(base, "BV2"))
+        assertFalse(VideoActionPolicy.shouldLoad(base, "BV1"))
+        assertFalse(VideoActionPolicy.shouldLoad(base.copy(isLoading = true), "BV1"))
+        // 没网时拉失败落了全 0：网回来后再进播放页要重拉，不能一直空着
+        assertTrue(VideoActionPolicy.shouldLoad(base.copy(loadFailed = true), "BV1"))
+    }
+
+    @Test
     fun `投币上限_自制2转载1`() {
         assertEquals(2, VideoActionPolicy.maxCoins(1))
         assertEquals(1, VideoActionPolicy.maxCoins(2))

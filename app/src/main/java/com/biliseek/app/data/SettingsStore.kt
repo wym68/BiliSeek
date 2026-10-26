@@ -47,7 +47,7 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     /** Wi-Fi 下的默认画质（B 站 qn），0 = 自动。 */
     val videoQualityWifi: Int = VideoQualityDefaults.WIFI,
-    /** 移动网络下的默认画质。默认 480P——本 App 以听为主，看也要替流量着想。 */
+    /** 移动网络下的默认画质，出厂自动（2026-10-25 用户要求，原为 480P）。 */
     val videoQualityMetered: Int = VideoQualityDefaults.METERED,
     /** 弹幕开关与显示设置（只在全屏显示）。 */
     val danmaku: com.biliseek.app.danmaku.DanmakuSettings = com.biliseek.app.danmaku.DanmakuSettings(),
@@ -62,7 +62,7 @@ data class AppSettings(
 /** 默认画质的出厂值与设置页可选档位。 */
 object VideoQualityDefaults {
     const val WIFI = 0
-    const val METERED = 32
+    const val METERED = 0
 
     /** 设置页可选的档位 (qn, 名字)。0 = 自动。 */
     val CHOICES: List<Pair<Int, String>> = listOf(

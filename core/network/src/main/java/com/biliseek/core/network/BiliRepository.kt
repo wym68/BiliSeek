@@ -2,6 +2,7 @@ package com.biliseek.core.network
 
 import android.util.Log
 import com.biliseek.core.network.dto.PageItem
+import com.biliseek.core.network.dto.PlayUrlData
 import com.biliseek.core.network.dto.PlayerV2Data
 import com.biliseek.core.network.dto.SubtitleBody
 import com.biliseek.core.network.dto.VideoViewInfo
@@ -186,8 +187,13 @@ class BiliRepository internal constructor(
      * 不校验就等于把「跟随任意 302」的能力交给链接的提供者。
      */
     suspend fun expandShortLink(url: String): Result<String> = runCatching {
+        ensureNotCoolingRead()
         val response = api.resolveShortLink(url)
         response.body()?.close()
+        if (response.code() == 412) {
+            riskCooldown.onRiskControl()
+            throw SearchException(SearchError.Blocked, "触发风控（HTTP 412），已进入退避")
+        }
         val finalUrl = response.raw().request.url.toString()
         require(isTrustedBiliHost(finalUrl)) { "短链落点不在 bilibili.com 域内：$finalUrl" }
         finalUrl
@@ -195,18 +201,36 @@ class BiliRepository internal constructor(
 
     /** 分 P 列表。用于判断是否需要展开为歌单。 */
     suspend fun pages(bvid: String): Result<List<PageItem>> = runCatching {
-        authGate.awaitReady()
-        val response = api.getPageList(bvid)
-        require(response.code == 0) { "pagelist 失败：code=${response.code} ${response.message}" }
-        response.data.orEmpty()
+        publicRead("分 P 列表") { api.getPageList(bvid) }.orEmpty()
     }
 
     /** 视频详情。目前只用于播放页"查看作者"在 authorMid 缺失时现查一次兜底。 */
     suspend fun videoView(bvid: String): Result<VideoViewInfo> = runCatching {
+        publicRead("视频详情") { api.getVideoView(bvid) } ?: error("视频详情为空")
+    }
+
+    /**
+     * 取流（`x/player/wbi/playurl`）。[signedParams] 由调用方（`:core:player` 的取流器）WBI 签好。
+     * 失败抛异常：冷却期内快速失败，-352 / HTTP 412 进冷却、不重试，-412 重置凭据。
+     */
+    suspend fun playUrl(signedParams: Map<String, String>): PlayUrlData =
+        publicRead("取流") { api.getPlayUrl(signedParams) } ?: error("playurl 返回 data 为空")
+
+    /**
+     * 公开只读接口（不需登录、不限速）的风控分流：冷却期内快速失败；-352 与 HTTP 412（WAF 拦截）进冷却、
+     * **不重试**；-412 重置设备凭据。10-25 真机：播放页取计数的 `view` 回 HTTP 412，
+     * 而这几个接口原先直连，冷却既不查也不记。
+     */
+    private suspend fun <T> publicRead(what: String, request: suspend () -> BiliResponse<T>): T? {
         authGate.awaitReady()
-        val response = api.getVideoView(bvid)
-        require(response.code == 0) { "视频详情失败：code=${response.code} ${response.message}" }
-        response.data ?: error("视频详情为空")
+        ensureNotCoolingRead()
+        val response = try {
+            request()
+        } catch (e: retrofit2.HttpException) {
+            if (e.code() == 412) riskCooldown.onRiskControl()
+            throw e
+        }
+        return checkMessageRead(response, what)
     }
 
     // ── 收藏夹（M11）──────────────────────────────────────
@@ -657,12 +681,7 @@ class BiliRepository internal constructor(
 
     /** 用户卡片信息（头像、粉丝数等）。无需登录。 */
     suspend fun userCard(mid: Long): Result<SearchUser> = runCatching {
-        authGate.awaitReady()
-        val response = api.userCard(mid)
-        require(response.code == 0) {
-            "获取用户信息失败：code=${response.code} ${response.message}"
-        }
-        val card = response.data?.card
+        val card = publicRead("用户信息") { api.userCard(mid) }?.card
         require(card != null) {
             "获取用户信息失败：card 为空"
         }

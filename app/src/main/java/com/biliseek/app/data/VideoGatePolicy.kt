@@ -14,9 +14,11 @@ enum class VideoGate {
  *
  * 只拦「切看」，**不拦音频**——音频是本 App 的主用途，拦它等于关掉整个 App。
  * 视频码率比音频高一个量级（M0 实测约 160 倍），这条界线画在这里才有意义。
+ * 播的是下载好的视频文件（[playingLocalVideo]）不走流量，不拦。
  */
-fun resolveVideoGate(settings: AppSettings, isMetered: Boolean): VideoGate = when {
+fun resolveVideoGate(settings: AppSettings, isMetered: Boolean, playingLocalVideo: Boolean = false): VideoGate = when {
     !isMetered -> VideoGate.ALLOW
+    playingLocalVideo -> VideoGate.ALLOW
     settings.allowVideoOnMetered -> VideoGate.ALLOW
     else -> VideoGate.BLOCKED_BY_METERED
 }

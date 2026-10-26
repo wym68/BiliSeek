@@ -30,6 +30,8 @@ data class VideoInteractionState(
     /** 发布时间（Unix 秒），0 = 未知。 */
     val pubDate: Long = 0,
     val isLoading: Boolean = false,
+    /** 上次拉取失败（没网等），数字是占位的 0。再进播放页时重拉（[VideoActionPolicy.shouldLoad]）。 */
+    val loadFailed: Boolean = false,
     val busy: Set<VideoAction> = emptySet(),
 )
 
@@ -40,6 +42,13 @@ object VideoActionPolicy {
 
     /** copyright：1 自制 → 2 枚；2 转载 → 1 枚；其他值按自制处理。 */
     fun maxCoins(copyright: Int): Int = if (copyright == 2) 1 else 2
+
+    /**
+     * 播放页展开 / 切歌时要不要拉这个视频的计数。同一视频已拉到或正在拉就不重拉；
+     * 上次失败了要重拉——否则没网时打开过一次，网回来后数字一直是空的，只有切到别的视频才好。
+     */
+    fun shouldLoad(current: VideoInteractionState?, bvid: String): Boolean =
+        current?.bvid != bvid || current.loadFailed
 
     /** 还能投几枚。 */
     fun remainingCoins(state: VideoInteractionState): Int = (state.maxCoins - state.coined).coerceAtLeast(0)

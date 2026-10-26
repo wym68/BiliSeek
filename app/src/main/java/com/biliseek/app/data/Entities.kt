@@ -179,6 +179,8 @@ data class DownloadEntity(
     /** 失败原因，仅 FAILED 时非空 */
     val error: String,
     val downloadedAt: Long,
+    /** 下载画质（B 站 qn，v11），0 = 自动（最高一档）。只音频时不用。排队到取流时才读，所以要落库。 */
+    val videoQn: Int = 0,
 )
 
 /** 下载状态常量。存字符串便于 SQL 过滤（status = 'DONE'）。 */

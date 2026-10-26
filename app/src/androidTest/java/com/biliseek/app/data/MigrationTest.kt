@@ -386,6 +386,35 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun migrate10To11_下载记录加画质列_旧记录为自动() {
+        helper.createDatabase(TEST_DB, 10).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO download (id, bvid, cid, title, author, coverUrl, durationSec,
+                    content, location, safTreeUri, audioFile, videoFile, fileSize,
+                    status, error, downloadedAt)
+                VALUES (1, 'BV1xx411c7mD', 100, '测试下载', '测试UP', '', 233,
+                    'VIDEO', 'PRIVATE', '', '', 'file:///x/1.mp4', 12345,
+                    'DONE', '', 1000)
+                """.trimIndent(),
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            TEST_DB,
+            11,
+            true,
+            BiliSeekDatabase.MIGRATION_10_11,
+        )
+
+        db.query("SELECT title, videoQn FROM download WHERE id = 1").use { cursor ->
+            assertTrue("迁移后下载记录丢失", cursor.moveToFirst())
+            assertEquals("测试下载", cursor.getString(0))
+            assertEquals("旧记录应是自动（0）", 0, cursor.getInt(1))
+        }
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

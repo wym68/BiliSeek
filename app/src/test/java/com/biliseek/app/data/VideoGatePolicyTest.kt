@@ -28,6 +28,11 @@ class VideoGatePolicyTest {
     }
 
     @Test
+    fun `播的是下载好的视频文件 计量网络也放行`() {
+        assertEquals(VideoGate.ALLOW, resolveVideoGate(default, isMetered = true, playingLocalVideo = true))
+    }
+
+    @Test
     fun `用户显式允许后计量网络也放行`() {
         assertEquals(
             VideoGate.ALLOW,

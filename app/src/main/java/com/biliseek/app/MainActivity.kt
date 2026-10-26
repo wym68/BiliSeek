@@ -1254,6 +1254,7 @@ class MainActivity : ComponentActivity() {
                     DownloadDialog(
                         targets = targets,
                         settings = settings,
+                        defaultVideoQuality = remember(targets) { viewModel.defaultDownloadVideoQuality() },
                         onDismiss = {
                             downloadFor = null
                             viewModel.dismissPendingDownload()
