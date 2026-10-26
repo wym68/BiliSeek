@@ -20,6 +20,9 @@ import com.biliseek.core.network.dto.SpaceVideo
 import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.dto.SeriesItem
 import com.biliseek.core.network.dto.SeriesArchive
+import com.biliseek.core.network.dto.SpaceCollectionArchive
+import com.biliseek.core.network.dto.SpaceSeasonMeta
+import com.biliseek.core.network.dto.SpaceSeriesMeta
 import com.biliseek.core.network.dto.CollectedItem
 import com.biliseek.core.network.dto.CollectionSeasonInfo
 import com.biliseek.core.network.dto.CollectionMediaItem
@@ -38,6 +41,7 @@ import com.biliseek.core.network.internal.commentListParams
 import com.biliseek.core.network.internal.runCommentRead
 import com.biliseek.core.network.internal.toCommentPage
 import com.biliseek.core.network.internal.resolveUnreadSummary
+import com.biliseek.core.network.internal.hasMorePages
 import com.biliseek.core.network.internal.RequestThrottle
 import com.biliseek.core.network.internal.RetryAction
 import com.biliseek.core.network.internal.RiskCooldown
@@ -93,6 +97,14 @@ data class CollectedListPage(
 data class CollectionSeasonPage(
     val info: CollectionSeasonInfo,
     val items: List<CollectionMediaItem>,
+    val page: Int,
+    val hasMore: Boolean,
+)
+
+/** UP 空间合集与系列列表的一页（合集、系列按接口原样分两组）。 */
+data class SpaceCollectionsPage(
+    val seasons: List<SpaceSeasonMeta>,
+    val series: List<SpaceSeriesMeta>,
     val page: Int,
     val hasMore: Boolean,
 )
@@ -316,6 +328,75 @@ class BiliRepository internal constructor(
         )
     }
 
+    /** UP 主的合集与系列（一页里合集、系列各一组）。不需登录；统一 WBI 签名、走 FEED 限速桶，不重试。 */
+    suspend fun spaceCollections(
+        mid: Long,
+        page: Int = 1,
+        pageSize: Int = 20,
+    ): Result<SpaceCollectionsPage> = wbiRequest(
+        params = mapOf(
+            "mid" to mid.toString(),
+            "page_num" to page.toString(),
+            "page_size" to pageSize.toString(),
+        ),
+    ) { api.seasonsSeriesList(it) }.map { d ->
+        val lists = d.itemsLists
+        SpaceCollectionsPage(
+            seasons = lists.seasonsList.map { it.meta }.filter { it.seasonId > 0 && it.name.isNotBlank() },
+            series = lists.seriesList.map { it.meta }.filter { it.seriesId > 0 && it.name.isNotBlank() },
+            page = page,
+            hasMore = hasMorePages(page, pageSize, lists.page.total, lists.seasonsList.size + lists.seriesList.size),
+        )
+    }
+
+    /** UP 空间合集的内容，按 UP 主排的顺序。不需登录；统一 WBI 签名、走 FEED 限速桶，不重试。 */
+    suspend fun spaceSeasonArchives(
+        mid: Long,
+        seasonId: Long,
+        page: Int,
+        pageSize: Int = 30,
+    ): Result<SeriesArchivesPage> = wbiRequest(
+        params = mapOf(
+            "mid" to mid.toString(),
+            "season_id" to seasonId.toString(),
+            "sort_reverse" to "false",
+            "page_num" to page.toString(),
+            "page_size" to pageSize.toString(),
+        ),
+    ) { api.seasonArchives(it) }.map { d ->
+        SeriesArchivesPage(
+            items = d.archives.filter { it.bvid.isNotBlank() }.map { it.toSeriesArchive() },
+            page = page,
+            hasMore = hasMorePages(page, pageSize, d.page.total, d.archives.size),
+        )
+    }
+
+    /**
+     * 旧版系列的内容，按发布时间从旧到新（往后播 = 往更新的播；B 站网页默认从新到旧，这里有意不同）。
+     * 不需登录；统一 WBI 签名、走 FEED 限速桶，不重试。
+     */
+    suspend fun seriesArchives(
+        mid: Long,
+        seriesId: Long,
+        page: Int,
+        pageSize: Int = 30,
+    ): Result<SeriesArchivesPage> = wbiRequest(
+        params = mapOf(
+            "mid" to mid.toString(),
+            "series_id" to seriesId.toString(),
+            "only_normal" to "true",
+            "sort" to "asc",
+            "pn" to page.toString(),
+            "ps" to pageSize.toString(),
+        ),
+    ) { api.seriesArchives(it) }.map { d ->
+        SeriesArchivesPage(
+            items = d.archives.filter { it.bvid.isNotBlank() }.map { it.toSeriesArchive() },
+            page = page,
+            hasMore = hasMorePages(page, pageSize, d.page.total, d.archives.size),
+        )
+    }
+
     /** 追更合集内容（分页）。必须登录。 */
     suspend fun collectionSeasonList(
         seasonId: Long,
@@ -338,6 +419,14 @@ class BiliRepository internal constructor(
     private fun requireLoggedInMid(): Long =
         sessionStore.current.dedeUserId.toLongOrNull()
             ?: throw IllegalStateException("需要登录")
+
+    /** UP 空间合集 / 系列的一条 → 列表条目。UP 主由调用方补（接口不带）。 */
+    private fun SpaceCollectionArchive.toSeriesArchive() = SeriesArchive(
+        bvid = bvid,
+        title = title,
+        cover = pic,
+        duration = duration,
+    )
 
     // ── 动态（M11-C）──────────────────────────────────────
 
@@ -1230,11 +1319,18 @@ class BiliRepository internal constructor(
         ) { f, _ -> api.deleteFavoriteFolder(f) }
             .map { }
 
-    /** 取消订阅合集（「列表」页合集分区里的一项）。 */
+    /** 取消订阅合集（「列表 → 合集」内容页、播放页合集弹层）。 */
     suspend fun unfavSeason(seasonId: Long): Result<Unit> =
         writeRequest(
             payload = mapOf("platform" to "web", "season_id" to seasonId.toString()),
         ) { f, _ -> api.unfavSeason(f) }
+            .map { }
+
+    /** 订阅合集（播放页合集弹层）。 */
+    suspend fun favSeason(seasonId: Long): Result<Unit> =
+        writeRequest(
+            payload = mapOf("platform" to "web", "season_id" to seasonId.toString()),
+        ) { f, _ -> api.favSeason(f) }
             .map { }
 
     /** 一键三连。 */

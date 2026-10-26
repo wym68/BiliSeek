@@ -32,6 +32,8 @@ import com.biliseek.core.network.dto.UserSearchData
 import com.biliseek.core.network.dto.UserCardData
 import com.biliseek.core.network.dto.SpaceArchiveData
 import com.biliseek.core.network.dto.WatchLaterData
+import com.biliseek.core.network.dto.SeasonArchivesData
+import com.biliseek.core.network.dto.SeasonsSeriesListData
 import com.biliseek.core.network.dto.SeriesArchivesData
 import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.SeriesItem
@@ -322,13 +324,17 @@ interface BiliApi {
         @Query("platform") platform: String = "web",
     ): BiliResponse<CollectedListData>
 
-    /** 合集内容（分页）。 */
+    /** 旧版系列的内容（分页）。参数由调用方签好 WBI 后整体传入。 */
     @GET("x/series/archives")
-    suspend fun seriesArchives(
-        @Query("series_id") seriesId: Long,
-        @Query("pn") pn: Int,
-        @Query("ps") ps: Int = 20,
-    ): BiliResponse<SeriesArchivesData>
+    suspend fun seriesArchives(@QueryMap params: Map<String, String>): BiliResponse<SeriesArchivesData>
+
+    /** UP 主的合集与系列列表（分页）。参数由调用方签好 WBI 后整体传入。 */
+    @GET("x/polymer/web-space/seasons_series_list")
+    suspend fun seasonsSeriesList(@QueryMap params: Map<String, String>): BiliResponse<SeasonsSeriesListData>
+
+    /** UP 空间合集的内容（分页）。参数由调用方签好 WBI 后整体传入。 */
+    @GET("x/polymer/web-space/seasons_archives_list")
+    suspend fun seasonArchives(@QueryMap params: Map<String, String>): BiliResponse<SeasonArchivesData>
 
     /** 追更合集内容（分页）。 */
     @GET("x/space/fav/season/list")
@@ -473,6 +479,13 @@ interface BiliApi {
     @FormUrlEncoded
     @POST("x/v3/fav/season/unfav")
     suspend fun unfavSeason(
+        @FieldMap fields: Map<String, String>,          // platform(web), season_id, csrf
+    ): BiliResponse<JsonElement>
+
+    /** 订阅合集。 */
+    @FormUrlEncoded
+    @POST("x/v3/fav/season/fav")
+    suspend fun favSeason(
         @FieldMap fields: Map<String, String>,          // platform(web), season_id, csrf
     ): BiliResponse<JsonElement>
 
