@@ -556,6 +556,7 @@ class MainActivity : ComponentActivity() {
                             onSetSubscribed = { collection, subscribe ->
                                 viewModel.collections.setSubscribed(collection.seasonId, collection.title, subscribe)
                             },
+                            onQueueCollection = viewModel.collections::queueEpisodesAround,
                         )
                     },
                     isLoggedIn = session.isLoggedIn,

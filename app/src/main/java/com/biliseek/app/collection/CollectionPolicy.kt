@@ -71,6 +71,13 @@ object CollectionPolicy {
         return bvid != playingBvid
     }
 
+    /**
+     * 「点正在播的那一集」把合集放进列表之后的提示。替换掉 2 项以上时播放器自己会弹
+     * 「已替换队列中的 N 项 · 撤销」（与 `:core:player` 的 shouldOfferUndo 同一门槛），这里不再重复。
+     */
+    fun adoptMessage(title: String, lost: Int): String? =
+        if (lost >= 2) null else "已把「$title」放进播放列表"
+
     /** UP 空间一页 → 「合集」视图的行：合集在前、系列在后。 */
     fun spaceCollections(page: SpaceCollectionsPage, mid: Long, upName: String): List<SpaceCollection> =
         page.seasons.map {

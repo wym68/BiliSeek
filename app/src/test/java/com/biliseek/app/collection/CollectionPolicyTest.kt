@@ -111,6 +111,13 @@ class CollectionPolicyTest {
     }
 
     @Test
+    fun `放进列表的提示 替换掉两项以上时由撤销提示代替`() {
+        assertEquals("已把「合集甲」放进播放列表", CollectionPolicy.adoptMessage("合集甲", lost = 0))
+        assertEquals("已把「合集甲」放进播放列表", CollectionPolicy.adoptMessage("合集甲", lost = 1))
+        assertNull(CollectionPolicy.adoptMessage("合集甲", lost = 2))
+    }
+
+    @Test
     fun `合集封面 没有时用第一集的`() {
         val noCover = CollectionPolicy.fromView(view("BV1", UgcSection(episodes = listOf(ep("BV1"), ep("BV2")))))!!
         assertEquals("//i0/BV1.jpg", noCover.cover)

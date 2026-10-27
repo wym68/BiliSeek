@@ -554,6 +554,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
             }
         },
+        adoptList = { items, index -> connection.adoptContext(items, index) },
         notify = { emitMessage(it) },
         // videoInteraction 在后面才声明；这里的 lambda 只在订阅成功后才调，那时早已初始化
         onSubscriptionChanged = { seasonId, subscribed -> videoInteraction.markSeasonSubscribed(seasonId, subscribed) },

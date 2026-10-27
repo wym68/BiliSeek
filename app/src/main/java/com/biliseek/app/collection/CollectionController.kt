@@ -33,6 +33,8 @@ class CollectionController(
     private val repository: BiliRepository,
     private val session: StateFlow<BiliSession>,
     private val playList: ListPlayer,
+    /** 把一串内容换成列表里的临时块、不重新起播（宿主转给 PlayerConnection.adoptContext）；没换返回 null。 */
+    private val adoptList: (items: List<PlaybackRequest>, index: Int) -> Int?,
     private val notify: (String) -> Unit,
     private val onSubscriptionChanged: (seasonId: Long, subscribed: Boolean) -> Unit,
 ) {
@@ -192,6 +194,16 @@ class CollectionController(
     fun playEpisodes(collection: VideoCollection, index: Int) {
         if (index !in collection.episodes.indices) return
         playList.play(collection.episodes.map { it.toRequest() }, index, loadMore = null)
+    }
+
+    /**
+     * 合集弹层里点正在播的那一集：整个合集换成列表里的临时块，当前这集不重新起播（docs/10）。
+     * 替换掉 2 项以上时播放器自己弹「已替换… · 撤销」，否则这里提示已放进列表。
+     */
+    fun queueEpisodesAround(collection: VideoCollection, index: Int) {
+        if (index !in collection.episodes.indices) return
+        val lost = adoptList(collection.episodes.map { it.toRequest() }, index) ?: return
+        CollectionPolicy.adoptMessage(collection.title, lost)?.let(notify)
     }
 
     // ── 订阅 / 取消订阅 ──

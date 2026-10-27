@@ -311,6 +311,7 @@ fun PlayerScreen(
                 accent = activeColor,
                 onPlayEpisode = { index -> collectionHandlers.onPlayEpisode(collection, index) },
                 onSetSubscribed = { subscribe -> collectionHandlers.onSetSubscribed(collection, subscribe) },
+                onQueueCollection = { index -> collectionHandlers.onQueueCollection(collection, index) },
                 onDismiss = { showCollectionSheet = false },
             )
         }

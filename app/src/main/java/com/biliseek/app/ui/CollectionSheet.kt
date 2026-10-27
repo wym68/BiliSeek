@@ -56,6 +56,8 @@ import com.biliseek.designsystem.theme.BsSpacing
 data class CollectionSheetHandlers(
     val onPlayEpisode: (VideoCollection, Int) -> Unit = { _, _ -> },
     val onSetSubscribed: (VideoCollection, Boolean) -> Unit = { _, _ -> },
+    /** 点正在播的那一集：不重新播，把整个合集放进播放列表。 */
+    val onQueueCollection: (VideoCollection, Int) -> Unit = { _, _ -> },
 )
 
 /**
@@ -104,7 +106,7 @@ internal fun CollectionEntryRow(
 
 /**
  * 合集弹层：标题区（合集名、共 N 集、订阅按钮）+ 全部集数（多个小节时带小节标题），打开时滚到当前这集。
- * 点某一集：是正在播的就只关弹层，否则从这一集起播整个合集再关弹层。点「已订阅」先确认。
+ * 点某一集：是正在播的就不重新播、把整个合集放进播放列表，否则从这一集起播整个合集；两种都关弹层。点「已订阅」先确认。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,6 +120,7 @@ internal fun CollectionSheet(
     accent: Color,
     onPlayEpisode: (Int) -> Unit,
     onSetSubscribed: (Boolean) -> Unit,
+    onQueueCollection: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val rows = remember(collection) { CollectionPolicy.sheetRows(collection) }
@@ -196,6 +199,8 @@ internal fun CollectionSheet(
                         onClick = {
                             if (CollectionPolicy.shouldPlayEpisode(collection, row.index, playingBvid)) {
                                 onPlayEpisode(row.index)
+                            } else {
+                                onQueueCollection(row.index)
                             }
                             onDismiss()
                         },
