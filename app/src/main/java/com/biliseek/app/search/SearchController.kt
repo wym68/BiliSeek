@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
  *
  * 从 AppViewModel 拆出，由 `AppViewModel.search` 持有；生命周期挂在宿主的 [scope] 上。
  * 直达播放经 [play] 回到宿主。
- * 多 P 面板是宿主的独立状态（PagePanelState）；新一轮搜索时经 [onNewSearch] 通知宿主收起。
+ * 多 P 面板是宿主的独立状态（PagePanelState）；新一轮搜索、清空搜索框时经 [onNewSearch] 通知宿主收起。
  */
 class SearchController(
     private val scope: CoroutineScope,
@@ -49,11 +49,14 @@ class SearchController(
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun onKeywordChange(text: String) {
-        // 清空搜索框即回到首页空状态：结果一并清掉，否则会停留在上次的列表上
-        _search.value = if (text.isBlank()) {
-            SearchUiState()
+        // 清空搜索框即回到首页空状态：结果一并清掉，否则会停留在上次的列表上。
+        // 多 P 面板也属于这次结果，一并收起：它只在有关键词时画出来，留着不收就成了看不见的面板，
+        // 首页又因「面板开着」不显示，整页空白（2026-10-27 真机：面板开着时点 × 清空搜索框）。
+        if (text.isBlank()) {
+            onNewSearch()
+            _search.value = SearchUiState()
         } else {
-            _search.value.copy(keyword = text)
+            _search.value = _search.value.copy(keyword = text)
         }
     }
 

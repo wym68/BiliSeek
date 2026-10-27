@@ -1388,8 +1388,8 @@ return pages.map { p ->
         repository = network.repository,
         library = library,
         play = ::play,
-        // 新一轮搜索收起多 P 面板（原先是搜索第 1 页时顺手清掉 SearchUiState.pages）
-        onNewSearch = { _pagePanel.value = PagePanelState() },
+        // 新一轮搜索、清空搜索框都收起多 P 面板并退出分 P 复选（原先是搜索第 1 页时顺手清掉 SearchUiState.pages）
+        onNewSearch = { dismissPages() },
         openEraPage = charts::openEraPage,
     )
 
