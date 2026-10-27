@@ -126,9 +126,13 @@ interface BiliApi {
     @GET("x/player/pagelist")
     suspend fun getPageList(@Query("bvid") bvid: String): BiliResponse<List<PageItem>>
 
-    /** 视频详情。公开只读接口，无需 WBI 签名。 */
-    @GET("x/web-interface/view")
-    suspend fun getVideoView(@Query("bvid") bvid: String): BiliResponse<VideoViewInfo>
+    /**
+     * 视频详情（WBI 签名，参数由调用方签好后整体传入）。
+     * 不签名的 `x/web-interface/view` 2026-10 真机上多次被安全网关 HTTP 412 拦下（同时刻签名的 playurl 正常），
+     * 网页版现在也走这条带签名的路径。
+     */
+    @GET("x/web-interface/wbi/view")
+    suspend fun getVideoView(@QueryMap params: Map<String, String>): BiliResponse<VideoViewInfo>
 
     /**
      * 取流地址。参数需 WBI 签名，用 [WbiSigner.sign] 在调用点签好后整表传入。
