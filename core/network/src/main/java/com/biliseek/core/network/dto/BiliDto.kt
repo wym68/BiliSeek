@@ -428,7 +428,10 @@ data class SpaceSeasonItem(
 @Serializable
 data class SpaceSeasonMeta(
     @SerialName("season_id") val seasonId: Long = 0,
+    /** 真实返回带「合集·」前缀；显示用 [title]。 */
     val name: String = "",
+    /** 干净的合集名（没有前缀）；缺了才退回 [name]。 */
+    val title: String = "",
     val cover: String = "",
     /** 视频数。 */
     val total: Int = 0,

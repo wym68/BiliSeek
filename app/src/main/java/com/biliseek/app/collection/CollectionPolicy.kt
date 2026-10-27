@@ -101,7 +101,8 @@ object CollectionPolicy {
     /** UP 空间一页 → 「合集」视图的行：合集在前、系列在后。 */
     fun spaceCollections(page: SpaceCollectionsPage, mid: Long, upName: String): List<SpaceCollection> =
         page.seasons.map {
-            SpaceCollection(CollectionRef.Season(mid, it.seasonId, upName), it.name, it.cover, it.total)
+            // 合集的 name 带「合集·」前缀，用 title；系列只有 name、不带前缀
+            SpaceCollection(CollectionRef.Season(mid, it.seasonId, upName), it.title.ifBlank { it.name }, it.cover, it.total)
         } + page.series.map {
             SpaceCollection(CollectionRef.Series(mid, it.seriesId, upName), it.name, it.cover, it.total)
         }

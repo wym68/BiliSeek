@@ -177,6 +177,24 @@ class CollectionPolicyTest {
     }
 
     @Test
+    fun `UP 空间合集名用 title 不带合集前缀 没有 title 时退回 name`() {
+        // 真实的 seasons_series_list：meta.name 是「合集·…」，meta.title 才是干净的名字（2026-10-27 真机日志）
+        val page = SpaceCollectionsPage(
+            seasons = listOf(
+                SpaceSeasonMeta(seasonId = 1, name = "合集·女工100天双线毕业开荒流程", title = "女工100天双线毕业开荒流程"),
+                SpaceSeasonMeta(seasonId = 2, name = "合集乙"),
+            ),
+            series = emptyList(),
+            page = 1,
+            hasMore = false,
+        )
+        assertEquals(
+            listOf("女工100天双线毕业开荒流程", "合集乙"),
+            CollectionPolicy.spaceCollections(page, mid = 9, upName = "UP甲").map { it.name },
+        )
+    }
+
+    @Test
     fun `内容页副标题写总集数和顺序 总数未知写已加载条数`() {
         assertEquals("共 36 集 · 正序", CollectionPolicy.sortSubtitle(total = 36, loaded = 30, reversed = false))
         assertEquals("共 36 集 · 倒序", CollectionPolicy.sortSubtitle(total = 36, loaded = 30, reversed = true))

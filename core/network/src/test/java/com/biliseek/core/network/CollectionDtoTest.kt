@@ -304,6 +304,7 @@ class CollectionDtoTest {
         assertEquals(21, lists.page.total)
         assertEquals(9258948L, lists.seasonsList.single().meta.seasonId)
         assertEquals("合集·女工100天双线毕业开荒流程", lists.seasonsList.single().meta.name)
+        assertEquals("女工100天双线毕业开荒流程", lists.seasonsList.single().meta.title)
         assertEquals(9, lists.seasonsList.single().meta.total)
         assertEquals(1301773957L, lists.seasonsList.single().meta.mid)
         assertTrue(lists.seriesList.isEmpty())
