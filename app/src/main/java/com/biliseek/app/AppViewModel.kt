@@ -985,11 +985,17 @@ return pages.map { p ->
 
     // ── 合集内容页的复选与动作 ──────────────────────────
 
+    private val _collectionSelectionSlot = MutableStateFlow<CollectionSlot?>(null)
+
+    /** 合集多选是在哪个内容页里进的：两页共用 [collectionSelection]，另一页不显示勾选。 */
+    val collectionSelectionSlot: StateFlow<CollectionSlot?> = _collectionSelectionSlot.asStateFlow()
+
     /** 合集内容页长按进多选（与其他复选互斥）。 */
-    fun enterCollectionSelection(bvid: String) {
+    fun enterCollectionSelection(slot: CollectionSlot, bvid: String) {
         exitSelectionMode()
         pageSelection.exit()
         upSelection.exit()
+        _collectionSelectionSlot.value = slot
         collectionSelection.enter(bvid)
     }
 

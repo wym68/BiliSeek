@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -100,12 +101,16 @@ class CollectionController(
     val openedInUpSpace: StateFlow<RemoteListState<SeriesArchive>?> =
         slots.getValue(CollectionSlot.UP_SPACE).asStateFlow()
 
+    /** 每个槽的代数：打开 / 切顺序 / 关掉时加一；晚回来的旧结果代数对不上就丢（只比 id 分不清来回切了两次）。 */
+    private val generations = IntArray(CollectionSlot.entries.size)
+
     private fun slot(slot: CollectionSlot) = slots.getValue(slot)
 
     private fun RemoteListState<*>.ref(): CollectionRef? = (id as? TrackListId.Collection)?.ref
 
     /** 打开合集内容页并取第 1 页。 */
     fun open(slot: CollectionSlot, ref: CollectionRef, title: String) {
+        generations[slot.ordinal]++
         slot(slot).value = RemoteListState(id = TrackListId.Collection(ref), title = title)
         loadPage(slot, 1)
     }
@@ -121,6 +126,7 @@ class CollectionController(
     }
 
     fun close(slot: CollectionSlot) {
+        generations[slot.ordinal]++
         slot(slot).value = null
     }
 
@@ -130,21 +136,24 @@ class CollectionController(
         val state = target.value ?: return
         val id = state.id as? TrackListId.Collection ?: return
         if (!CollectionPolicy.canSort(id.ref)) return
+        generations[slot.ordinal]++
         target.value = RemoteListState(id = id.copy(reversed = !id.reversed), title = state.title, total = state.total)
         loadPage(slot, 1)
     }
 
     /** 这些视频的本地播放记录（按 bvid 取最近一条），合集标「已听」与「继续听」用。 */
     fun historyOf(bvids: List<String>): Flow<Map<String, EpisodeHistory>> =
-        library.observeHistory(bvids).map(EpisodeProgressPolicy::latestByBvid)
+        // 没打开内容页时 bvids 为空：不查库（根部两份流一直在跑，播放中每 5 秒写一次 play_history 就会白查一次）
+        if (bvids.isEmpty()) flowOf(emptyMap()) else library.observeHistory(bvids).map(EpisodeProgressPolicy::latestByBvid)
 
-    /** 加载内容第 [page] 页。结果回来时页面已换成别的合集（或换了顺序）就丢掉。 */
+    /** 加载内容第 [page] 页。结果回来时页面已换成别的合集、换了顺序或重开过就丢掉。 */
     fun loadPage(slot: CollectionSlot, page: Int) {
         val target = slot(slot)
         val state = target.value ?: return
         val id = state.id as? TrackListId.Collection ?: return
         if (state.isLoading || state.isLoadingMore) return
         if (page > 1 && !state.hasMore) return
+        val gen = generations[slot.ordinal]
         scope.launch {
             val loadingMore = page > 1
             target.value = state.copy(
@@ -155,7 +164,7 @@ class CollectionController(
             fetchPage(id.ref, page, id.reversed)
                 .onSuccess { result ->
                     val base = target.value ?: return@onSuccess
-                    if (base.id != id) return@onSuccess
+                    if (generations[slot.ordinal] != gen) return@onSuccess
                     val existing = if (loadingMore) base.items else emptyList()
                     target.value = base.copy(
                         // 列表 key 是 bvid：重复的去掉，免得 LazyColumn 撞 key
@@ -169,7 +178,7 @@ class CollectionController(
                 }
                 .onFailure {
                     val base = target.value ?: return@onFailure
-                    if (base.id != id) return@onFailure
+                    if (generations[slot.ordinal] != gen) return@onFailure
                     target.value = base.copy(
                         isLoading = false,
                         isLoadingMore = false,
@@ -293,8 +302,7 @@ class CollectionController(
                 it.copy(totalCount = (it.totalCount - 1).coerceAtLeast(0))
             }
         }
-        val librarySlot = slot(CollectionSlot.LIBRARY)
-        if ((librarySlot.value?.ref() as? CollectionRef.Subscribed)?.seasonId == seasonId) librarySlot.value = null
+        if ((slot(CollectionSlot.LIBRARY).value?.ref() as? CollectionRef.Subscribed)?.seasonId == seasonId) close(CollectionSlot.LIBRARY)
     }
 
     private fun CollectionMediaItem.toArchive() = SeriesArchive(

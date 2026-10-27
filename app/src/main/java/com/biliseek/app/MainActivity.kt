@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -251,6 +252,7 @@ class MainActivity : ComponentActivity() {
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
                 val collectionSelectionActive by viewModel.collectionSelection.active.collectAsState()
                 val collectionSelected by viewModel.collectionSelection.selected.collectAsState()
+                val collectionSelectionSlot by viewModel.collectionSelectionSlot.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val danmakuItems by viewModel.danmakuItems.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
@@ -270,10 +272,10 @@ class MainActivity : ComponentActivity() {
                     viewModel.collections.historyOf(upSpaceCollection?.items?.map { it.bvid }.orEmpty())
                 }.collectAsState(emptyMap())
                 fun collectionSelectionUi(slot: CollectionSlot) = com.biliseek.app.ui.CollectionSelectionUi(
-                    active = collectionSelectionActive,
-                    selected = collectionSelected,
+                    active = collectionSelectionActive && collectionSelectionSlot == slot,
+                    selected = if (collectionSelectionSlot == slot) collectionSelected else emptySet(),
                     isLoggedIn = session.isLoggedIn,
-                    onEnter = viewModel::enterCollectionSelection,
+                    onEnter = { viewModel.enterCollectionSelection(slot, it) },
                     onToggle = viewModel.collectionSelection::toggle,
                     onSelectAll = { viewModel.selectAllCollection(slot) },
                     onClear = viewModel.collectionSelection::clear,
@@ -993,8 +995,9 @@ class MainActivity : ComponentActivity() {
                     },
                     upSpaceContent = { onBack ->
                         BackHandler(onBack = { viewModel.upSpace.closeUpSpace(); onBack() })
-                        // 列表状态放在 if 外面：合集内容页盖上来时 UpSpaceScreen 不在组合里，状态仍留着，关掉后列表回到原位
-                        val upCollectionsListState = remember(upSpace.up?.mid) { LazyListState() }
+                        // 列表状态放在 if 外面：合集内容页盖上来时 UpSpaceScreen 不在组合里，状态仍留着，关掉后列表回到原位；
+                        // 用 rememberSaveable：普通 remember 进不了 NavHost 的 SaveableStateHolder，去播放页 / 切底部 tab 回来就回到顶部了
+                        val upCollectionsListState = rememberSaveable(upSpace.up?.mid, saver = LazyListState.Saver) { LazyListState() }
                         val openedUpCollection = upSpaceCollection
                         if (openedUpCollection != null) {
                             // UP 空间里点开的合集 / 系列：盖在空间页上；返回先关它（后注册的 BackHandler 优先）
