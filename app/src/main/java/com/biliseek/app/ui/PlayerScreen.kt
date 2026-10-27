@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -127,6 +125,13 @@ fun PlayerScreen(
     val isAudio = state.presentation == PresentationMode.NONE
     val boundInteraction = interaction?.takeIf { it.bvid == state.bvid }
     val activeColor = accent.accent ?: MaterialTheme.colorScheme.primary
+    val switchMode = {
+        if (isAudio) {
+            onPresentationChange(PresentationMode.INLINE, surfaceView)
+        } else {
+            onPresentationChange(PresentationMode.NONE, null)
+        }
+    }
     // 只有播放页展开时才绑定（= 才可能发互动读请求）；纯听后台不会走到这里
     LaunchedEffect(state.bvid) { interactionHandlers.onBind(state.bvid) }
 
@@ -148,11 +153,10 @@ fun PlayerScreen(
             Box(Modifier.fillMaxSize().background(scrim))
         }
 
-        // 顶部栏 → CoverArea → 标题/互动栏/简介行 → 进度条/控制行/听看开关，统一放进同一条纵向流里、
-        // 始终显示——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
+        // 顶部栏（收起 · 听 | 看 · 小窗 / 菜单）→ CoverArea → 中段（占满剩余高度）→ 倍速 / 定时标签（设了值才有）→ 进度条 → 控制行，
+        // 统一放进同一条纵向流里——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
         // 不再各自作为 Box 的平级子项——否则它们会叠在一起画（曾经的重叠 bug）。
-        // 中段（标题/互动栏/简介行）按内容高度排，进度条与控制行紧跟其后——简介正文不在页面上占地方（点「简介」弹层看），
-        // 控制行因此上提，屏幕下方留空；屏幕矮、放不下时中段被压矮并可滑动，封面与控制行始终在。
+        // 进度条与控制行沉在页面底部；倍速 / 定时入口在三点菜单（设计稿 2026-10-27-player-layout-and-collection-queue-design.md）。
         Column(
             Modifier
                 .fillMaxSize()
@@ -160,6 +164,8 @@ fun PlayerScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             PlayerTopBar(
+                isAudioMode = isAudio,
+                onSwitchMode = switchMode,
                 onCollapse = onCollapse,
                 onOpenMenu = { showMenu = true },
                 // 小窗只对看模式有意义：纯听本来就能在后台放
@@ -180,13 +186,13 @@ fun PlayerScreen(
                 frozenFrame = frozenFrame,
             )
 
-            // 换视频时滚动位置回到顶部
+            // 中段占满封面与底部控制块之间的空间；顺序：标题 → 互动栏 → 合集卡片 → 简介行 → 简介预览（填满剩下的高度）。
+            // 不再整体滚动：多出来的高度都给简介预览，屏幕特别矮时预览先缩到 0 行。换视频时整块重建。
             key(state.bvid) {
                 Column(
                     Modifier
-                        .weight(1f, fill = false)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .weight(1f)
+                        .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
@@ -207,6 +213,13 @@ fun PlayerScreen(
                         hasSummary = hasSummary,
                     )
 
+                    boundInteraction?.collection?.let { collection ->
+                        CollectionEntryRow(
+                            collection = collection,
+                            onOpen = { showCollectionSheet = true },
+                        )
+                    }
+
                     boundInteraction?.let { info ->
                         VideoDescriptionRow(
                             desc = info.desc,
@@ -215,16 +228,22 @@ fun PlayerScreen(
                             linkColor = activeColor,
                             onOpen = { showDescriptionSheet = true },
                         )
-                    }
-
-                    boundInteraction?.collection?.let { collection ->
-                        CollectionEntryRow(
-                            collection = collection,
-                            onOpen = { showCollectionSheet = true },
-                        )
+                        if (VideoDescriptionPolicy.shouldShow(info.desc)) {
+                            VideoDescriptionPreview(
+                                desc = info.desc,
+                                onOpen = { showDescriptionSheet = true },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
+
+            PlayerStatusChips(
+                state = state,
+                onOpenSpeed = { showSpeedSheet = true },
+                onOpenTimer = { showTimerSheet = true },
+            )
 
             ProgressBar(state, onSeek)
 
@@ -238,20 +257,6 @@ fun PlayerScreen(
                 onOpenQueue = onOpenQueue,
                 hasPrevious = state.hasPrevious,
                 hasNext = state.hasNext,
-            )
-
-            PlayerSwitchRow(
-                state = state,
-                isAudioMode = isAudio,
-                onSwitchMode = {
-                    if (isAudio) {
-                        onPresentationChange(PresentationMode.INLINE, surfaceView)
-                    } else {
-                        onPresentationChange(PresentationMode.NONE, null)
-                    }
-                },
-                onOpenSpeed = { showSpeedSheet = true },
-                onOpenTimer = { showTimerSheet = true },
             )
 
             state.error?.let {
@@ -321,10 +326,12 @@ fun PlayerScreen(
 }
 
 /**
- * 播放页顶部栏：收起 + 标题 + （看模式）小窗 + 三点菜单。
+ * 播放页顶部栏：左收起，正中听 | 看开关（2026-10-27 起取代「正在播放」），右边（看模式）小窗 + 三点菜单。
  */
 @Composable
 private fun PlayerTopBar(
+    isAudioMode: Boolean,
+    onSwitchMode: () -> Unit,
     onCollapse: () -> Unit,
     onOpenMenu: () -> Unit,
     onEnterPip: (() -> Unit)?,
@@ -339,7 +346,7 @@ private fun PlayerTopBar(
         IconButton(onClick = onCollapse, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "收起")
         }
-        Text("正在播放", style = MaterialTheme.typography.titleSmall)
+        ListenWatchSwitch(isAudioMode, onSwitchMode)
         Row(Modifier.align(Alignment.CenterEnd)) {
             if (onEnterPip != null) {
                 IconButton(onClick = onEnterPip) {

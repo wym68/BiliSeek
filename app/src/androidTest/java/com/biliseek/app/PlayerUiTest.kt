@@ -2,11 +2,13 @@ package com.biliseek.app
 
 import android.view.SurfaceView
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.longClick
@@ -172,7 +174,8 @@ class PlayerUiTest {
     fun 播放页_听模式显示顶部栏与听看开关_停在听() {
         setPlayerScreen(playingState)
 
-        compose.onNodeWithText("正在播放").assertIsDisplayed()
+        compose.onNodeWithContentDescription("收起").assertIsDisplayed()
+        compose.onNodeWithText("正在播放").assertDoesNotExist()
         compose.onNodeWithText("听").assertIsDisplayed().assertIsSelected()
         compose.onNodeWithText("看").assertIsDisplayed().assertIsNotSelected()
         compose.onNodeWithText("退回听").assertDoesNotExist()
@@ -199,47 +202,54 @@ class PlayerUiTest {
         check(cycled == 1) { "点播放模式按钮应回调一次：$cycled" }
     }
 
-    // ── 播放页：倍速与定时胶囊 ───────────────────────────
+    // ── 播放页：倍速与定时（入口在三点菜单，设了值进度条上方出标签）──
 
     @Test
-    fun 播放页_正常速度时胶囊写倍速_点开是倍速档位() {
+    fun 播放页_正常速度且没设定时_页面上没有倍速定时标签() {
         setPlayerScreen(playingState)
 
+        compose.onNodeWithText("倍速").assertDoesNotExist()
+        compose.onNodeWithText("定时").assertDoesNotExist()
+    }
+
+    @Test
+    fun 播放页_三点菜单里点倍速是倍速档位() {
+        setPlayerScreen(playingState)
+
+        compose.onNodeWithContentDescription("菜单").performClick()
         compose.onNodeWithText("倍速").assertIsDisplayed().performClick()
         compose.onNodeWithText("倍速播放").assertIsDisplayed()
     }
 
     @Test
-    fun 播放页_调过倍速后胶囊写当前档位() {
-        setPlayerScreen(playingState.copy(speed = 1.5f))
-
-        compose.onNodeWithText("1.5×").assertIsDisplayed()
-        compose.onNodeWithText("倍速").assertDoesNotExist()
-    }
-
-    @Test
-    fun 播放页_没设定时写定时_点开是定时选项() {
+    fun 播放页_三点菜单里点定时是定时选项() {
         setPlayerScreen(playingState)
 
+        compose.onNodeWithContentDescription("菜单").performClick()
         compose.onNodeWithText("定时").assertIsDisplayed().performClick()
         compose.onNodeWithText("定时关闭").assertIsDisplayed()
         compose.onNodeWithText("播完当前").assertIsDisplayed()
     }
 
     @Test
-    fun 播放页_设了定时后胶囊写剩余时间() {
-        setPlayerScreen(playingState.copy(sleepTimerRemainingMs = 1_720_000))
+    fun 播放页_调过倍速后进度条上方出现当前档位标签() {
+        setPlayerScreen(playingState.copy(speed = 1.5f))
 
-        compose.onNodeWithText("28:40").assertIsDisplayed()
-        compose.onNodeWithText("定时").assertDoesNotExist()
+        compose.onNodeWithText("1.5×").assertIsDisplayed()
     }
 
     @Test
-    fun 播放页_选了播完当前胶囊写播完当前() {
+    fun 播放页_设了定时后出现剩余时间标签() {
+        setPlayerScreen(playingState.copy(sleepTimerRemainingMs = 1_720_000))
+
+        compose.onNodeWithText("28:40").assertIsDisplayed()
+    }
+
+    @Test
+    fun 播放页_选了播完当前出现播完当前标签() {
         setPlayerScreen(playingState.copy(sleepTimerEndOfTrack = true))
 
         compose.onNodeWithText("播完当前").assertIsDisplayed()
-        compose.onNodeWithText("定时").assertDoesNotExist()
     }
 
     // ── 播放页：看模式长按画面临时加速 ─────────────────────
@@ -285,8 +295,10 @@ class PlayerUiTest {
         )
 
         compose.onNodeWithText("简介").assertIsDisplayed()
+        // 页面上的简介预览也显示这段正文（放得下几行取决于屏幕高度），所以数个数：点开后多出弹层里那一份
+        val shownBefore = compose.onAllNodesWithText("这是简介正文").fetchSemanticsNodes().size
         compose.onNodeWithText("展开").assertIsDisplayed().assertHasClickAction().performClick()
-        compose.onNodeWithText("这是简介正文").assertIsDisplayed()
+        compose.onAllNodesWithText("这是简介正文").assertCountEquals(shownBefore + 1)
     }
 
     @Test
@@ -322,7 +334,7 @@ class PlayerUiTest {
     fun 播放页_看模式顶部栏常显且有全屏入口_开关停在看() {
         setPlayerScreen(playingState.copy(presentation = PresentationMode.INLINE))
 
-        compose.onNodeWithText("正在播放").assertIsDisplayed()
+        compose.onNodeWithContentDescription("收起").assertIsDisplayed()
         compose.onNodeWithText("看").assertIsSelected()
         compose.onNodeWithText("听").assertIsNotSelected()
         compose.onNodeWithContentDescription("全屏").assertIsDisplayed()

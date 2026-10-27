@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -43,58 +42,12 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.core.player.PlaybackState
 
 /**
- * 播放页控制行下面的一排：倍速胶囊 · 听 | 看开关 · 定时胶囊。
+ * 听 | 看开关：分段胶囊，选中的一段填主色。放在播放页顶栏正中（2026-10-27 起，取代「正在播放」几个字）。
  *
- * 开关始终在正中（与上面的播放键对齐）；两边的胶囊各占一半剩余宽度、紧贴开关，所以左右对称。
- * 点倍速 / 定时胶囊弹出现有的倍速 / 定时弹层（三点菜单里也有同样的入口）。
+ * 一眼看得出现在是听还是看；点已选中的一段不做事。顶栏用紧凑尺寸：高 32dp。
  */
 @Composable
-internal fun PlayerSwitchRow(
-    state: PlaybackState,
-    isAudioMode: Boolean,
-    onSwitchMode: () -> Unit,
-    onOpenSpeed: () -> Unit,
-    onOpenTimer: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val speedActive = !isSameSpeed(state.speed, 1.0f)
-    val speedLabel = speedButtonLabel(state.speed)
-    val timerActive = state.sleepTimerActive
-    val timerLabel = sleepTimerChipLabel(state.sleepTimerRemainingMs, state.sleepTimerEndOfTrack)
-
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-            PlayerChip(
-                icon = Icons.Filled.Speed,
-                label = speedLabel,
-                active = speedActive,
-                onClick = onOpenSpeed,
-                modifier = Modifier.padding(end = 8.dp),
-                description = if (speedActive) "倍速 $speedLabel" else null,
-            )
-        }
-        ListenWatchSwitch(isAudioMode, onSwitchMode)
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            PlayerChip(
-                icon = Icons.Filled.Timer,
-                label = timerLabel,
-                active = timerActive,
-                onClick = onOpenTimer,
-                modifier = Modifier.padding(start = 8.dp),
-                description = if (timerActive) "定时关闭 $timerLabel" else null,
-            )
-        }
-    }
-}
-
-/**
- * 听 | 看开关：分段胶囊，选中的一段填主色。
- *
- * 一眼看得出现在是听还是看；切换后换到另一段，不再用「看 / 退回听」这种一个按状态、一个按动作的文字。
- * 点已选中的一段不做事。
- */
-@Composable
-private fun ListenWatchSwitch(isAudioMode: Boolean, onSwitchMode: () -> Unit) {
+internal fun ListenWatchSwitch(isAudioMode: Boolean, onSwitchMode: () -> Unit, modifier: Modifier = Modifier) {
     val haptic = LocalHapticFeedback.current
     fun switchTo(audio: Boolean) {
         if (audio == isAudioMode) return
@@ -103,10 +56,10 @@ private fun ListenWatchSwitch(isAudioMode: Boolean, onSwitchMode: () -> Unit) {
     }
 
     Row(
-        Modifier
-            .height(40.dp)
+        modifier
+            .height(32.dp)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            .padding(4.dp)
+            .padding(3.dp)
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -122,19 +75,19 @@ private fun SwitchSegment(label: String, icon: ImageVector, selected: Boolean, o
     Row(
         Modifier
             .fillMaxHeight()
-            .widthIn(min = 60.dp)
+            .widthIn(min = 52.dp)
             .clip(CircleShape)
             .background(if (selected) scheme.primary else Color.Transparent)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = contentColor)
-        Spacer(Modifier.width(6.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = contentColor)
+        Spacer(Modifier.width(4.dp))
         Text(
             label,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.labelLarge,
             color = contentColor,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
@@ -180,5 +133,47 @@ private fun PlayerChip(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * 进度条上方的倍速 / 定时小标签：只有调过倍速、设了定时才出现（都没设时什么都不画），点了打开对应的弹层。
+ * 入口本身在三点菜单里（2026-10-27 起，设计稿 docs/superpowers/specs/2026-10-27-player-layout-and-collection-queue-design.md）。
+ */
+@Composable
+internal fun PlayerStatusChips(
+    state: PlaybackState,
+    onOpenSpeed: () -> Unit,
+    onOpenTimer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val speedActive = !isSameSpeed(state.speed, 1.0f)
+    val timerActive = state.sleepTimerActive
+    if (!speedActive && !timerActive) return
+    Row(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (speedActive) {
+            val label = speedButtonLabel(state.speed)
+            PlayerChip(
+                icon = Icons.Filled.Speed,
+                label = label,
+                active = true,
+                onClick = onOpenSpeed,
+                description = "倍速 $label",
+            )
+        }
+        if (timerActive) {
+            val label = sleepTimerChipLabel(state.sleepTimerRemainingMs, state.sleepTimerEndOfTrack)
+            PlayerChip(
+                icon = Icons.Filled.Timer,
+                label = label,
+                active = true,
+                onClick = onOpenTimer,
+                description = "定时关闭 $label",
+            )
+        }
     }
 }

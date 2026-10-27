@@ -1,6 +1,7 @@
 package com.biliseek.app.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -34,7 +36,7 @@ import com.biliseek.app.ui.components.SettingsSheet
 import com.biliseek.designsystem.theme.BsSpacing
 
 /**
- * 播放页简介行：左边「简介 展开」，右边统计行（播放量 · 发布时间）。简介正文不在页面上占地方，点「简介 展开」在底部弹层里看
+ * 播放页简介行：左边「简介 展开」，右边统计行（播放量 · 发布时间）。简介正文的前几行由 [VideoDescriptionPreview] 显示在下面，全文点「简介 展开」在底部弹层里看
  * （[VideoDescriptionSheet]；设计稿 docs/superpowers/specs/2026-10-04-player-desc-expand-design.md）。
  *
  * - 有简介内容（[VideoDescriptionPolicy.shouldShow]）时：「简介」普通字色当标签，旁边「展开」+ 下箭头用链接色，
@@ -95,6 +97,36 @@ internal fun VideoDescriptionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * 简介正文预览：放在播放页中段最下面，占满剩下的高度——能放几行放几行，最后一行末尾省略号；一行都放不下就不画。
+ * 纯文字（时间点、链接不可点），点一下打开全文弹层（同「简介 展开」）。
+ * 设计稿 docs/superpowers/specs/2026-10-27-player-layout-and-collection-queue-design.md（方案 P2）。
+ */
+@Composable
+internal fun VideoDescriptionPreview(
+    desc: String,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val style = MaterialTheme.typography.bodySmall
+    val lineHeightPx = with(LocalDensity.current) { style.lineHeight.roundToPx() }
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val lines = VideoDescriptionPolicy.previewLines(constraints.maxHeight, lineHeightPx)
+        if (lines > 0) {
+            Text(
+                desc.trim(),
+                style = style,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = lines,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(role = Role.Button, onClick = onOpen),
             )
         }
     }
