@@ -29,19 +29,21 @@ object EpisodeProgressPolicy {
         }
 
     fun progressOf(h: EpisodeHistory?): EpisodeProgress = when {
-        h == null -> EpisodeProgress.None
+        // 不到 5 秒先判没听（同 ResumePolicy 的顺序）：起播时就写了一条位置 0 的记录，短视频不能一点开就算听完
+        h == null || h.positionMs <= MIN_MS -> EpisodeProgress.None
         h.durationMs > 0 && h.positionMs >= h.durationMs - TAIL_MS -> EpisodeProgress.Finished
-        h.positionMs > MIN_MS -> EpisodeProgress.Partial(h.positionMs, h.durationMs)
-        else -> EpisodeProgress.None
+        else -> EpisodeProgress.Partial(h.positionMs, h.durationMs)
     }
 
     /** 行里的状态文字；没听过返回 null（照旧显示原来那一行）。[durationSec] 是列表给的时长。 */
     fun statusLine(p: EpisodeProgress, durationSec: Long): String? = when (p) {
         EpisodeProgress.Finished -> "✓ 已听完 · ${formatDuration(durationSec * 1000)}"
-        is EpisodeProgress.Partial ->
-            "听到 ${formatDuration(p.positionMs)} / ${formatDuration(if (p.durationMs > 0) p.durationMs else durationSec * 1000)}"
+        is EpisodeProgress.Partial -> partialLine(p, durationSec)
         EpisodeProgress.None -> null
     }
+
+    private fun partialLine(p: EpisodeProgress.Partial, durationSec: Long) =
+        "听到 ${formatDuration(p.positionMs)} / ${formatDuration(if (p.durationMs > 0) p.durationMs else durationSec * 1000)}"
 
     /**
      * 「继续听」的目标在 [bvids] 里的下标：最近听过的那一集；它已听完就是下一集；
@@ -70,5 +72,5 @@ object EpisodeProgressPolicy {
 
     /** 横条第二行：听到一半写进度，其他写「从头开始 · 时长」。 */
     fun resumeDetail(p: EpisodeProgress, durationSec: Long): String =
-        if (p is EpisodeProgress.Partial) statusLine(p, durationSec)!! else "从头开始 · ${formatDuration(durationSec * 1000)}"
+        if (p is EpisodeProgress.Partial) partialLine(p, durationSec) else "从头开始 · ${formatDuration(durationSec * 1000)}"
 }

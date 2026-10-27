@@ -23,6 +23,9 @@ class EpisodeProgressPolicyTest {
         assertEquals(EpisodeProgress.Finished, EpisodeProgressPolicy.progressOf(h(585_000, 600_000)))
         // 时长未知：只看是不是听过 5 秒
         assertEquals(EpisodeProgress.Partial(900_000, 0), EpisodeProgressPolicy.progressOf(h(900_000, 0)))
+        // 不到 5 秒先算没听：起播时就写了一条位置 0 的记录，20 秒以内的短视频不能一点开就算听完
+        assertEquals(EpisodeProgress.None, EpisodeProgressPolicy.progressOf(h(0, 10_000)))
+        assertEquals(EpisodeProgress.Finished, EpisodeProgressPolicy.progressOf(h(6_000, 10_000)))
     }
 
     @Test
