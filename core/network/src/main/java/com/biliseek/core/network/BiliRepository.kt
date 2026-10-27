@@ -204,9 +204,21 @@ class BiliRepository internal constructor(
         publicRead("分 P 列表") { api.getPageList(bvid) }.orEmpty()
     }
 
-    /** 视频详情。目前只用于播放页"查看作者"在 authorMid 缺失时现查一次兜底。 */
+    /**
+     * 视频详情（播放页计数 / 简介 / 合集、搜索框里的 BV 号、「查看作者」兜底）。
+     * WBI 签名走 `x/web-interface/wbi/view`：不签名的旧路径常被安全网关 412 拦下。风控分流同其他公开读接口。
+     */
     suspend fun videoView(bvid: String): Result<VideoViewInfo> = runCatching {
-        publicRead("视频详情") { api.getVideoView(bvid) } ?: error("视频详情为空")
+        publicRead("视频详情") {
+            val credentials = authGate.awaitReady()
+            api.getVideoView(
+                WbiSigner.sign(
+                    params = mapOf("bvid" to bvid),
+                    imgKey = credentials.wbiImgKey,
+                    subKey = credentials.wbiSubKey,
+                ),
+            )
+        } ?: error("视频详情为空")
     }
 
     /**
