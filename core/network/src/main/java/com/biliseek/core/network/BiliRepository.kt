@@ -78,11 +78,12 @@ data class FavoriteResourcePage(
     val hasMore: Boolean,
 )
 
-/** 合集内容的一页（M13-N）。 */
+/** 合集内容的一页（M13-N）。[total] 为接口给的总条数（未知为 0）。 */
 data class SeriesArchivesPage(
     val items: List<SeriesArchive>,
     val page: Int,
     val hasMore: Boolean,
+    val total: Int = 0,
 )
 
 /** 订阅合集列表的一页。 */
@@ -363,17 +364,18 @@ class BiliRepository internal constructor(
         )
     }
 
-    /** UP 空间合集的内容，按 UP 主排的顺序。不需登录；统一 WBI 签名、走 FEED 限速桶，不重试。 */
+    /** UP 空间合集的内容，[reverse] 为假时按 UP 主排的顺序，为真时倒过来。不需登录；统一 WBI 签名、走 FEED 限速桶，不重试。 */
     suspend fun spaceSeasonArchives(
         mid: Long,
         seasonId: Long,
         page: Int,
         pageSize: Int = 30,
+        reverse: Boolean = false,
     ): Result<SeriesArchivesPage> = wbiRequest(
         params = mapOf(
             "mid" to mid.toString(),
             "season_id" to seasonId.toString(),
-            "sort_reverse" to "false",
+            "sort_reverse" to reverse.toString(),
             "page_num" to page.toString(),
             "page_size" to pageSize.toString(),
         ),
@@ -382,11 +384,12 @@ class BiliRepository internal constructor(
             items = d.archives.filter { it.bvid.isNotBlank() }.map { it.toSeriesArchive() },
             page = page,
             hasMore = hasMorePages(page, pageSize, d.page.total, d.archives.size),
+            total = d.page.total,
         )
     }
 
     /**
-     * 旧版系列的内容，按发布时间从旧到新（往后播 = 往更新的播；B 站网页默认从新到旧，这里有意不同）。
+     * 旧版系列的内容，默认按发布时间从旧到新（往后播 = 往更新的播），[reverse] 为真时从新到旧。
      * 不需登录；统一 WBI 签名、走 FEED 限速桶，不重试。
      */
     suspend fun seriesArchives(
@@ -394,12 +397,13 @@ class BiliRepository internal constructor(
         seriesId: Long,
         page: Int,
         pageSize: Int = 30,
+        reverse: Boolean = false,
     ): Result<SeriesArchivesPage> = wbiRequest(
         params = mapOf(
             "mid" to mid.toString(),
             "series_id" to seriesId.toString(),
             "only_normal" to "true",
-            "sort" to "asc",
+            "sort" to if (reverse) "desc" else "asc",
             "pn" to page.toString(),
             "ps" to pageSize.toString(),
         ),
@@ -408,6 +412,7 @@ class BiliRepository internal constructor(
             items = d.archives.filter { it.bvid.isNotBlank() }.map { it.toSeriesArchive() },
             page = page,
             hasMore = hasMorePages(page, pageSize, d.page.total, d.archives.size),
+            total = d.page.total,
         )
     }
 
