@@ -66,6 +66,26 @@ class EpisodeProgressPolicyTest {
     }
 
     @Test
+    fun `弹层的继续听 去掉正在播的这集再算 接下来就是它时不显示`() {
+        val bvids = listOf("BV1", "BV2", "BV3", "BV4")
+        // 正在播 BV3（播放时间最新）；之前听到 BV1 一半 → 指向 BV1
+        assertEquals(
+            0,
+            EpisodeProgressPolicy.sheetResumeIndex(bvids, mapOf("BV1" to h(60_000, 600_000, 1), "BV3" to h(10_000, 600_000, 9)), "BV3"),
+        )
+        // 之前听完 BV2，下一集正是在播的 BV3 → 不显示
+        assertNull(
+            EpisodeProgressPolicy.sheetResumeIndex(bvids, mapOf("BV2" to h(600_000, 600_000, 2), "BV3" to h(10_000, 600_000, 9)), "BV3"),
+        )
+        // 之前听完 BV2，正在播 BV4 → 指向 BV3
+        assertEquals(2, EpisodeProgressPolicy.sheetResumeIndex(bvids, mapOf("BV2" to h(600_000, 600_000, 2)), "BV4"))
+        // 只有正在播的这集有记录 → 不显示
+        assertNull(EpisodeProgressPolicy.sheetResumeIndex(bvids, mapOf("BV3" to h(10_000, 600_000, 9)), "BV3"))
+        // 之前听完最后一集 → 不显示
+        assertNull(EpisodeProgressPolicy.sheetResumeIndex(bvids, mapOf("BV4" to h(600_000, 600_000, 4)), "BV1"))
+    }
+
+    @Test
     fun `第几集 正序加一 倒序用总数减 总数未知不写`() {
         assertEquals(5, EpisodeProgressPolicy.episodeNumber(index = 4, total = 36, reversed = false))
         assertEquals(32, EpisodeProgressPolicy.episodeNumber(index = 4, total = 36, reversed = true))

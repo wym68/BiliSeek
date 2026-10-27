@@ -103,12 +103,12 @@ class CollectionPolicyTest {
     }
 
     @Test
-    fun `弹层打开时先露的项 第一项留给横条 有小节标题时多退一行免得被吸顶标题盖住`() {
+    fun `弹层打开时先露的项 有小节标题时多退一行免得被吸顶标题盖住`() {
         val single = CollectionPolicy.fromView(
             view("BV2", UgcSection(title = "正片", episodes = listOf(ep("BV1"), ep("BV2"), ep("BV3")))),
         )!!
-        // 没小节标题：行号 1 + 横条位 1 = 2，当前这集在最上面
-        assertEquals(2, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(single), single.currentIndex))
+        // 没小节标题：行号 1，当前这集在最上面
+        assertEquals(1, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(single), single.currentIndex))
 
         val multi = CollectionPolicy.fromView(
             view(
@@ -117,9 +117,9 @@ class CollectionPolicyTest {
                 UgcSection(title = "下篇", episodes = listOf(ep("BV3"))),
             ),
         )!!
-        // 当前在行号 4（「下篇」标题在行号 3）：+1 横条位、-1 退一行 = 4，即先露「下篇」标题
-        assertEquals(4, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(multi), multi.currentIndex))
-        // 没有当前集：从头（横条位）
+        // 当前在行号 4（「下篇」标题在行号 3）：退一行 = 3，即先露「下篇」标题
+        assertEquals(3, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(multi), multi.currentIndex))
+        // 没有当前集：从头
         assertEquals(0, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(multi), null))
     }
 

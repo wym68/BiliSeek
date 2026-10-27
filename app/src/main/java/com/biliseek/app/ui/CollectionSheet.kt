@@ -115,7 +115,8 @@ internal fun CollectionEntryRow(
 
 /**
  * 合集弹层：标题区（合集名、共 N 集、订阅按钮）+ 全部集数（多个小节时带吸顶的小节标题），打开时滚到当前这集。
- * 列表第一项固定留给「继续听」横条（有本地播放记录且目标不是正在播的那集才显示），各集标出已听完 / 听到哪。
+ * 合集名下面固定一条「继续听」横条（不随列表滚），指向「跳到正在播的这集之前听到哪」；
+ * 没有这样的记录、或接下来就是正在播的这集时没有横条（[EpisodeProgressPolicy.sheetResumeIndex]）。各集标出已听完 / 听到哪。
  * 点某一集：是正在播的就不重新播、把整个合集放进播放列表，否则从这一集起播整个合集；两种都关弹层。点「已订阅」先确认。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -140,8 +141,7 @@ internal fun CollectionSheet(
         initialFirstVisibleItemIndex = CollectionPolicy.sheetInitialItem(rows, collection.currentIndex),
     )
     val bvids = remember(collection) { collection.episodes.map { it.bvid } }
-    val resumeIndex = EpisodeProgressPolicy.resumeIndex(bvids, history)
-        ?.takeIf { collection.episodes[it].bvid != playingBvid }
+    val resumeIndex = EpisodeProgressPolicy.sheetResumeIndex(bvids, history, playingBvid)
     var confirmingUnsubscribe by remember { mutableStateOf(false) }
     if (confirmingUnsubscribe) {
         UnsubscribeCollectionDialog(
@@ -194,26 +194,24 @@ internal fun CollectionSheet(
                 }
             }
         }
+        // 「继续听」固定在合集名下面、不随列表滚，打开弹层就看得见（播放记录晚到时整个列表往下让一点）
+        if (resumeIndex != null) {
+            val target = collection.episodes[resumeIndex]
+            CollectionResumeBanner(
+                title = EpisodeProgressPolicy.resumeTitle(resumeIndex + 1, target.title),
+                detail = EpisodeProgressPolicy.resumeDetail(
+                    EpisodeProgressPolicy.progressOf(history[target.bvid]),
+                    target.durationSec,
+                ),
+                onClick = {
+                    onPlayEpisode(resumeIndex)
+                    onDismiss()
+                },
+                modifier = Modifier.padding(start = BsSpacing.xl, end = BsSpacing.xl, bottom = BsSpacing.md),
+            )
+        }
         HorizontalDivider()
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth()) {
-            // 横条位固定是第一项，没横条时是空项（播放记录比列表晚到，临时插一项会把横条挤出屏幕）
-            item(key = "resume") {
-                if (resumeIndex != null) {
-                    val target = collection.episodes[resumeIndex]
-                    CollectionResumeBanner(
-                        title = EpisodeProgressPolicy.resumeTitle(resumeIndex + 1, target.title),
-                        detail = EpisodeProgressPolicy.resumeDetail(
-                            EpisodeProgressPolicy.progressOf(history[target.bvid]),
-                            target.durationSec,
-                        ),
-                        onClick = {
-                            onPlayEpisode(resumeIndex)
-                            onDismiss()
-                        },
-                        modifier = Modifier.padding(horizontal = BsSpacing.xl, vertical = BsSpacing.sm),
-                    )
-                }
-            }
             rows.forEachIndexed { i, row ->
                 when (row) {
                     is CollectionSheetRow.Header -> stickyHeader(key = "h$i") {
@@ -307,7 +305,7 @@ internal fun UnsubscribeCollectionDialog(title: String, onConfirm: () -> Unit, o
 }
 
 /**
- * 「继续听」横条（样式 D）：列表第一项，secondaryContainer、12dp 圆角。
+ * 「继续听」横条（样式 D）：内容页里是列表第一项，弹层里固定在合集名下面；secondaryContainer、12dp 圆角。
  * 合集弹层与合集内容页共用；第一行「继续听 · 第 N 集 标题」，第二行进度或「从头开始」。
  */
 @Composable

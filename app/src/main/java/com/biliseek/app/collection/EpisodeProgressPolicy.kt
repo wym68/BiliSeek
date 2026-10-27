@@ -60,6 +60,13 @@ object EpisodeProgressPolicy {
         }
     }
 
+    /**
+     * 合集弹层的「继续听」目标：先去掉正在播的这集再算——播放中每 5 秒刷新播放时间，不去掉的话「最近听过的」总是它。
+     * 所以算出的是「跳到这集之前听到哪」；接下来正好就是正在播的这集（上一集听完、接着播的就是它）时为 null。
+     */
+    fun sheetResumeIndex(bvids: List<String>, history: Map<String, EpisodeHistory>, playingBvid: String): Int? =
+        resumeIndex(bvids, history - playingBvid)?.takeIf { bvids[it] != playingBvid }
+
     /** 第几集：正序 = 下标 + 1；倒序 = 总数 − 下标；倒序且总数未知 = null。 */
     fun episodeNumber(index: Int, total: Int, reversed: Boolean): Int? = when {
         !reversed -> index + 1
