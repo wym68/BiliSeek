@@ -75,8 +75,9 @@ internal fun resolveClearedQueue(currentIndex: Int, size: Int): Pair<Int, Int> {
 //
 // 队列条目分两种：用户显式加入的（「加入队列」「下一首播放」）是**固定**的，点击播放永远不删；
 // 点击带进来的（单个视频、多 P 的全部分 P、整张列表）是**临时**的，下一次点击整块替换。
-// 临时条目在队列里永远是连续的一段——点击整块插入、删除不破坏连续、分 P 原地展开——
-// 下面几个函数都依赖这条不变式。
+// 点击整块插入临时条目，所以刚点完时它们是连续的一段；之后「下一首播放」插在当前项后面，
+// 当前项是临时条目时固定条目就会夹在临时块中间（分 P 之间也一样），当前项本身是固定条目时
+// 临时块更是被它隔开。所以下面的函数不假设临时条目连续，只看每个条目自己的固定 / 临时标记。
 
 /**
  * 一次点击播放对队列的改写方案。
@@ -127,7 +128,7 @@ internal data class AdoptPlan(
     val kept: List<Int>,
     /** 新块插在 [kept] 的第几项之前。 */
     val insertAt: Int,
-    /** 当前视频那一段在原队列里的范围 [runStart, runEnd)：当前条目前后连着的同一视频条目（含已展开的分 P）。 */
+    /** 当前视频那一段在原队列里的范围 [runStart, runEnd)：当前条目前后连着的同一视频条目（含已展开的分 P，和分 P 之间夹着的固定条目）。 */
     val runStart: Int,
     val runEnd: Int,
     /** 改写后的当前下标。 */
@@ -138,7 +139,10 @@ internal data class AdoptPlan(
  * 合集弹层里点正在播的那一集：临时条目整块换成合集，当前视频（连同已展开的分 P）原样落在合集里它的位置，
  * 不重新起播（docs/10）。
  *
- * - 当前视频那一段 = 当前条目前后连着、[keys] 相同的条目；
+ * - 当前视频那一段 = 当前条目前后连着、[keys] 相同的条目。「下一首播放」会把固定条目插在分 P 中间
+ *   （`[A1, A2(当前), X(固定), A3]`），所以一串连着的固定条目只要另一头紧挨着同一视频的条目，
+ *   就连同它们一起算进这一段、原位不动（仍是固定的，夹在分 P 之间）；
+ *   隔着别的临时条目就不再延伸；
  * - 不在这一段里的固定条目原样保留，新块插在这一段原位置之前的固定条目之后；
  * - 新块 = 合集前 [beforeCount] 项 + 这一段 + 合集其余项，所以新下标 = insertAt + beforeCount + 当前条目在段内的偏移。
  *
@@ -152,10 +156,20 @@ internal fun resolveQueueOnAdopt(
 ): AdoptPlan? {
     if (current !in keys.indices) return null
     val key = keys[current]
+    // 从 from 出发朝 step 方向走：先越过一串键不同的固定条目，落点是同一视频的条目才算连着，返回落点；否则 null
+    fun reach(from: Int, step: Int): Int? {
+        var i = from
+        while (i in keys.indices && pinned[i] && keys[i] != key) i += step
+        return i.takeIf { it in keys.indices && keys[it] == key }
+    }
     var start = current
-    while (start > 0 && keys[start - 1] == key) start--
+    while (true) {
+        start = reach(start - 1, -1) ?: break
+    }
     var end = current + 1
-    while (end < keys.size && keys[end] == key) end++
+    while (true) {
+        end = (reach(end, 1) ?: break) + 1
+    }
     val kept = pinned.indices.filter { pinned[it] && it !in start until end }
     val insertAt = kept.count { it < start }
     return AdoptPlan(

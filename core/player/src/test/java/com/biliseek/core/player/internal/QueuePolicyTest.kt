@@ -327,7 +327,81 @@ class QueuePolicyTest {
         )!!
         assertEquals(0, plan.runStart)
         assertEquals(3, plan.runEnd)
+        assertEquals(emptyList<Int>(), plan.kept)
+        assertEquals(0, plan.insertAt)
         assertEquals(4 + 1, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 分P之间夹着下一首播放的固定条目 整段连同它一起保留`() {
+        // A1 A2(当前) X(固定，下一首播放插进来的) A3 A4
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, false, true, false, false),
+            keys = listOf("A", "A", "X", "A", "A"),
+            current = 1,
+            beforeCount = 2,
+        )!!
+        assertEquals(0, plan.runStart)
+        assertEquals(5, plan.runEnd)
+        assertEquals(emptyList<Int>(), plan.kept)
+        assertEquals(0, plan.insertAt)
+        assertEquals(2 + 1, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 当前分P前面也夹着固定条目时向前越过去`() {
+        // A1 X(固定) A2(当前)
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, true, false),
+            keys = listOf("A", "X", "A"),
+            current = 2,
+            beforeCount = 0,
+        )!!
+        assertEquals(0, plan.runStart)
+        assertEquals(3, plan.runEnd)
+        assertEquals(emptyList<Int>(), plan.kept)
+        assertEquals(2, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 分P后面的固定条目后面不再是同一视频时留在段外`() {
+        // A1 A2(当前) X(固定)：X 后面没有 A，是普通的固定条目，排在新块之后
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, false, true),
+            keys = listOf("A", "A", "X"),
+            current = 0,
+            beforeCount = 0,
+        )!!
+        assertEquals(0, plan.runStart)
+        assertEquals(2, plan.runEnd)
+        assertEquals(listOf(2), plan.kept)
+        assertEquals(0, plan.insertAt)
+    }
+
+    @Test
+    fun `换进合集 隔着别的临时条目的同一视频不算同一段`() {
+        // A1(当前) B(临时) A2：B 是临时条目，段到此为止
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, false, false),
+            keys = listOf("A", "B", "A"),
+            current = 0,
+            beforeCount = 0,
+        )!!
+        assertEquals(0, plan.runStart)
+        assertEquals(1, plan.runEnd)
+    }
+
+    @Test
+    fun `换进合集 固定条目和临时条目挨在一起时临时条目也挡住延伸`() {
+        // A1(当前) X(固定) B(临时) A2：X 后面不是 A，B 又是临时条目，哪边都不延伸
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, true, false, false),
+            keys = listOf("A", "X", "B", "A"),
+            current = 0,
+            beforeCount = 0,
+        )!!
+        assertEquals(1, plan.runEnd)
+        assertEquals(listOf(1), plan.kept)
     }
 
     @Test
