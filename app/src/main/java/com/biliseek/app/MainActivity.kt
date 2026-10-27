@@ -37,7 +37,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.biliseek.app.collection.CollectionRef
 import com.biliseek.app.collection.CollectionSlot
 import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.ChartScreen
@@ -883,9 +882,7 @@ class MainActivity : ComponentActivity() {
                                 onCloseSeries = { viewModel.collections.close(CollectionSlot.LIBRARY) },
                                 collectedList = collectedList,
                                 collectedListState = collectedListState,
-                                onOpenSeries = { id, title ->
-                                    viewModel.collections.open(CollectionSlot.LIBRARY, CollectionRef.Subscribed(id), title)
-                                },
+                                onOpenSeries = viewModel.collections::openSubscribed,
                                 onCollectedLoadMore = viewModel.collections::loadCollectedList,
                                 onSeriesLoadMore = { viewModel.collections.loadPage(CollectionSlot.LIBRARY, it) },
                                 onPlaySeriesArchive = { viewModel.collections.play(CollectionSlot.LIBRARY, it) },

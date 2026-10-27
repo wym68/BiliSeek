@@ -19,8 +19,8 @@ sealed interface TrackListId {
     /** 稍后再看（M12）：远程列表，一次性拉取（无分页）。 */
     data object WatchLater : TrackListId
 
-    /** 合集 / 系列（M13-N；2026-10-26 起含 UP 空间的合集与系列）：内容分页拉取，[ref] 决定用哪个接口。 */
-    data class Collection(val ref: CollectionRef) : TrackListId
+    /** 合集 / 系列（M13-N；2026-10-26 起含 UP 空间的合集与系列）：内容分页拉取，[ref] 决定用哪个接口，[reversed] 为当前是否倒序。 */
+    data class Collection(val ref: CollectionRef, val reversed: Boolean = false) : TrackListId
 
     /** 消息中心·回复与@ tab。 */
     data object MessageReply : TrackListId
@@ -54,6 +54,8 @@ data class RemoteListState<T>(
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val errorMessage: String? = null,
+    /** 接口给的总条数，未知为 0。 */
+    val total: Int = 0,
 ) {
     companion object {
         fun <T> empty() = RemoteListState<T>()

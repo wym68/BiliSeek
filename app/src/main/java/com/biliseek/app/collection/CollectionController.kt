@@ -1,6 +1,7 @@
 package com.biliseek.app.collection
 
 import com.biliseek.app.data.CollectedListLoadState
+import com.biliseek.app.data.LibraryRepository
 import com.biliseek.app.data.RemoteListState
 import com.biliseek.app.data.TrackListId
 import com.biliseek.app.remote.ListPlayer
@@ -16,9 +17,11 @@ import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.player.PlaybackRequest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -31,6 +34,7 @@ import kotlinx.coroutines.launch
 class CollectionController(
     private val scope: CoroutineScope,
     private val repository: BiliRepository,
+    private val library: LibraryRepository,
     private val session: StateFlow<BiliSession>,
     private val playList: ListPlayer,
     /** 把一串内容换成列表里的临时块、不重新起播（宿主转给 PlayerConnection.adoptContext）；没换返回 null。 */
@@ -106,15 +110,39 @@ class CollectionController(
         loadPage(slot, 1)
     }
 
+    /** 打开「列表 → 合集」里的一项：从订阅列表找出 UP 主（mid、名字），有就走可排序的接口。 */
+    fun openSubscribed(seasonId: Long, title: String) {
+        val item = _collectedList.value.firstOrNull { it.id == seasonId }
+        open(
+            CollectionSlot.LIBRARY,
+            CollectionRef.Subscribed(seasonId, mid = item?.upper?.mid ?: 0, upName = item?.upper?.name.orEmpty()),
+            title,
+        )
+    }
+
     fun close(slot: CollectionSlot) {
         slot(slot).value = null
     }
 
-    /** 加载内容第 [page] 页。结果回来时页面已换成别的合集就丢掉。 */
+    /** 切换正序 / 倒序：换掉状态里的顺序标记、从第 1 页重取（不支持排序的来源什么都不做）。 */
+    fun toggleSort(slot: CollectionSlot) {
+        val target = slot(slot)
+        val state = target.value ?: return
+        val id = state.id as? TrackListId.Collection ?: return
+        if (!CollectionPolicy.canSort(id.ref)) return
+        target.value = RemoteListState(id = id.copy(reversed = !id.reversed), title = state.title)
+        loadPage(slot, 1)
+    }
+
+    /** 这些视频的本地播放记录（按 bvid 取最近一条），合集标「已听」与「继续听」用。 */
+    fun historyOf(bvids: List<String>): Flow<Map<String, EpisodeHistory>> =
+        library.observeHistory(bvids).map(EpisodeProgressPolicy::latestByBvid)
+
+    /** 加载内容第 [page] 页。结果回来时页面已换成别的合集（或换了顺序）就丢掉。 */
     fun loadPage(slot: CollectionSlot, page: Int) {
         val target = slot(slot)
         val state = target.value ?: return
-        val ref = state.ref() ?: return
+        val id = state.id as? TrackListId.Collection ?: return
         if (state.isLoading || state.isLoadingMore) return
         if (page > 1 && !state.hasMore) return
         scope.launch {
@@ -124,10 +152,10 @@ class CollectionController(
                 isLoadingMore = loadingMore,
                 errorMessage = null,
             )
-            fetchPage(ref, page)
+            fetchPage(id.ref, page, id.reversed)
                 .onSuccess { result ->
                     val base = target.value ?: return@onSuccess
-                    if (base.ref() != ref) return@onSuccess
+                    if (base.id != id) return@onSuccess
                     val existing = if (loadingMore) base.items else emptyList()
                     target.value = base.copy(
                         // 列表 key 是 bvid：重复的去掉，免得 LazyColumn 撞 key
@@ -136,11 +164,12 @@ class CollectionController(
                         hasMore = result.hasMore,
                         isLoading = false,
                         isLoadingMore = false,
+                        total = result.total,
                     )
                 }
                 .onFailure {
                     val base = target.value ?: return@onFailure
-                    if (base.ref() != ref) return@onFailure
+                    if (base.id != id) return@onFailure
                     target.value = base.copy(
                         isLoading = false,
                         isLoadingMore = false,
@@ -156,26 +185,32 @@ class CollectionController(
      */
     fun play(slot: CollectionSlot, archive: SeriesArchive) {
         val state = slot(slot).value ?: return
-        val ref = state.ref() ?: return
+        val id = state.id as? TrackListId.Collection ?: return
         val index = state.items.indexOf(archive)
         if (index < 0) {
             playList.play(listOf(archive.toRequest()), 0, loadMore = null)
             return
         }
         val source = PagedQueueSource(nextPage = state.page + 1, hasMore = state.hasMore) { page ->
-            fetchPage(ref, page).map { result -> QueuePage(result.items.map { it.toRequest() }, result.hasMore) }
+            fetchPage(id.ref, page, id.reversed).map { result -> QueuePage(result.items.map { it.toRequest() }, result.hasMore) }
         }
         playList.play(state.items.map { it.toRequest() }, index, loadMore = source::next)
     }
 
     /** 不同来源的一页统一成 [SeriesArchivesPage]。UP 空间的条目接口不带 UP 主，用 ref 里的补上。 */
-    private suspend fun fetchPage(ref: CollectionRef, page: Int): Result<SeriesArchivesPage> = when (ref) {
-        is CollectionRef.Subscribed -> repository.collectionSeasonList(ref.seasonId, page).map { result ->
-            SeriesArchivesPage(result.items.map { it.toArchive() }, result.page, result.hasMore)
-        }
-        is CollectionRef.Season -> repository.spaceSeasonArchives(ref.mid, ref.seasonId, page)
+    private suspend fun fetchPage(ref: CollectionRef, page: Int, reversed: Boolean): Result<SeriesArchivesPage> = when (ref) {
+        is CollectionRef.Subscribed ->
+            if (ref.mid > 0) {
+                repository.spaceSeasonArchives(ref.mid, ref.seasonId, page, reverse = reversed)
+                    .map { it.withAuthor(ref.upName, ref.mid) }
+            } else {
+                repository.collectionSeasonList(ref.seasonId, page).map { result ->
+                    SeriesArchivesPage(result.items.map { it.toArchive() }, result.page, result.hasMore)
+                }
+            }
+        is CollectionRef.Season -> repository.spaceSeasonArchives(ref.mid, ref.seasonId, page, reverse = reversed)
             .map { it.withAuthor(ref.upName, ref.mid) }
-        is CollectionRef.Series -> repository.seriesArchives(ref.mid, ref.seriesId, page)
+        is CollectionRef.Series -> repository.seriesArchives(ref.mid, ref.seriesId, page, reverse = reversed)
             .map { it.withAuthor(ref.upName, ref.mid) }
     }
 

@@ -548,6 +548,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val collections: CollectionController = CollectionController(
         scope = viewModelScope,
         repository = network.repository,
+        library = library,
         session = session,
         playList = { items, startIndex, loadMore ->
             viewModelScope.launch {

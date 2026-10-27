@@ -81,6 +81,13 @@ object CollectionPolicy {
     fun adoptMessage(title: String, lost: Int): String? =
         if (lost >= 2) null else "已把「$title」放进播放列表"
 
+    /** 合集内容页副标题：「共 36 集 · 正序」；总数未知时「30 首 · 正序」。 */
+    fun sortSubtitle(total: Int, loaded: Int, reversed: Boolean): String =
+        (if (total > 0) "共 $total 集" else "$loaded 首") + " · " + (if (reversed) "倒序" else "正序")
+
+    /** 这个来源能不能切排序：订阅的合集没有 mid 时不能（旧接口不支持）。 */
+    fun canSort(ref: CollectionRef): Boolean = ref !is CollectionRef.Subscribed || ref.mid > 0
+
     /** UP 空间一页 → 「合集」视图的行：合集在前、系列在后。 */
     fun spaceCollections(page: SpaceCollectionsPage, mid: Long, upName: String): List<SpaceCollection> =
         page.seasons.map {

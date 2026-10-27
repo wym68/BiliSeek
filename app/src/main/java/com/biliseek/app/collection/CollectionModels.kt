@@ -5,8 +5,11 @@ package com.biliseek.app.collection
  * （设计稿 docs/superpowers/specs/2026-10-26-collections-design.md）。
  */
 sealed interface CollectionRef {
-    /** 「列表 → 合集」里我订阅的合集：`x/space/fav/season/list`（要登录）。 */
-    data class Subscribed(val seasonId: Long) : CollectionRef
+    /**
+     * 「列表 → 合集」里我订阅的合集。有 [mid] 时走 `seasons_archives_list`（可倒序）；
+     * 没有时退回 `x/space/fav/season/list`（要登录、不能排序）。
+     */
+    data class Subscribed(val seasonId: Long, val mid: Long = 0, val upName: String = "") : CollectionRef
 
     /** UP 空间里的合集：`seasons_archives_list`。接口条目不带 UP 主名，用 [upName] 补。 */
     data class Season(val mid: Long, val seasonId: Long, val upName: String) : CollectionRef

@@ -154,4 +154,19 @@ class CollectionPolicyTest {
         assertEquals("合集 · 24 个视频", CollectionPolicy.countLabel(items[0]))
         assertEquals("系列 · 3 个视频", CollectionPolicy.countLabel(items[1]))
     }
+
+    @Test
+    fun `内容页副标题写总集数和顺序 总数未知写已加载条数`() {
+        assertEquals("共 36 集 · 正序", CollectionPolicy.sortSubtitle(total = 36, loaded = 30, reversed = false))
+        assertEquals("共 36 集 · 倒序", CollectionPolicy.sortSubtitle(total = 36, loaded = 30, reversed = true))
+        assertEquals("30 首 · 正序", CollectionPolicy.sortSubtitle(total = 0, loaded = 30, reversed = false))
+    }
+
+    @Test
+    fun `订阅的合集找不到 UP 主时不能排序 其他都能`() {
+        assertTrue(CollectionPolicy.canSort(CollectionRef.Subscribed(seasonId = 1, mid = 9, upName = "UP甲")))
+        assertFalse(CollectionPolicy.canSort(CollectionRef.Subscribed(seasonId = 1)))
+        assertTrue(CollectionPolicy.canSort(CollectionRef.Season(mid = 9, seasonId = 1, upName = "UP甲")))
+        assertTrue(CollectionPolicy.canSort(CollectionRef.Series(mid = 9, seriesId = 2, upName = "UP甲")))
+    }
 }
