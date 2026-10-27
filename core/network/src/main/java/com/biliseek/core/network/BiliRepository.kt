@@ -148,6 +148,8 @@ class BiliRepository internal constructor(
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        } catch (e: retrofit2.HttpException) {
+            throw blockedOn412(e)
         }
         when (resolveRetryAction(response.code)) {
             RetryAction.BACKOFF_NO_RETRY -> {
@@ -769,6 +771,8 @@ class BiliRepository internal constructor(
             }
         } catch (e: IOException) {
             throw SearchException(SearchError.Network(e.message.orEmpty()), e.message ?: "网络不可达")
+        } catch (e: retrofit2.HttpException) {
+            throw blockedOn412(e)
         }
         when (resolveRetryAction(response.code)) {
             RetryAction.BACKOFF_NO_RETRY -> {
@@ -900,6 +904,17 @@ class BiliRepository internal constructor(
     }
 
     /**
+     * 读请求撞上安全网关拦截（HTTP 412）：与 -352 同等对待——进全局冷却、绝不重试（同 [publicRead]），
+     * 转成 [SearchError.Blocked]；其他 HTTP 错误原样返回。
+     * 2026-10-27 真机：签名请求撞 412 后没进冷却，2 秒后再发一次就撞上 -352。
+     */
+    private fun blockedOn412(e: retrofit2.HttpException): Exception {
+        if (e.code() != 412) return e
+        riskCooldown.onRiskControl()
+        return SearchException(SearchError.Blocked, "触发风控（HTTP 412），已进入退避")
+    }
+
+    /**
      * -101：登录态可能刚过期 → 续期一次，续上了把这个请求重打一次（[runWithLoginRefresh]，绝不循环）。
      * **包在限速闸门外面**：重打同样排队、吃最小间隔；刷新期间也不占着该桶的锁。
      */
@@ -923,7 +938,12 @@ class BiliRepository internal constructor(
     private suspend fun <T> accountRead(what: String, request: suspend () -> BiliResponse<T>): T? {
         authGate.awaitReady()
         ensureNotCoolingRead()
-        return checkMessageRead(refreshingOn101(request), what)
+        val response = try {
+            refreshingOn101(request)
+        } catch (e: retrofit2.HttpException) {
+            throw blockedOn412(e)
+        }
+        return checkMessageRead(response, what)
     }
 
     // ── AI 总结：字幕与章节（工单 AI-4）─────────────────────
