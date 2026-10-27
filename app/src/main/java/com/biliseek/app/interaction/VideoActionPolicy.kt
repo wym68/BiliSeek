@@ -1,5 +1,7 @@
 package com.biliseek.app.interaction
 
+import com.biliseek.app.collection.VideoCollection
+
 /** 视频互动栏里会发写请求的动作（用于 busy 防连点）。 */
 enum class VideoAction { LIKE, COIN, TRIPLE }
 
@@ -32,6 +34,10 @@ data class VideoInteractionState(
     val isLoading: Boolean = false,
     /** 上次拉取失败（没网等），数字是占位的 0。再进播放页时重拉（[VideoActionPolicy.shouldLoad]）。 */
     val loadFailed: Boolean = false,
+    /** 所属合集（view 的 `ugc_season`）；不属于合集为 null。播放页合集入口与弹层用。 */
+    val collection: VideoCollection? = null,
+    /** 已订阅 [collection]（relation 的 `season_fav`）；未登录为 false。 */
+    val seasonSubscribed: Boolean = false,
     val busy: Set<VideoAction> = emptySet(),
 )
 
@@ -86,4 +92,8 @@ object VideoActionPolicy {
     /** 收藏夹弹窗加入成功后标记已收藏（只在之前未收藏时 +1）。 */
     fun applyFavored(state: VideoInteractionState): VideoInteractionState =
         if (state.favored) state else state.copy(favored = true, favoriteCount = state.favoriteCount + 1)
+
+    /** 合集订阅状态变了：属于这个合集的视频跟着改；别的原样返回（同一个对象）。 */
+    fun applySeasonSubscribed(state: VideoInteractionState, seasonId: Long, subscribed: Boolean): VideoInteractionState =
+        if (state.collection?.seasonId == seasonId) state.copy(seasonSubscribed = subscribed) else state
 }

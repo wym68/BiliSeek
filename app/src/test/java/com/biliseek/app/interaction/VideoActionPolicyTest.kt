@@ -1,5 +1,8 @@
 package com.biliseek.app.interaction
 
+import com.biliseek.app.collection.CollectionEpisode
+import com.biliseek.app.collection.CollectionSection
+import com.biliseek.app.collection.VideoCollection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -72,5 +75,22 @@ class VideoActionPolicyTest {
         val once = VideoActionPolicy.applyFavored(base)
         assertEquals(4, once.favoriteCount)
         assertSame(once, VideoActionPolicy.applyFavored(once))
+    }
+
+    @Test
+    fun `合集订阅状态只改同一合集的视频 别的原样返回`() {
+        val collection = VideoCollection(
+            seasonId = 100,
+            title = "合集",
+            sections = listOf(CollectionSection("", listOf(CollectionEpisode("BV1", "第一集", "", 60, "UP", 9)))),
+            currentIndex = 0,
+        )
+        val inSeason = base.copy(collection = collection)
+        assertTrue(VideoActionPolicy.applySeasonSubscribed(inSeason, 100, true).seasonSubscribed)
+        assertFalse(
+            VideoActionPolicy.applySeasonSubscribed(inSeason.copy(seasonSubscribed = true), 100, false).seasonSubscribed,
+        )
+        assertSame(inSeason, VideoActionPolicy.applySeasonSubscribed(inSeason, 200, true))
+        assertSame(base, VideoActionPolicy.applySeasonSubscribed(base, 100, true))
     }
 }
