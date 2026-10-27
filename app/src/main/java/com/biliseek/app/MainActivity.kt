@@ -248,6 +248,8 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
+                val collectionSelectionActive by viewModel.collectionSelection.active.collectAsState()
+                val collectionSelected by viewModel.collectionSelection.selected.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val danmakuItems by viewModel.danmakuItems.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
@@ -260,6 +262,25 @@ class MainActivity : ComponentActivity() {
                 val collectedList by viewModel.collections.collectedList.collectAsState()
                 val collectedListState by viewModel.collections.collectedListState.collectAsState()
                 val unreadSummary by viewModel.messages.unreadSummary.collectAsState()
+                val libraryHistory by remember(openedSeries?.items?.map { it.bvid }) {
+                    viewModel.collections.historyOf(openedSeries?.items?.map { it.bvid }.orEmpty())
+                }.collectAsState(emptyMap())
+                val upSpaceHistory by remember(upSpaceCollection?.items?.map { it.bvid }) {
+                    viewModel.collections.historyOf(upSpaceCollection?.items?.map { it.bvid }.orEmpty())
+                }.collectAsState(emptyMap())
+                fun collectionSelectionUi(slot: CollectionSlot) = com.biliseek.app.ui.CollectionSelectionUi(
+                    active = collectionSelectionActive,
+                    selected = collectionSelected,
+                    isLoggedIn = session.isLoggedIn,
+                    onEnter = viewModel::enterCollectionSelection,
+                    onToggle = viewModel.collectionSelection::toggle,
+                    onSelectAll = { viewModel.selectAllCollection(slot) },
+                    onClear = viewModel.collectionSelection::clear,
+                    onExit = viewModel.collectionSelection::exit,
+                    onAction = { viewModel.runCollectionBatch(slot, it) },
+                )
+                // 合集内容页关掉、换合集或换顺序时退出多选（取消订阅成功后页面是控制器关的，回调里拦不到）
+                LaunchedEffect(openedSeries?.id, upSpaceCollection?.id) { viewModel.collectionSelection.exit() }
 
                 val coroutineScope = rememberCoroutineScope()
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
@@ -887,6 +908,12 @@ class MainActivity : ComponentActivity() {
                                 onSeriesLoadMore = { viewModel.collections.loadPage(CollectionSlot.LIBRARY, it) },
                                 onPlaySeriesArchive = { viewModel.collections.play(CollectionSlot.LIBRARY, it) },
                                 onUnsubscribeSeries = viewModel.collections::unsubscribeOpenedInLibrary,
+                                onToggleSeriesSort = (openedSeries?.id as? com.biliseek.app.data.TrackListId.Collection)
+                                    ?.takeIf { com.biliseek.app.collection.CollectionPolicy.canSort(it.ref) }
+                                    ?.let { { viewModel.collections.toggleSort(CollectionSlot.LIBRARY) } },
+                                seriesHistory = libraryHistory,
+                                playingBvid = playback.bvid,
+                                seriesSelection = collectionSelectionUi(CollectionSlot.LIBRARY),
                                 videoActions = videoMenuActions,
                             )
                         }
@@ -975,6 +1002,12 @@ class MainActivity : ComponentActivity() {
                                 onLoadMore = { viewModel.collections.loadPage(CollectionSlot.UP_SPACE, it) },
                                 onUnsubscribe = null,
                                 videoActions = videoMenuActions,
+                                onToggleSort = (openedUpCollection.id as? com.biliseek.app.data.TrackListId.Collection)
+                                    ?.takeIf { com.biliseek.app.collection.CollectionPolicy.canSort(it.ref) }
+                                    ?.let { { viewModel.collections.toggleSort(CollectionSlot.UP_SPACE) } },
+                                history = upSpaceHistory,
+                                playingBvid = playback.bvid,
+                                selection = collectionSelectionUi(CollectionSlot.UP_SPACE),
                             )
                         } else {
                             UpSpaceScreen(

@@ -4,10 +4,12 @@ import com.biliseek.app.ui.components.miniBarContentPadding
 import com.biliseek.designsystem.component.BsLoadingState
 import com.biliseek.designsystem.component.BsErrorState
 import com.biliseek.designsystem.component.BsEmptyState
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.outlined.VideoLibrary
 import com.biliseek.designsystem.component.BsTopBar
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,8 +20,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,17 +38,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.PendingAction
+import com.biliseek.app.collection.CollectionPolicy
+import com.biliseek.app.collection.EpisodeHistory
+import com.biliseek.app.collection.EpisodeProgress
+import com.biliseek.app.collection.EpisodeProgressPolicy
 import com.biliseek.app.data.RemoteListState
-import com.biliseek.designsystem.component.BsConfirmDialog
+import com.biliseek.app.data.TrackListId
 import com.biliseek.core.network.dto.SearchVideo
 import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.player.formatDuration
 
+/** 合集内容页多选的状态与动作（宿主实现；默认 = 不支持多选）。 */
+data class CollectionSelectionUi(
+    val active: Boolean = false,
+    val selected: Set<String> = emptySet(),
+    val isLoggedIn: Boolean = false,
+    val onEnter: (String) -> Unit = {},
+    val onToggle: (String) -> Unit = {},
+    val onSelectAll: () -> Unit = {},
+    val onClear: () -> Unit = {},
+    val onExit: () -> Unit = {},
+    val onAction: (PendingAction) -> Unit = {},
+)
+
 /**
  * 合集内容页（M13-N）。分页拉取，滚动到底自动加载下一页。
  *
- * 结构与 [FavoriteDetail] 一致。「列表」tab 里打开时标题右侧有「取消订阅」：确认后取消订阅这个合集（成功后宿主关掉本页）；UP 空间里打开的合集 / 系列不显示。
+ * - 「列表」tab 里打开时标题右侧有「取消订阅」（确认后取消订阅，成功后宿主关掉本页）；UP 空间里打开的合集 / 系列不显示。
+ * - 顶栏排序图标切正序 / 倒序，副标题写总集数与顺序（合集第三轮 §2）。
+ * - 每行按本地播放记录写「已听完 / 听到哪里」，列表顶部有「继续听」横条（§1，样式 B + D）。
+ * - 长按进多选，顶栏换成 [SelectionToolbar]，「全选」只选已加载的（§3）。
  */
 @Composable
 fun SeriesScreen(
@@ -56,20 +82,25 @@ fun SeriesScreen(
     modifier: Modifier = Modifier,
     /** 视频行右侧三点菜单的动作，与搜索结果一致。 */
     videoActions: VideoMenuActions = VideoMenuActions(),
+    /** 切换正序 / 倒序；null = 不显示排序图标。 */
+    onToggleSort: (() -> Unit)? = null,
+    /** 本地播放记录（按 bvid）。 */
+    history: Map<String, EpisodeHistory> = emptyMap(),
+    /** 正在播的视频：「继续听」目标是它时不显示横条。 */
+    playingBvid: String = "",
+    selection: CollectionSelectionUi = CollectionSelectionUi(),
 ) {
+    val reversed = (state.id as? TrackListId.Collection)?.reversed == true
+    BackHandler(enabled = selection.active) { selection.onExit() }
+
     // 三点菜单：当前打开菜单的那一条
     var menuFor by remember { mutableStateOf<SearchVideo?>(null) }
     menuFor?.let { VideoMenuSheet(it, videoActions) { menuFor = null } }
 
     var confirmingUnsubscribe by remember { mutableStateOf(false) }
     if (confirmingUnsubscribe) {
-        // 两个键是「保留 / 取消订阅」：不用「取消」，免得和「取消订阅」看混
-        BsConfirmDialog(
-            title = "取消订阅合集",
-            text = "确定不再订阅「${state.title}」？它会从合集列表里移除。",
-            confirmLabel = "取消订阅",
-            dismissLabel = "保留",
-            destructive = true,
+        UnsubscribeCollectionDialog(
+            title = state.title,
             onConfirm = {
                 confirmingUnsubscribe = false
                 onUnsubscribe?.invoke()
@@ -79,16 +110,38 @@ fun SeriesScreen(
     }
 
     Column(modifier.fillMaxSize()) {
-        BsTopBar(
-            title = state.title,
-            subtitle = "${state.items.size} 首",
-            onNavigate = onClose,
-            actions = {
-                if (onUnsubscribe != null) {
-                    TextButton(onClick = { confirmingUnsubscribe = true }) { Text("取消订阅") }
-                }
-            },
-        )
+        if (selection.active) {
+            SelectionToolbar(
+                selectedCount = selection.selected.size,
+                visibleCount = state.items.size,
+                allSelected = state.items.isNotEmpty() && state.items.all { it.bvid in selection.selected },
+                canAddToPlaylist = selection.isLoggedIn,
+                canDownload = selection.isLoggedIn,
+                onSelectAll = selection.onSelectAll,
+                onClearSelection = selection.onClear,
+                onAddToPlaylist = { selection.onAction(PendingAction.AddToPlaylist) },
+                onAppendToQueue = { selection.onAction(PendingAction.AppendToQueue) },
+                onEnqueueNext = { selection.onAction(PendingAction.EnqueueNext) },
+                onDownload = { selection.onAction(PendingAction.Download) },
+                onExit = selection.onExit,
+            )
+        } else {
+            BsTopBar(
+                title = state.title,
+                subtitle = CollectionPolicy.sortSubtitle(state.total, state.items.size, reversed),
+                onNavigate = onClose,
+                actions = {
+                    if (onToggleSort != null) {
+                        IconButton(onClick = onToggleSort) {
+                            Icon(Icons.Filled.SwapVert, contentDescription = if (reversed) "排序：倒序" else "排序：正序")
+                        }
+                    }
+                    if (onUnsubscribe != null) {
+                        TextButton(onClick = { confirmingUnsubscribe = true }) { Text("取消订阅") }
+                    }
+                },
+            )
+        }
 
         when {
             state.isLoading && state.items.isEmpty() -> BsLoadingState()
@@ -99,12 +152,39 @@ fun SeriesScreen(
             state.items.isEmpty() -> BsEmptyState("这个合集是空的", icon = Icons.Outlined.VideoLibrary)
 
             else -> {
+                val bvids = state.items.map { it.bvid }
+                val resumeIndex = remember(bvids, history) { EpisodeProgressPolicy.resumeIndex(bvids, history) }
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
+                    val target = resumeIndex?.let { state.items[it] }
+                    // 横条位固定是第一项，没横条时是空项：播放记录比列表晚到，晚插进来会被挤到屏幕外
+                    item(key = "resume") {
+                        if (!selection.active && target != null && target.bvid != playingBvid) {
+                            CollectionResumeBanner(
+                                title = EpisodeProgressPolicy.resumeTitle(
+                                    EpisodeProgressPolicy.episodeNumber(resumeIndex, state.total, reversed),
+                                    target.title,
+                                ),
+                                detail = EpisodeProgressPolicy.resumeDetail(
+                                    EpisodeProgressPolicy.progressOf(history[target.bvid]),
+                                    target.duration,
+                                ),
+                                onClick = { onItemClick(target) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
                     items(state.items, key = { it.bvid }) { archive ->
+                        val progress = EpisodeProgressPolicy.progressOf(history[archive.bvid])
+                        val checked = archive.bvid in selection.selected
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { onItemClick(archive) }
+                                .combinedClickable(
+                                    onClick = {
+                                        if (selection.active) selection.onToggle(archive.bvid) else onItemClick(archive)
+                                    },
+                                    onLongClick = { if (!selection.active) selection.onEnter(archive.bvid) },
+                                )
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -114,16 +194,25 @@ fun SeriesScreen(
                                 Text(
                                     archive.title,
                                     style = MaterialTheme.typography.bodyMedium,
+                                    color = if (progress == EpisodeProgress.Finished) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    archive.author + "  " +
-                                        formatDuration(archive.duration * 1000),
+                                    EpisodeProgressPolicy.statusLine(progress, archive.duration)
+                                        ?: (archive.author + "  " + formatDuration(archive.duration * 1000)),
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                             }
-                            VideoMenuButton { menuFor = archive.toSearchVideo() }
+                            if (selection.active) {
+                                Checkbox(checked = checked, onCheckedChange = { selection.onToggle(archive.bvid) })
+                            } else {
+                                VideoMenuButton { menuFor = archive.toSearchVideo() }
+                            }
                         }
                         HorizontalDivider()
                     }

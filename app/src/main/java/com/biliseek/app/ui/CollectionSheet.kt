@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -129,13 +130,8 @@ internal fun CollectionSheet(
     )
     var confirmingUnsubscribe by remember { mutableStateOf(false) }
     if (confirmingUnsubscribe) {
-        // 与「列表 → 合集」内容页同一个确认框；两个键是「保留 / 取消订阅」，不用「取消」免得看混
-        BsConfirmDialog(
-            title = "取消订阅合集",
-            text = "确定不再订阅「${collection.title}」？它会从合集列表里移除。",
-            confirmLabel = "取消订阅",
-            dismissLabel = "保留",
-            destructive = true,
+        UnsubscribeCollectionDialog(
+            title = collection.title,
             onConfirm = {
                 confirmingUnsubscribe = false
                 onSetSubscribed(false)
@@ -242,6 +238,63 @@ private fun CollectionEpisodeRow(
                 if (isCurrent) "正在播放 · $duration" else duration,
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isCurrent) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 「取消订阅合集」确认框：合集内容页与合集弹层共用。两个键是「保留 / 取消订阅」，不用「取消」免得和「取消订阅」看混。 */
+@Composable
+internal fun UnsubscribeCollectionDialog(title: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    BsConfirmDialog(
+        title = "取消订阅合集",
+        text = "确定不再订阅「$title」？它会从合集列表里移除。",
+        confirmLabel = "取消订阅",
+        dismissLabel = "保留",
+        destructive = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
+ * 「继续听」横条（样式 D）：列表第一项，secondaryContainer、12dp 圆角。
+ * 合集弹层与合集内容页共用；第一行「继续听 · 第 N 集 标题」，第二行进度或「从头开始」。
+ */
+@Composable
+internal fun CollectionResumeBanner(
+    title: String,
+    detail: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.PlayArrow,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
             )
         }
     }

@@ -155,6 +155,11 @@ fun LibraryScreen(
     onPlaySeriesArchive: (SeriesArchive) -> Unit = {},
     /** 取消订阅当前打开的合集。 */
     onUnsubscribeSeries: () -> Unit = {},
+    /** 切换合集内容页的正序 / 倒序；null = 不显示排序图标。 */
+    onToggleSeriesSort: (() -> Unit)? = null,
+    seriesHistory: Map<String, com.biliseek.app.collection.EpisodeHistory> = emptyMap(),
+    playingBvid: String = "",
+    seriesSelection: CollectionSelectionUi = CollectionSelectionUi(),
     /** 收藏夹 / 稍后再看 / 合集内容页里视频行三点菜单的动作，与搜索结果一致。 */
     videoActions: VideoMenuActions = VideoMenuActions(),
     modifier: Modifier = Modifier,
@@ -211,6 +216,10 @@ fun LibraryScreen(
             onUnsubscribe = onUnsubscribeSeries,
             modifier = modifier,
             videoActions = videoActions,
+            onToggleSort = onToggleSeriesSort,
+            history = seriesHistory,
+            playingBvid = playingBvid,
+            selection = seriesSelection,
         )
         return
     }

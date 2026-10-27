@@ -38,6 +38,7 @@ import com.biliseek.app.ui.shouldAutoWatchOnPlayerPage
 import com.biliseek.app.data.LibraryRepository
 import com.biliseek.app.data.DayView
 import com.biliseek.app.ui.heatmapCellAlpha
+import com.biliseek.app.ui.toSearchVideo
 import com.biliseek.app.data.ListenKey
 import com.biliseek.app.data.resolveDayView
 import com.biliseek.app.data.ListenTimeTracker
@@ -775,6 +776,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // 多 P 面板 / UP 空间投稿的复选作用域（与搜索结果复选互斥，enter 时互相复位）
     val pageSelection = SelectionScope()
     val upSelection = SelectionScope()
+    val collectionSelection = SelectionScope()
 
     /** 单条多 P 选择页状态（三点按钮触发）；非空时 UI 渲染 MultiPagePickerScreen。 */
     private val _multiPagePicker = MutableStateFlow<MultiPagePickerState?>(null)
@@ -788,9 +790,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val pendingBatchAdd: StateFlow<List<TrackEntity>?> = _pendingBatchAdd.asStateFlow()
 
     fun enterSelectionMode(initialBvid: String) {
-        // 搜索结果复选与多 P / UP 空间复选互斥，进入时复位另两套
+        // 搜索结果复选与多 P / UP 空间 / 合集内容页复选互斥，进入时复位另三套
         pageSelection.exit()
         upSelection.exit()
+        collectionSelection.exit()
         _selectionMode.value = SelectionMode.On(initialBvid)
         _selectedBvids.value = setOf(initialBvid)
     }
@@ -916,6 +919,7 @@ return pages.map { p ->
     fun enterPageSelection(cid: Long) {
         exitSelectionMode()
         upSelection.exit()
+        collectionSelection.exit()
         pageSelection.enter(cid.toString())
     }
 
@@ -958,6 +962,7 @@ return pages.map { p ->
     fun enterUpSelection(bvid: String) {
         exitSelectionMode()
         pageSelection.exit()
+        collectionSelection.exit()
         upSelection.enter(bvid)
     }
 
@@ -975,6 +980,32 @@ return pages.map { p ->
     fun runUpBatch(action: PendingAction) = viewModelScope.launch {
         val videos = selectedUpVideos()
         upSelection.exit()
+        execute(action, videos.flatMap { expandToRequests(it) })
+    }
+
+    // ── 合集内容页的复选与动作 ──────────────────────────
+
+    /** 合集内容页长按进多选（与其他复选互斥）。 */
+    fun enterCollectionSelection(bvid: String) {
+        exitSelectionMode()
+        pageSelection.exit()
+        upSelection.exit()
+        collectionSelection.enter(bvid)
+    }
+
+    private fun collectionItems(slot: CollectionSlot) = when (slot) {
+        CollectionSlot.LIBRARY -> collections.openedInLibrary.value
+        CollectionSlot.UP_SPACE -> collections.openedInUpSpace.value
+    }?.items.orEmpty()
+
+    /** 全选只选已加载的（合集第三轮 §3）。 */
+    fun selectAllCollection(slot: CollectionSlot) = collectionSelection.selectAll(collectionItems(slot).map { it.bvid })
+
+    /** 批量动作：同 UP 投稿的多选（逐个取分 P 后执行）。 */
+    fun runCollectionBatch(slot: CollectionSlot, action: PendingAction) = viewModelScope.launch {
+        val sel = collectionSelection.selected.value
+        val videos = collectionItems(slot).filter { it.bvid in sel }.map { it.toSearchVideo() }
+        collectionSelection.exit()
         execute(action, videos.flatMap { expandToRequests(it) })
     }
 
