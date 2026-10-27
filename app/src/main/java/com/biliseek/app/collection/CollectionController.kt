@@ -124,13 +124,13 @@ class CollectionController(
         slot(slot).value = null
     }
 
-    /** 切换正序 / 倒序：换掉状态里的顺序标记、从第 1 页重取（不支持排序的来源什么都不做）。 */
+    /** 切换正序 / 倒序：换掉状态里的顺序标记、从第 1 页重取；总集数留着（顺序变了总数不变，副标题不闪成 0）。不支持排序的来源什么都不做。 */
     fun toggleSort(slot: CollectionSlot) {
         val target = slot(slot)
         val state = target.value ?: return
         val id = state.id as? TrackListId.Collection ?: return
         if (!CollectionPolicy.canSort(id.ref)) return
-        target.value = RemoteListState(id = id.copy(reversed = !id.reversed), title = state.title)
+        target.value = RemoteListState(id = id.copy(reversed = !id.reversed), title = state.title, total = state.total)
         loadPage(slot, 1)
     }
 
@@ -293,8 +293,8 @@ class CollectionController(
                 it.copy(totalCount = (it.totalCount - 1).coerceAtLeast(0))
             }
         }
-        val library = slot(CollectionSlot.LIBRARY)
-        if ((library.value?.ref() as? CollectionRef.Subscribed)?.seasonId == seasonId) library.value = null
+        val librarySlot = slot(CollectionSlot.LIBRARY)
+        if ((librarySlot.value?.ref() as? CollectionRef.Subscribed)?.seasonId == seasonId) librarySlot.value = null
     }
 
     private fun CollectionMediaItem.toArchive() = SeriesArchive(
