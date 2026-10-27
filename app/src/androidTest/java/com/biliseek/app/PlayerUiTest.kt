@@ -362,9 +362,9 @@ class PlayerUiTest {
         compose.onNodeWithText("下载").assertIsDisplayed()
         compose.onNodeWithText("音质").assertIsDisplayed()
         compose.onNodeWithText("复制链接").assertIsDisplayed()
-        // 倍速、定时只从页面上的胶囊进，菜单里不再重复
-        compose.onNodeWithContentDescription("倍速").assertDoesNotExist()
-        compose.onNodeWithText("定时关闭").assertDoesNotExist()
+        // 倍速、定时的入口在菜单里（2026-10-27 起）
+        compose.onNodeWithText("倍速").assertIsDisplayed()
+        compose.onNodeWithText("定时").assertIsDisplayed()
     }
 
     // ── 取流失败 ──────────────────────────────────────────

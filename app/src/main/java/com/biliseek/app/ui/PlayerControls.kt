@@ -242,7 +242,8 @@ internal fun PlayerControlBar(
  * 播放页控制行：播放模式 · 上一首 · 播放 · 下一首 · 播放列表，五个按钮等间距一行排开。
  *
  * 左右两组宽度对称（48 / 56 / 72 / 56 / 48dp），所以播放键正好在屏幕中线、间距一致。
- * 听 / 看开关与倍速、定时在下面一排（[PlayerSwitchRow]）——六个按钮放一行既不能以播放键为轴对称、也放不下。
+ * 听 | 看开关在顶栏正中（[ListenWatchSwitch]），倍速、定时在右上三点菜单里，设了值才在进度条上方出小标签
+ * （[PlayerStatusChips]）——六个按钮放一行既不能以播放键为轴对称、也放不下。
  */
 @Composable
 internal fun PlayerPageControlRow(
