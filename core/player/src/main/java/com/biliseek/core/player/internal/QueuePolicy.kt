@@ -121,6 +121,52 @@ internal fun resolveQueueOnTap(
     )
 }
 
+/** 「把合集换进列表、不重新起播」的改写计划（见 [resolveQueueOnAdopt]）。 */
+internal data class AdoptPlan(
+    /** 保留的固定条目（原下标、原顺序；不含当前视频那一段）。 */
+    val kept: List<Int>,
+    /** 新块插在 [kept] 的第几项之前。 */
+    val insertAt: Int,
+    /** 当前视频那一段在原队列里的范围 [runStart, runEnd)：当前条目前后连着的同一视频条目（含已展开的分 P）。 */
+    val runStart: Int,
+    val runEnd: Int,
+    /** 改写后的当前下标。 */
+    val newIndex: Int,
+)
+
+/**
+ * 合集弹层里点正在播的那一集：临时条目整块换成合集，当前视频（连同已展开的分 P）原样落在合集里它的位置，
+ * 不重新起播（docs/10）。
+ *
+ * - 当前视频那一段 = 当前条目前后连着、[keys] 相同的条目；
+ * - 不在这一段里的固定条目原样保留，新块插在这一段原位置之前的固定条目之后；
+ * - 新块 = 合集前 [beforeCount] 项 + 这一段 + 合集其余项，所以新下标 = insertAt + beforeCount + 当前条目在段内的偏移。
+ *
+ * [current] 越界返回 null。
+ */
+internal fun resolveQueueOnAdopt(
+    pinned: List<Boolean>,
+    keys: List<String>,
+    current: Int,
+    beforeCount: Int,
+): AdoptPlan? {
+    if (current !in keys.indices) return null
+    val key = keys[current]
+    var start = current
+    while (start > 0 && keys[start - 1] == key) start--
+    var end = current + 1
+    while (end < keys.size && keys[end] == key) end++
+    val kept = pinned.indices.filter { pinned[it] && it !in start until end }
+    val insertAt = kept.count { it < start }
+    return AdoptPlan(
+        kept = kept,
+        insertAt = insertAt,
+        runStart = start,
+        runEnd = end,
+        newIndex = insertAt + beforeCount + (current - start),
+    )
+}
+
 /** 临时块的末尾（开区间）；队列里没有临时条目时为 null。续页取回的条目就插在这里。 */
 internal fun resolveTemporaryBlockEnd(pinned: List<Boolean>): Int? =
     pinned.indexOfLast { !it }.takeIf { it >= 0 }?.plus(1)

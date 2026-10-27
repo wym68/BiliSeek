@@ -303,4 +303,66 @@ class QueuePolicyTest {
         assertEquals(6, resolveIndexAfterExpand(current = 2, index = 0, partCount = 5))
         assertEquals(1, resolveIndexAfterExpand(current = 1, index = 3, partCount = 5))
     }
+
+    // ── 「点正在播的那一集」把合集换进列表 ─────────────────
+
+    @Test
+    fun `换进合集 只有当前一条临时 当前落在合集里它的位置`() {
+        val plan = resolveQueueOnAdopt(pinned = listOf(false), keys = listOf("A"), current = 0, beforeCount = 2)!!
+        assertEquals(emptyList<Int>(), plan.kept)
+        assertEquals(0, plan.insertAt)
+        assertEquals(0, plan.runStart)
+        assertEquals(1, plan.runEnd)
+        assertEquals(2, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 当前视频已展开多个分P 整段保留 在播的分P不变`() {
+        // 当前视频 A 展开成 3 个分 P，正在播第 2 个
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, false, false),
+            keys = listOf("A", "A", "A"),
+            current = 1,
+            beforeCount = 4,
+        )!!
+        assertEquals(0, plan.runStart)
+        assertEquals(3, plan.runEnd)
+        assertEquals(4 + 1, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 前后的固定条目原样保留 新块插在它们中间`() {
+        // X(固定) A(当前，临时) Y(固定)
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(true, false, true),
+            keys = listOf("X", "A", "Y"),
+            current = 1,
+            beforeCount = 1,
+        )!!
+        assertEquals(listOf(0, 2), plan.kept)
+        assertEquals(1, plan.insertAt)
+        // 结果：X、合集第 1 集、A、合集其余… 、Y → A 在下标 2
+        assertEquals(2, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 当前条目本身带图钉 不算进保留的固定条目`() {
+        // B(临时) A(当前，固定) C(临时)
+        val plan = resolveQueueOnAdopt(
+            pinned = listOf(false, true, false),
+            keys = listOf("B", "A", "C"),
+            current = 1,
+            beforeCount = 0,
+        )!!
+        assertEquals(emptyList<Int>(), plan.kept)
+        assertEquals(1, plan.runStart)
+        assertEquals(2, plan.runEnd)
+        assertEquals(0, plan.newIndex)
+    }
+
+    @Test
+    fun `换进合集 当前下标越界返回 null`() {
+        assertNull(resolveQueueOnAdopt(pinned = emptyList(), keys = emptyList(), current = -1, beforeCount = 0))
+        assertNull(resolveQueueOnAdopt(pinned = listOf(false), keys = listOf("A"), current = 3, beforeCount = 0))
+    }
 }

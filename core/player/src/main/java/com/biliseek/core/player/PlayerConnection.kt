@@ -28,6 +28,7 @@ import com.biliseek.core.player.internal.resolveIndexAfterInsert
 import com.biliseek.core.player.internal.resolveClearedQueue
 import com.biliseek.core.player.internal.countLostOnTap
 import com.biliseek.core.player.internal.resolveIndexAfterExpand
+import com.biliseek.core.player.internal.resolveQueueOnAdopt
 import com.biliseek.core.player.internal.resolveQueueOnTap
 import com.biliseek.core.player.internal.resolveRemoveAt
 import com.biliseek.core.player.internal.resolveTemporaryBlockEnd
@@ -751,6 +752,44 @@ class PlayerConnection(private val context: Context) {
             source = loadMore?.let { ContextSource(it, expandParts) },
         )
         entries.getOrNull(queueIndex)?.let { play(it.request, fromQueue = true) }
+    }
+
+    /**
+     * 把一串内容换成临时块、**不重新起播**：当前在播的视频落在第 [index] 项（合集弹层里点正在播的那一集，docs/10）。
+     *
+     * [items] 的第 [index] 项必须就是当前在播的视频（按视频比对，同一视频的分 P 算一个），否则什么都不做、返回 null。
+     * 当前视频已展开的分 P 原样留在块里；其余条目轮到时再取分 P。固定条目原样保留（见 [resolveQueueOnAdopt]）。
+     * 替换掉的临时条目够多时，同点击播放一样留撤销快照、回调 [onQueueReplaced]；撤销时当前条目没变，播放不受影响。
+     *
+     * @return 被替换掉的临时条目数（见 [countLostOnTap]）；没换返回 null
+     */
+    fun adoptContext(items: List<PlaybackRequest>, index: Int): Int? {
+        val current = entries.getOrNull(queueIndex) ?: return null
+        if (items.getOrNull(index)?.identityKey() != current.request.identityKey()) return null
+        val plan = resolveQueueOnAdopt(
+            pinned = entries.map { it.pinned },
+            keys = entries.map { it.request.identityKey() },
+            current = queueIndex,
+            beforeCount = index,
+        ) ?: return null
+        val run = entries.subList(plan.runStart, plan.runEnd).toList()
+        val block = items.subList(0, index).map { QueueEntry(it, pinned = false, expandParts = true) } +
+            run +
+            items.subList(index + 1, items.size).map { QueueEntry(it, pinned = false, expandParts = true) }
+        val lost = countLostOnTap(
+            removed = entries.filterIndexed { i, e -> !e.pinned && i !in plan.runStart until plan.runEnd }
+                .map { it.request.identityKey() },
+            incoming = block.map { it.request.identityKey() },
+        )
+        val offerUndo = shouldOfferUndo(lost)
+        undoSnapshot = if (offerUndo) snapshot() else null
+        val kept = plan.kept.map { entries[it] }
+        entries = kept.subList(0, plan.insertAt) + block + kept.subList(plan.insertAt, kept.size)
+        queueIndex = plan.newIndex
+        queueSource = null
+        pushState()
+        if (offerUndo) onQueueReplaced?.invoke(lost)
+        return lost
     }
 
     /**
