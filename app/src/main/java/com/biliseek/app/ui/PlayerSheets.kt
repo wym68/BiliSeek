@@ -228,7 +228,7 @@ internal fun PlayerMoreMenuSheet(
     }
 }
 
-/** 倍速弹层：选完生效并收起。从播放页的倍速胶囊打开。 */
+/** 倍速弹层：选完生效并收起。从三点菜单的「倍速」，或进度条上方设了值才出现的倍速小标签打开。 */
 @Composable
 internal fun PlayerSpeedSheet(
     state: PlaybackState,
@@ -244,7 +244,7 @@ internal fun PlayerSpeedSheet(
     )
 }
 
-/** 定时关闭弹层：选完生效并收起。从播放页的定时胶囊打开。 */
+/** 定时关闭弹层：选完生效并收起。从三点菜单的「定时」，或进度条上方设了值才出现的定时小标签打开。 */
 @Composable
 internal fun PlayerTimerSheet(
     state: PlaybackState,

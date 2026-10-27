@@ -5,10 +5,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -29,7 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
@@ -187,56 +192,59 @@ fun PlayerScreen(
             )
 
             // 中段占满封面与底部控制块之间的空间；顺序：标题 → 互动栏 → 合集卡片 → 简介行 → 简介预览（填满剩下的高度）。
-            // 不再整体滚动：多出来的高度都给简介预览，屏幕特别矮时预览先缩到 0 行。换视频时整块重建。
+            // 正常屏幕不滚动：固定几行按自然高度排，剩下的高度都给简介预览（TopThenFillColumn）。
+            // 屏幕特别矮、固定几行放不下时，它们改成可上下滑、预览拿到 0 高度，不会被挤扁。换视频时整块重建。
             key(state.bvid) {
-                Column(
-                    Modifier
+                TopThenFillColumn(
+                    spacing = 8.dp,
+                    modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        state.title.ifBlank { "BiliSeek" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
-                    VideoActionBar(
-                        state = boundInteraction,
-                        handlers = interactionHandlers,
-                        onOpenFavorite = onOpenAddToList,
-                        onOpenComments = onOpenComments,
-                        onShare = onShare,
-                        activeColor = activeColor,
-                        onSummary = onSummary,
-                        hasSummary = hasSummary,
-                    )
-
-                    boundInteraction?.collection?.let { collection ->
-                        CollectionEntryRow(
-                            collection = collection,
-                            onOpen = { showCollectionSheet = true },
+                    top = {
+                        Text(
+                            state.title.ifBlank { "BiliSeek" },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    }
 
-                    boundInteraction?.let { info ->
-                        VideoDescriptionRow(
-                            desc = info.desc,
-                            viewCount = info.viewCount,
-                            pubDate = info.pubDate,
-                            linkColor = activeColor,
-                            onOpen = { showDescriptionSheet = true },
+                        VideoActionBar(
+                            state = boundInteraction,
+                            handlers = interactionHandlers,
+                            onOpenFavorite = onOpenAddToList,
+                            onOpenComments = onOpenComments,
+                            onShare = onShare,
+                            activeColor = activeColor,
+                            onSummary = onSummary,
+                            hasSummary = hasSummary,
                         )
-                        if (VideoDescriptionPolicy.shouldShow(info.desc)) {
+
+                        boundInteraction?.collection?.let { collection ->
+                            CollectionEntryRow(
+                                collection = collection,
+                                onOpen = { showCollectionSheet = true },
+                            )
+                        }
+
+                        boundInteraction?.let { info ->
+                            VideoDescriptionRow(
+                                desc = info.desc,
+                                viewCount = info.viewCount,
+                                pubDate = info.pubDate,
+                                linkColor = activeColor,
+                                onOpen = { showDescriptionSheet = true },
+                            )
+                        }
+                    },
+                    fill = {
+                        boundInteraction?.takeIf { VideoDescriptionPolicy.shouldShow(it.desc) }?.let { info ->
                             VideoDescriptionPreview(
                                 desc = info.desc,
                                 onOpen = { showDescriptionSheet = true },
-                                modifier = Modifier.weight(1f),
                             )
                         }
-                    }
-                }
+                    },
+                )
             }
 
             PlayerStatusChips(
@@ -321,6 +329,49 @@ fun PlayerScreen(
                 onQueueCollection = { index -> collectionHandlers.onQueueCollection(collection, index) },
                 onDismiss = { showCollectionSheet = false },
             )
+        }
+    }
+}
+
+/**
+ * 上面一块（[top]）按自然高度排，下面一块（[fill]）拿剩下的全部高度。
+ *
+ * 正常屏幕上 [top] 完整显示、不滚动；[top] 比可用高度还高时它改成可上下滑（高度 = 可用高度），
+ * [fill] 拿到 0 高度——不会把固定的那几行挤扁。[fill] 看到的 `maxHeight` 就是剩余高度，
+ * 简介预览据此算能放几行。两块之间隔 [spacing]。
+ *
+ * 用多内容的 `Layout(contents = …)`：两块各量一次，不需要 SubcomposeLayout 的二次组合。
+ */
+@Composable
+private fun TopThenFillColumn(
+    spacing: Dp,
+    top: @Composable ColumnScope.() -> Unit,
+    fill: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Layout(
+        contents = listOf<@Composable () -> Unit>(
+            {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(spacing),
+                    content = top,
+                )
+            },
+            fill,
+        ),
+        modifier = modifier,
+    ) { (topMeasurables, fillMeasurables), constraints ->
+        val spacingPx = spacing.roundToPx()
+        val topPlaceables = topMeasurables.map { it.measure(constraints.copy(minHeight = 0)) }
+        val topHeight = topPlaceables.maxOfOrNull { it.height } ?: 0
+        val fillMax = (constraints.maxHeight - topHeight - spacingPx).coerceAtLeast(0)
+        val fillPlaceables = fillMeasurables.map {
+            it.measure(constraints.copy(minHeight = 0, maxHeight = fillMax))
+        }
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            topPlaceables.forEach { it.placeRelative(0, 0) }
+            fillPlaceables.forEach { it.placeRelative(0, topHeight + spacingPx) }
         }
     }
 }

@@ -65,7 +65,10 @@ object CollectionPolicy {
         return rows.indexOfFirst { it is CollectionSheetRow.Episode && it.index == currentIndex }.coerceAtLeast(0)
     }
 
-    /** 点弹层里的第 [index] 集要不要起播：点的是正在播的那集就只关弹层，不重新播。 */
+    /**
+     * 点弹层里的第 [index] 集要不要起播：点的是正在播的那集就不重新播，
+     * 改把整个合集放进播放列表（[CollectionController.queueEpisodesAround]）。
+     */
     fun shouldPlayEpisode(collection: VideoCollection, index: Int, playingBvid: String): Boolean {
         val bvid = collection.episodes.getOrNull(index)?.bvid ?: return false
         return bvid != playingBvid

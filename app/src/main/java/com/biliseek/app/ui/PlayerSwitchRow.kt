@@ -95,10 +95,11 @@ private fun SwitchSegment(label: String, icon: ImageVector, selected: Boolean, o
 }
 
 /**
- * 倍速 / 定时胶囊：图标 + 文字。[active]（调过倍速、设了定时）时变主色，一眼看出现在不是默认状态。
+ * 倍速 / 定时胶囊：图标 + 文字。只在调过倍速、设了定时时才会画出来（见 [PlayerStatusChips]），所以现在 [active] 总是 true、主色，
+ * 一眼看出现在不是默认状态；为 false 的灰色样式目前没有调用方。
  *
- * 胶囊高 32dp，点击区扩到 48dp。[description] 是设了值之后给读屏的完整描述（只有「1.5×」「28:40」没有上下文）；
- * 没设时文字本身（「倍速」「定时」）就够清楚，不另加。
+ * 胶囊高 32dp，点击区扩到 48dp。[description] 是给读屏的完整描述（只有「1.5×」「28:40」没有上下文）；
+ * 不传时用文字本身。
  */
 @Composable
 private fun PlayerChip(

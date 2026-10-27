@@ -61,7 +61,7 @@ data class CollectionSheetHandlers(
 )
 
 /**
- * 播放页简介下面的合集入口卡片：封面 +「合集名」/「合集 · 第 3/24 集」+ ›，点开合集弹层。
+ * 播放页互动栏下面、简介行上面的合集入口卡片：封面 +「合集名」/「合集 · 第 3/24 集」+ ›，点开合集弹层。
  * 样式是用户在效果图里选的方案 B（设计稿 docs/superpowers/specs/2026-10-26-collections-design.md §4）。
  */
 @Composable
