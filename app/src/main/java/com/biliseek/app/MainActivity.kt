@@ -21,6 +21,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -992,6 +993,8 @@ class MainActivity : ComponentActivity() {
                     },
                     upSpaceContent = { onBack ->
                         BackHandler(onBack = { viewModel.upSpace.closeUpSpace(); onBack() })
+                        // 列表状态放在 if 外面：合集内容页盖上来时 UpSpaceScreen 不在组合里，状态仍留着，关掉后列表回到原位
+                        val upCollectionsListState = remember(upSpace.up?.mid) { LazyListState() }
                         val openedUpCollection = upSpaceCollection
                         if (openedUpCollection != null) {
                             // UP 空间里点开的合集 / 系列：盖在空间页上；返回先关它（后注册的 BackHandler 优先）
@@ -1061,6 +1064,7 @@ class MainActivity : ComponentActivity() {
                                 onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
                                 onPostDownload = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.Download) },
                                 onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
+                                collectionsListState = upCollectionsListState,
                             )
                         }
                     },

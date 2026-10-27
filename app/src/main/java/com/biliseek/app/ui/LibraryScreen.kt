@@ -165,6 +165,8 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     var showCreate by remember { mutableStateOf(false) }
+    // 放在下面几个提前 return 之前：合集内容页盖上来时「合集」tab 不在组合里，状态仍留着，关掉后列表回到原位
+    val seriesListState = rememberLazyListState()
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
     if (favoriteContent != null) {
         BackHandler(onBack = onCloseFavorite)
@@ -562,6 +564,7 @@ fun LibraryScreen(
                 ) {
                     LazyColumn(
                         Modifier.fillMaxSize(),
+                        state = seriesListState,
                         contentPadding = miniBarContentPadding(top = 8.dp, bottom = 8.dp),
                     ) {
                         if (!session.isLoggedIn) {

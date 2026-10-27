@@ -35,7 +35,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -125,6 +127,8 @@ fun UpSpaceScreen(
     onPostCopyLink: (SpaceVideo) -> Unit = {},
     onPostDownload: (SpaceVideo) -> Unit = {},
     onPostSummarize: (SpaceVideo) -> Unit = {},
+    /** 「合集」视图的列表状态。由调用方持有，合集内容页盖上来又关掉后，列表还在原来的位置。 */
+    collectionsListState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
 ) {
     val up = state.up
@@ -227,6 +231,7 @@ fun UpSpaceScreen(
                 onItemClick = onCollectionClick,
                 onLoadMore = onLoadMoreCollections,
                 onRetry = onRetryCollections,
+                collectionsListState = collectionsListState,
             )
         }
     }
@@ -489,6 +494,7 @@ private fun UpCollectionsList(
     onItemClick: (SpaceCollection) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
+    collectionsListState: LazyListState,
 ) {
     when {
         collections.isLoading && collections.items.isEmpty() -> BsLoadingState()
@@ -496,7 +502,7 @@ private fun UpCollectionsList(
             BsErrorState(collections.errorMessage, onRetry = onRetry)
         collections.items.isEmpty() -> BsEmptyState("这位 UP 主还没有合集", icon = Icons.Outlined.VideoLibrary)
         else -> {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = miniBarContentPadding()) {
+            LazyColumn(Modifier.fillMaxSize(), state = collectionsListState, contentPadding = miniBarContentPadding()) {
                 items(collections.items, key = { it.key }) { item ->
                     Row(
                         Modifier

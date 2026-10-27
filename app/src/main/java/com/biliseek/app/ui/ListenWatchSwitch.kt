@@ -4,7 +4,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -25,11 +28,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -44,7 +54,7 @@ import com.biliseek.core.player.PlaybackState
 /**
  * 听 | 看开关：分段胶囊，选中的一段填主色。放在播放页顶栏正中（2026-10-27 起，取代「正在播放」几个字）。
  *
- * 一眼看得出现在是听还是看；点已选中的一段不做事。顶栏用紧凑尺寸：高 32dp。
+ * 一眼看得出现在是听还是看；点已选中的一段不做事。顶栏用紧凑尺寸：看得见的胶囊高 32dp，点击区 48dp 高。
  */
 @Composable
 internal fun ListenWatchSwitch(isAudioMode: Boolean, onSwitchMode: () -> Unit, modifier: Modifier = Modifier) {
@@ -54,14 +64,27 @@ internal fun ListenWatchSwitch(isAudioMode: Boolean, onSwitchMode: () -> Unit, m
         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
         onSwitchMode()
     }
-
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    // 点击区 48dp 高；看得见的胶囊仍是中间 32dp（上下各留 8dp，那里也能点到）。描边画在胶囊里面，同原来的 border
     Row(
         modifier
-            .height(32.dp)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-            .padding(3.dp)
+            .height(48.dp)
+            .drawBehind {
+                val stroke = 1.dp.toPx()
+                val top = 8.dp.toPx() + stroke / 2
+                val h = size.height - top * 2
+                drawRoundRect(
+                    color = outline,
+                    topLeft = Offset(stroke / 2, top),
+                    size = Size(size.width - stroke, h),
+                    cornerRadius = CornerRadius(h / 2),
+                    style = Stroke(width = stroke),
+                )
+            }
+            .padding(horizontal = 3.dp)
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         SwitchSegment("听", Icons.Filled.Headphones, selected = isAudioMode) { switchTo(audio = true) }
         SwitchSegment("看", WatchTvIcon, selected = !isAudioMode) { switchTo(audio = false) }
@@ -72,25 +95,40 @@ internal fun ListenWatchSwitch(isAudioMode: Boolean, onSwitchMode: () -> Unit, m
 private fun SwitchSegment(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val contentColor = if (selected) scheme.onPrimary else scheme.onSurfaceVariant
-    Row(
+    val interaction = remember { MutableInteractionSource() }
+    // 整段 48dp 高都能点；看得见的一段是 26dp 高（32dp 胶囊内缩 3dp），水波纹也只画在这一段里
+    Box(
         Modifier
             .fillMaxHeight()
-            .widthIn(min = 52.dp)
-            .clip(CircleShape)
-            .background(if (selected) scheme.primary else Color.Transparent)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+            .selectable(
+                selected = selected,
+                interactionSource = interaction,
+                indication = null,
+                role = Role.RadioButton,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = contentColor)
-        Spacer(Modifier.width(4.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = contentColor,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
+        Row(
+            Modifier
+                .height(26.dp)
+                .widthIn(min = 52.dp)
+                .clip(CircleShape)
+                .background(if (selected) scheme.primary else Color.Transparent)
+                .indication(interaction, ripple())
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp), tint = contentColor)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = contentColor,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
     }
 }
 
