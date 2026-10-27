@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -317,6 +318,9 @@ fun PlayerScreen(
 
         val collection = boundInteraction?.collection
         if (showCollectionSheet && collection != null) {
+            val sheetHistory by remember(collection) {
+                collectionHandlers.historyOf(collection.episodes.map { it.bvid })
+            }.collectAsState(initial = emptyMap())
             CollectionSheet(
                 collection = collection,
                 playingBvid = state.bvid,
@@ -328,6 +332,7 @@ fun PlayerScreen(
                 onSetSubscribed = { subscribe -> collectionHandlers.onSetSubscribed(collection, subscribe) },
                 onQueueCollection = { index -> collectionHandlers.onQueueCollection(collection, index) },
                 onDismiss = { showCollectionSheet = false },
+                history = sheetHistory,
             )
         }
     }

@@ -66,6 +66,16 @@ object CollectionPolicy {
     }
 
     /**
+     * 弹层打开时 LazyColumn 先露哪一项。第一项固定是「继续听」横条的位置（没横条时是空项），所以行号加 1；
+     * 有小节标题时再往上退一行：吸顶的小节标题会盖住第一个看得见的行，退一行（退到小节标题本身或上一集）当前这集才露得出来。
+     */
+    fun sheetInitialItem(rows: List<CollectionSheetRow>, currentIndex: Int?): Int {
+        if (currentIndex == null) return 0
+        val row = currentRowIndex(rows, currentIndex)
+        return if (rows.any { it is CollectionSheetRow.Header }) row else row + 1
+    }
+
+    /**
      * 点弹层里的第 [index] 集要不要起播：点的是正在播的那集就不重新播，
      * 改把整个合集放进播放列表（[CollectionController.queueEpisodesAround]）。
      */

@@ -3,6 +3,7 @@ package com.biliseek.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -44,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import com.biliseek.app.collection.CollectionEpisode
 import com.biliseek.app.collection.CollectionPolicy
 import com.biliseek.app.collection.CollectionSheetRow
+import com.biliseek.app.collection.EpisodeHistory
+import com.biliseek.app.collection.EpisodeProgress
+import com.biliseek.app.collection.EpisodeProgressPolicy
 import com.biliseek.app.collection.VideoCollection
 import com.biliseek.app.ui.components.CompactDragHandle
 import com.biliseek.app.ui.components.SettingsSheetSection
@@ -52,6 +56,8 @@ import com.biliseek.core.player.formatDuration
 import com.biliseek.designsystem.component.BsConfirmDialog
 import com.biliseek.designsystem.theme.BsSize
 import com.biliseek.designsystem.theme.BsSpacing
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /** 播放页合集弹层的动作。宿主实现（CollectionController）。 */
 data class CollectionSheetHandlers(
@@ -59,6 +65,8 @@ data class CollectionSheetHandlers(
     val onSetSubscribed: (VideoCollection, Boolean) -> Unit = { _, _ -> },
     /** 点正在播的那一集：不重新播，把整个合集放进播放列表。 */
     val onQueueCollection: (VideoCollection, Int) -> Unit = { _, _ -> },
+    /** 这些视频的本地播放记录（宿主转给 CollectionController.historyOf）。 */
+    val historyOf: (List<String>) -> Flow<Map<String, EpisodeHistory>> = { flowOf(emptyMap()) },
 )
 
 /**
@@ -106,7 +114,8 @@ internal fun CollectionEntryRow(
 }
 
 /**
- * 合集弹层：标题区（合集名、共 N 集、订阅按钮）+ 全部集数（多个小节时带小节标题），打开时滚到当前这集。
+ * 合集弹层：标题区（合集名、共 N 集、订阅按钮）+ 全部集数（多个小节时带吸顶的小节标题），打开时滚到当前这集。
+ * 列表第一项固定留给「继续听」横条（有本地播放记录且目标不是正在播的那集才显示），各集标出已听完 / 听到哪。
  * 点某一集：是正在播的就不重新播、把整个合集放进播放列表，否则从这一集起播整个合集；两种都关弹层。点「已订阅」先确认。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,11 +132,16 @@ internal fun CollectionSheet(
     onSetSubscribed: (Boolean) -> Unit,
     onQueueCollection: (Int) -> Unit,
     onDismiss: () -> Unit,
+    /** 各集的本地播放记录（bvid → 最近一条）；异步读，比列表晚到。 */
+    history: Map<String, EpisodeHistory> = emptyMap(),
 ) {
     val rows = remember(collection) { CollectionPolicy.sheetRows(collection) }
     val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = CollectionPolicy.currentRowIndex(rows, collection.currentIndex),
+        initialFirstVisibleItemIndex = CollectionPolicy.sheetInitialItem(rows, collection.currentIndex),
     )
+    val bvids = remember(collection) { collection.episodes.map { it.bvid } }
+    val resumeIndex = EpisodeProgressPolicy.resumeIndex(bvids, history)
+        ?.takeIf { collection.episodes[it].bvid != playingBvid }
     var confirmingUnsubscribe by remember { mutableStateOf(false) }
     if (confirmingUnsubscribe) {
         UnsubscribeCollectionDialog(
@@ -182,36 +196,63 @@ internal fun CollectionSheet(
         }
         HorizontalDivider()
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth()) {
-            itemsIndexed(
-                rows,
-                key = { i, row -> if (row is CollectionSheetRow.Episode) "e${row.index}" else "h$i" },
-            ) { _, row ->
-                when (row) {
-                    is CollectionSheetRow.Header -> SettingsSheetSection(row.title)
-                    is CollectionSheetRow.Episode -> CollectionEpisodeRow(
-                        episode = row.episode,
-                        isCurrent = row.episode.bvid == playingBvid,
-                        accent = accent,
+            // 横条位固定是第一项，没横条时是空项（播放记录比列表晚到，临时插一项会把横条挤出屏幕）
+            item(key = "resume") {
+                if (resumeIndex != null) {
+                    val target = collection.episodes[resumeIndex]
+                    CollectionResumeBanner(
+                        title = EpisodeProgressPolicy.resumeTitle(resumeIndex + 1, target.title),
+                        detail = EpisodeProgressPolicy.resumeDetail(
+                            EpisodeProgressPolicy.progressOf(history[target.bvid]),
+                            target.durationSec,
+                        ),
                         onClick = {
-                            if (CollectionPolicy.shouldPlayEpisode(collection, row.index, playingBvid)) {
-                                onPlayEpisode(row.index)
-                            } else {
-                                onQueueCollection(row.index)
-                            }
+                            onPlayEpisode(resumeIndex)
                             onDismiss()
                         },
+                        modifier = Modifier.padding(horizontal = BsSpacing.xl, vertical = BsSpacing.sm),
                     )
+                }
+            }
+            rows.forEachIndexed { i, row ->
+                when (row) {
+                    is CollectionSheetRow.Header -> stickyHeader(key = "h$i") {
+                        // 吸顶：背景同弹层底色，盖住下面滚上来的行
+                        Box(Modifier.fillMaxWidth().background(BottomSheetDefaults.ContainerColor)) {
+                            SettingsSheetSection(row.title)
+                        }
+                    }
+                    is CollectionSheetRow.Episode -> item(key = "e${row.index}") {
+                        CollectionEpisodeRow(
+                            episode = row.episode,
+                            isCurrent = row.episode.bvid == playingBvid,
+                            progress = EpisodeProgressPolicy.progressOf(history[row.episode.bvid]),
+                            accent = accent,
+                            onClick = {
+                                if (CollectionPolicy.shouldPlayEpisode(collection, row.index, playingBvid)) {
+                                    onPlayEpisode(row.index)
+                                } else {
+                                    onQueueCollection(row.index)
+                                }
+                                onDismiss()
+                            },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/** 弹层里的一集：封面 + 标题 + 时长；正在播的那集用封面取色、加粗，时长前加「正在播放」。 */
+/**
+ * 弹层里的一集：封面 + 标题 + 时长；正在播的那集用封面取色、加粗，时长前加「正在播放」。
+ * 其他集按本地播放记录：听完的标题变灰、第二行「✓ 已听完 · 时长」，听到一半的写「听到 …」。
+ */
 @Composable
 private fun CollectionEpisodeRow(
     episode: CollectionEpisode,
     isCurrent: Boolean,
+    progress: EpisodeProgress,
     accent: Color,
     onClick: () -> Unit,
 ) {
@@ -229,13 +270,21 @@ private fun CollectionEpisodeRow(
             Text(
                 episode.title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (isCurrent) accent else MaterialTheme.colorScheme.onSurface,
+                color = when {
+                    isCurrent -> accent
+                    progress == EpisodeProgress.Finished -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
                 fontWeight = if (isCurrent) FontWeight.SemiBold else null,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                if (isCurrent) "正在播放 · $duration" else duration,
+                if (isCurrent) {
+                    "正在播放 · $duration"
+                } else {
+                    EpisodeProgressPolicy.statusLine(progress, episode.durationSec) ?: duration
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = if (isCurrent) accent else MaterialTheme.colorScheme.onSurfaceVariant,
             )

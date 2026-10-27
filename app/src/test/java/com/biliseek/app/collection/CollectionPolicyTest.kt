@@ -103,6 +103,27 @@ class CollectionPolicyTest {
     }
 
     @Test
+    fun `弹层打开时先露的项 第一项留给横条 有小节标题时多退一行免得被吸顶标题盖住`() {
+        val single = CollectionPolicy.fromView(
+            view("BV2", UgcSection(title = "正片", episodes = listOf(ep("BV1"), ep("BV2"), ep("BV3")))),
+        )!!
+        // 没小节标题：行号 1 + 横条位 1 = 2，当前这集在最上面
+        assertEquals(2, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(single), single.currentIndex))
+
+        val multi = CollectionPolicy.fromView(
+            view(
+                "BV3",
+                UgcSection(title = "上篇", episodes = listOf(ep("BV1"), ep("BV2"))),
+                UgcSection(title = "下篇", episodes = listOf(ep("BV3"))),
+            ),
+        )!!
+        // 当前在行号 4（「下篇」标题在行号 3）：+1 横条位、-1 退一行 = 4，即先露「下篇」标题
+        assertEquals(4, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(multi), multi.currentIndex))
+        // 没有当前集：从头（横条位）
+        assertEquals(0, CollectionPolicy.sheetInitialItem(CollectionPolicy.sheetRows(multi), null))
+    }
+
+    @Test
     fun `点正在播的那集不重新播 点别的集起播 越界不播`() {
         val c = CollectionPolicy.fromView(view("BV2", UgcSection(episodes = listOf(ep("BV1"), ep("BV2")))))!!
         assertFalse(CollectionPolicy.shouldPlayEpisode(c, 1, playingBvid = "BV2"))
