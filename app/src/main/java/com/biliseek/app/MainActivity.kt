@@ -224,6 +224,7 @@ class MainActivity : ComponentActivity() {
                 val openedFavorite by viewModel.remoteLibrary.openedFavorite.collectAsState()
                 val dynamic by viewModel.dynamics.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.state.collectAsState()
+                val upSpaceCollection by viewModel.collections.openedInUpSpace.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayView by viewModel.dayView.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
@@ -954,52 +955,71 @@ class MainActivity : ComponentActivity() {
                     },
                     upSpaceContent = { onBack ->
                         BackHandler(onBack = { viewModel.upSpace.closeUpSpace(); onBack() })
-                        UpSpaceScreen(
-                            state = upSpace,
-                            onClose = { viewModel.upSpace.closeUpSpace(); onBack() },
-                            onViewChange = viewModel.upSpace::setUpSpaceView,
-                            onPostClick = viewModel::playUpPost,
-                            onLoadMorePosts = viewModel.upSpace::loadMoreUpPosts,
-                            onRetryPosts = { viewModel.upSpace.loadUpPosts(1) },
-                            onDynamicClick = viewModel::playDynamic,
-                            onLoadMoreDynamic = viewModel.upSpace::loadMoreUpDynamic,
-                            // Ch4
-                            onToggleFollow = viewModel.upSpace::toggleRelation,
-                            onOpenImagePreview = viewModel::openImagePreview,
-                            onOpenRepost = { idStr ->
-                                copyToClipboard(viewModel.dynamicUrl(idStr))
-                                viewModel.notifyLinkCopied()
-                            },
-                            onOpenComment = viewModel.dynamics::openCommentDialog,
-                            onToggleLike = viewModel.dynamics::toggleDynamicLike,
-                            onAuthorClick = { entry ->
-                                viewModel.openUpSpace(
-                                    SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
-                                )
-                            },
-                            dynamicExpand = dynamicExpand,
-                            onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
-                            videoActions = dynamicVideoActions,
-                            // 投稿复选与动作
-                            isSelection = upSelectionActive,
-                            selectedBvids = selectedUpKeys,
-                            isLoggedIn = session.isLoggedIn,
-                            onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
-                            onToggleSelection = viewModel::toggleUpSelection,
-                            onSelectAll = viewModel::selectAllUp,
-                            onClearSelection = viewModel::clearUpSelection,
-                            onExitSelection = viewModel::exitUpSelection,
-                            onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
-                            onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
-                            onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
-                            onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
-                            onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
-                            onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
-                            onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
-                            onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
-                            onPostDownload = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.Download) },
-                            onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
-                        )
+                        val openedUpCollection = upSpaceCollection
+                        if (openedUpCollection != null) {
+                            // UP 空间里点开的合集 / 系列：盖在空间页上；返回先关它（后注册的 BackHandler 优先）
+                            BackHandler(onBack = { viewModel.collections.close(CollectionSlot.UP_SPACE) })
+                            com.biliseek.app.ui.SeriesScreen(
+                                state = openedUpCollection,
+                                onClose = { viewModel.collections.close(CollectionSlot.UP_SPACE) },
+                                onItemClick = { viewModel.collections.play(CollectionSlot.UP_SPACE, it) },
+                                onLoadMore = { viewModel.collections.loadPage(CollectionSlot.UP_SPACE, it) },
+                                onUnsubscribe = null,
+                                videoActions = videoMenuActions,
+                            )
+                        } else {
+                            UpSpaceScreen(
+                                state = upSpace,
+                                onClose = { viewModel.upSpace.closeUpSpace(); onBack() },
+                                onViewChange = viewModel.upSpace::setUpSpaceView,
+                                onPostClick = viewModel::playUpPost,
+                                onLoadMorePosts = viewModel.upSpace::loadMoreUpPosts,
+                                onRetryPosts = { viewModel.upSpace.loadUpPosts(1) },
+                                onDynamicClick = viewModel::playDynamic,
+                                onLoadMoreDynamic = viewModel.upSpace::loadMoreUpDynamic,
+                                onCollectionClick = { item ->
+                                    viewModel.collections.open(CollectionSlot.UP_SPACE, item.ref, item.name)
+                                },
+                                onLoadMoreCollections = viewModel.upSpace::loadMoreUpCollections,
+                                onRetryCollections = { viewModel.upSpace.loadUpCollections(1) },
+                                // Ch4
+                                onToggleFollow = viewModel.upSpace::toggleRelation,
+                                onOpenImagePreview = viewModel::openImagePreview,
+                                onOpenRepost = { idStr ->
+                                    copyToClipboard(viewModel.dynamicUrl(idStr))
+                                    viewModel.notifyLinkCopied()
+                                },
+                                onOpenComment = viewModel.dynamics::openCommentDialog,
+                                onToggleLike = viewModel.dynamics::toggleDynamicLike,
+                                onAuthorClick = { entry ->
+                                    viewModel.openUpSpace(
+                                        SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
+                                    )
+                                },
+                                dynamicExpand = dynamicExpand,
+                                onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
+                                videoActions = dynamicVideoActions,
+                                // 投稿复选与动作
+                                isSelection = upSelectionActive,
+                                selectedBvids = selectedUpKeys,
+                                isLoggedIn = session.isLoggedIn,
+                                onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
+                                onToggleSelection = viewModel::toggleUpSelection,
+                                onSelectAll = viewModel::selectAllUp,
+                                onClearSelection = viewModel::clearUpSelection,
+                                onExitSelection = viewModel::exitUpSelection,
+                                onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
+                                onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
+                                onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
+                                onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
+                                onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                                onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                                onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                                onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
+                                onPostDownload = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.Download) },
+                                onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
+                            )
+                        }
                     },
                     followingListContent = { onBack ->
                         BackHandler(onBack = { onBack() })

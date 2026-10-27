@@ -56,6 +56,8 @@ import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.app.chart.ChartController
 import com.biliseek.app.collection.CollectionController
+import com.biliseek.app.collection.CollectionSlot
+import com.biliseek.app.collection.SpaceCollection
 import com.biliseek.app.upspace.UpSpaceController
 import com.biliseek.app.search.SearchController
 import com.biliseek.app.data.RemoteListState
@@ -243,14 +245,16 @@ data class DynamicUiState(
 enum class SearchMode { VIDEO, USER }
 
 /** UP 空间页的视图（M11-D）。 */
-enum class UpSpaceView { POSTS, DYNAMIC }
+enum class UpSpaceView { POSTS, DYNAMIC, COLLECTIONS }
 
-/** UP 空间页状态：UP 头部卡 + 投稿 / 动态双视图。 */
+/** UP 空间页状态：UP 头部卡 + 投稿 / 动态 / 合集三个视图。 */
 data class UpSpaceUiState(
     val up: SearchUser? = null,
     val view: UpSpaceView = UpSpaceView.POSTS,
     val posts: RemoteListState<SpaceVideo> = RemoteListState.empty(),
     val dynamic: RemoteListState<DynamicEntry> = RemoteListState.empty(),
+    /** 「合集」视图：UP 主的合集与系列（合集在前）。第一次切过来才取。 */
+    val collections: RemoteListState<SpaceCollection> = RemoteListState.empty(),
     /** 动态视图的 offset 游标（feed/space）。 */
     val dynamicOffset: String = "",
     /** 关注状态：null=未拉取，true=已关注，false=未关注。乐观更新支持。 */
@@ -1427,6 +1431,8 @@ return pages.map { p ->
         recordUpVisit = ::recordUpVisit,
         onExitSelection = { upSelection.exit() },
         onFollowChanged = { dynamics.refreshUpChips() },
+        // 换 UP 主或关闭空间页：盖在上面的合集内容页一起关
+        onSpaceChanged = { collections.close(CollectionSlot.UP_SPACE) },
     )
 
     /** 打开 UP 空间页。消息中心、动态、关注列表、播放页「查看作者」等多处入口共用。 */
