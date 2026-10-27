@@ -2048,9 +2048,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: 播放页合集入口行与合集弹层
 
-先确认 Task 1 已选定样式；不是「A + X」的话，本任务 Step 1 的代码应已按所选方案改过。
+用户在 Task 1 选了入口行 **B 卡片** + 弹层 **X 带封面**（2026-10-26），本任务代码已按此写好。卡片要合集封面，所以 Step 0 先给 `VideoCollection` 补 `cover`。
 
 **Files:**
+- Modify: `app/src/main/java/com/biliseek/app/collection/CollectionModels.kt`（`VideoCollection.cover`）
+- Modify: `app/src/main/java/com/biliseek/app/collection/CollectionPolicy.kt`（`fromView` 填封面）
+- Test: `app/src/test/java/com/biliseek/app/collection/CollectionPolicyTest.kt`
 - Create: `app/src/main/java/com/biliseek/app/ui/CollectionSheet.kt`
 - Modify: `app/src/main/java/com/biliseek/app/ui/PlayerScreen.kt`
 - Modify: `app/src/main/java/com/biliseek/app/ui/AppShell.kt`
@@ -2061,22 +2064,69 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `VideoInteractionState.collection` / `seasonSubscribed`（Task 5），`CollectionPolicy`（Task 4），`CollectionController.playEpisodes` / `setSubscribed` / `subscribeBusy`（Task 6）。
 - Produces:
   - `data class CollectionSheetHandlers(onPlayEpisode: (VideoCollection, Int) -> Unit, onSetSubscribed: (VideoCollection, Boolean) -> Unit)`
-  - `internal fun CollectionEntryRow(collection: VideoCollection, linkColor: Color, onOpen: () -> Unit, modifier: Modifier = Modifier)`
+  - `VideoCollection.cover: String = ""`（合集封面；合集没封面时是第一集的封面）
+  - `internal fun CollectionEntryRow(collection: VideoCollection, onOpen: () -> Unit, modifier: Modifier = Modifier)`
   - `internal fun CollectionSheet(collection, playingBvid, subscribed, showSubscribe, subscribeBusy, accent, onPlayEpisode: (Int) -> Unit, onSetSubscribed: (Boolean) -> Unit, onDismiss)`
   - `PlayerScreen` / `AppShell` 新参数：`collectionHandlers: CollectionSheetHandlers`、`isLoggedIn: Boolean`、`subscribeBusy: Boolean`
 
-- [ ] **Step 1: 新建 `CollectionSheet.kt`**（方案 A 入口行 + 方案 X 弹层行）
+- [ ] **Step 0: `VideoCollection` 补合集封面（TDD）**
+
+0a. 在 `CollectionPolicyTest.kt` 里加一个测试：
+
+```kotlin
+    @Test
+    fun `合集封面 没有时用第一集的`() {
+        val noCover = CollectionPolicy.fromView(view("BV1", UgcSection(episodes = listOf(ep("BV1"), ep("BV2")))))!!
+        assertEquals("//i0/BV1.jpg", noCover.cover)
+
+        val withCover = CollectionPolicy.fromView(
+            VideoViewInfo(
+                bvid = "BV1",
+                ugcSeason = UgcSeason(
+                    id = 100,
+                    title = "合集甲",
+                    cover = "//i0/season.jpg",
+                    sections = listOf(UgcSection(episodes = listOf(ep("BV1")))),
+                ),
+            ),
+        )!!
+        assertEquals("//i0/season.jpg", withCover.cover)
+    }
+```
+
+Run: `./gradlew :app:testDebugUnitTest --tests "com.biliseek.app.collection.CollectionPolicyTest"`
+Expected: 编译失败，`Unresolved reference: cover`。
+
+0b. `CollectionModels.kt` 的 `VideoCollection` 里 `title` 后面加：
+
+```kotlin
+    /** 合集封面（原始地址，展示前 normalizeCoverUrl）；合集没封面时是第一集的封面。入口卡片用。 */
+    val cover: String = "",
+```
+
+0c. `CollectionPolicy.fromView` 返回的 `VideoCollection(…)` 里 `title = season.title,` 后面加：
+
+```kotlin
+            cover = season.cover.ifBlank { sections.first().episodes.first().cover },
+```
+
+（`sections` 已经保证非空、每个小节至少一集，`first()` 不会抛。）
+
+Run: `./gradlew :app:testDebugUnitTest --tests "com.biliseek.app.collection.CollectionPolicyTest"`
+Expected: 8 个测试全部 PASS。
+
+- [ ] **Step 1: 新建 `CollectionSheet.kt`**（方案 B 入口卡片 + 方案 X 弹层行）
 
 ```kotlin
 package com.biliseek.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -2129,44 +2179,44 @@ data class CollectionSheetHandlers(
 )
 
 /**
- * 播放页简介下面的合集入口：「合集  名称 …… 第 3/24 集 ›」，点开合集弹层。
- * 设计稿 docs/superpowers/specs/2026-10-26-collections-design.md §4（样式是用户在效果图里选的）。
+ * 播放页简介下面的合集入口卡片：封面 +「合集名」/「合集 · 第 3/24 集」+ ›，点开合集弹层。
+ * 样式是用户在效果图里选的方案 B（设计稿 docs/superpowers/specs/2026-10-26-collections-design.md §4）。
  */
 @Composable
 internal fun CollectionEntryRow(
     collection: VideoCollection,
-    linkColor: Color,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(role = Role.Button, onClick = onOpen),
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(role = Role.Button, onClick = onOpen)
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "合集",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            collection.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(CollectionPolicy.progressLabel(collection), style = MaterialTheme.typography.labelLarge, color = linkColor)
+        CoverThumbnail(normalizeCoverUrl(collection.cover), width = 64.dp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                collection.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "合集 · ${CollectionPolicy.progressLabel(collection)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = linkColor,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
     }
@@ -2339,7 +2389,6 @@ private fun CollectionEpisodeRow(
                     boundInteraction?.collection?.let { collection ->
                         CollectionEntryRow(
                             collection = collection,
-                            linkColor = activeColor,
                             onOpen = { showCollectionSheet = true },
                         )
                     }
@@ -2443,7 +2492,7 @@ import com.biliseek.app.collection.VideoCollection
         )
 
         compose.onNodeWithText("测试合集").assertIsDisplayed()
-        compose.onNodeWithText("第 2/3 集").assertIsDisplayed().performClick()
+        compose.onNodeWithText("合集 · 第 2/3 集").assertIsDisplayed().performClick()
 
         compose.onNodeWithText("共 3 集").assertIsDisplayed()
         compose.onNodeWithText("第三集").assertIsDisplayed()
@@ -2488,7 +2537,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### 13.84 合集：播放页显示所属合集、UP 空间合集（2026-10-26）
 
 - **需求**：播放时看不出视频属于哪个合集，也没法顺着合集往下听；UP 空间看不到 UP 主的合集。设计稿 `docs/superpowers/specs/2026-10-26-collections-design.md`。
-- **播放页**：简介下面加一行「合集 · 名称 · 第 3/24 集 ›」，点开是合集弹层：合集名、共 N 集、登录后「订阅 / 已订阅」（点「已订阅」先确认）；全部集数（多个小节带小节标题），打开时滚到当前这集。点某一集：整个合集作为临时块从这一集开始播，带图钉的条目不动；点正在播的那集只关弹层。合集信息出自播放页本来就发的 `view`（`ugc_season`），订阅状态出自 `relation`（`season_fav`），**不多发请求**。播一个合集里的视频**不自动**接后续集。
+- **播放页**：简介下面加一张合集小卡片（合集封面 + 合集名 +「合集 · 第 3/24 集」+ ›，用户在效果图里选的 B），点开是合集弹层（每集带封面，选的 X）：合集名、共 N 集、登录后「订阅 / 已订阅」（点「已订阅」先确认）；全部集数（多个小节带小节标题），打开时滚到当前这集。点某一集：整个合集作为临时块从这一集开始播，带图钉的条目不动；点正在播的那集只关弹层。合集信息出自播放页本来就发的 `view`（`ugc_season`），订阅状态出自 `relation`（`season_fav`），**不多发请求**。播一个合集里的视频**不自动**接后续集。
 - **UP 空间**：视图变成「投稿 / 动态 / 合集」，第一次切到「合集」才发请求（`x/polymer/web-space/seasons_series_list`）。合集在前、旧版系列在后，第二行「合集 / 系列 · N 个视频」；点开在空间页上盖一层合集内容页（`SeriesScreen`，不显示「取消订阅」）。合集内容按 UP 主排的顺序（`seasons_archives_list`），系列按发布时间从旧到新（`x/series/archives`，B 站网页默认从新到旧，这里有意不同）。三个读接口统一 WBI 签名、走 `FEED` 限速桶，不重试。
 - **订阅**：新增写接口 `x/v3/fav/season/fav`，与取消订阅对称。订阅后「列表 → 合集」重新取第 1 页；取消后从列表里去掉。
 - **结构**：新建 `CollectionController`（`app/collection/`），订阅合集列表和合集内容页从 `RemoteLibraryController` 迁过来；内容页分「列表」tab、UP 空间两个槽，互不覆盖。判断逻辑在 `CollectionPolicy`。`TrackListId.Series` 改为 `TrackListId.Collection(ref)`。
@@ -2518,9 +2567,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 | 检查点 | 期望 |
 | ---- | ---- |
-| 播放一个属于合集的视频，打开播放页 | 简介那一行下面多一行「合集  合集名 …… 第 n/N 集 ›」 |
-| 播放一个不属于合集的视频 | 没有这一行，也没有报错 |
-| 点合集那一行 | 底部弹出合集弹层（窄横杠）：合集名、「共 N 集」；列表自动滚到当前这集，当前这集高亮、写「正在播放」 |
+| 播放一个属于合集的视频，打开播放页 | 简介那一行下面多一张小卡片：合集封面、合集名、「合集 · 第 n/N 集」、右边 › |
+| 播放一个不属于合集的视频 | 没有这张卡片，也没有报错 |
+| 点合集卡片 | 底部弹出合集弹层（窄横杠）：合集名、「共 N 集」；列表自动滚到当前这集，当前这集高亮、写「正在播放」 |
 | 合集有多个小节 | 列表里有小节标题；只有一个小节时没有 |
 | 弹层里点另一集 | 弹层关掉，从这一集开始播；打开队列：合集各集在队列里，之前「加入队列 / 下一首播放」加的（带图钉）还在 |
 | 弹层里点正在播的那集 | 弹层关掉，**不重新播** |
