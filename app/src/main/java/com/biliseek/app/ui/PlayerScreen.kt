@@ -108,6 +108,12 @@ fun PlayerScreen(
     onDescriptionLink: (DescLinkTarget) -> Unit = {},
     /** 看模式下离开播放页时截下的最后一帧：撤掉画面后顶替视频，和整页一起淡出（见 AppShell 的 leavePlayerThen）。 */
     frozenFrame: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /** 合集弹层的动作（点某一集、订阅 / 取消订阅）。 */
+    collectionHandlers: CollectionSheetHandlers = CollectionSheetHandlers(),
+    /** 已登录：合集弹层显示「订阅 / 已订阅」。 */
+    isLoggedIn: Boolean = false,
+    /** 订阅请求进行中：订阅按钮不能点。 */
+    subscribeBusy: Boolean = false,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     // 长按加速在手势里读最新的播放状态（是否在播、当前速度、音质）
@@ -116,6 +122,8 @@ fun PlayerScreen(
     var showTimerSheet by remember { mutableStateOf(false) }
     // 换视频（切歌 / 自动下一首）时简介弹层跟着收起
     var showDescriptionSheet by remember(state.bvid) { mutableStateOf(false) }
+    // 换视频时合集弹层跟着收起
+    var showCollectionSheet by remember(state.bvid) { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
     val boundInteraction = interaction?.takeIf { it.bvid == state.bvid }
     val activeColor = accent.accent ?: MaterialTheme.colorScheme.primary
@@ -208,6 +216,13 @@ fun PlayerScreen(
                             onOpen = { showDescriptionSheet = true },
                         )
                     }
+
+                    boundInteraction?.collection?.let { collection ->
+                        CollectionEntryRow(
+                            collection = collection,
+                            onOpen = { showCollectionSheet = true },
+                        )
+                    }
                 }
             }
 
@@ -282,6 +297,21 @@ fun PlayerScreen(
                 onTimestamp = onDescriptionTimestamp,
                 onLink = onDescriptionLink,
                 onDismiss = { showDescriptionSheet = false },
+            )
+        }
+
+        val collection = boundInteraction?.collection
+        if (showCollectionSheet && collection != null) {
+            CollectionSheet(
+                collection = collection,
+                playingBvid = state.bvid,
+                subscribed = boundInteraction.seasonSubscribed,
+                showSubscribe = isLoggedIn,
+                subscribeBusy = subscribeBusy,
+                accent = activeColor,
+                onPlayEpisode = { index -> collectionHandlers.onPlayEpisode(collection, index) },
+                onSetSubscribed = { subscribe -> collectionHandlers.onSetSubscribed(collection, subscribe) },
+                onDismiss = { showCollectionSheet = false },
             )
         }
     }

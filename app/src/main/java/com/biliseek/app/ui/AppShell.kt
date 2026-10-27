@@ -153,6 +153,10 @@ fun AppShell(
     /** 播放页视频互动栏（点赞 / 投币 / 收藏）状态与动作。 */
     videoInteraction: com.biliseek.app.interaction.VideoInteractionState? = null,
     videoActionHandlers: VideoActionHandlers = VideoActionHandlers(),
+    /** 播放页合集弹层的动作与状态。 */
+    collectionHandlers: CollectionSheetHandlers = CollectionSheetHandlers(),
+    isLoggedIn: Boolean = false,
+    subscribeBusy: Boolean = false,
     /** 添加到列表（B站收藏夹 / 本地歌单二选一，走 AddToListPickerDialog）。 */
     onOpenAddToList: () -> Unit = {},
     /** 打开 UP 空间页。 */
@@ -518,6 +522,9 @@ fun AppShell(
                                 accent = accent,
                                 interaction = videoInteraction,
                                 interactionHandlers = videoActionHandlers,
+                                collectionHandlers = collectionHandlers,
+                                isLoggedIn = isLoggedIn,
+                                subscribeBusy = subscribeBusy,
                                 // 全屏层或 PiP 层接管 SurfaceView 时，内联封面区让路
                                 isFullscreenActive = expansion == PlayerExpansion.FULLSCREEN || isInPip,
                                 frozenFrame = frozenFrame,

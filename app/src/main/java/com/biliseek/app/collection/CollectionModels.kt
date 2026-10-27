@@ -42,6 +42,8 @@ data class SpaceCollection(
 data class VideoCollection(
     val seasonId: Long,
     val title: String,
+    /** 合集封面（原始地址，展示前 normalizeCoverUrl）；合集没封面时是第一集的封面。入口卡片用。 */
+    val cover: String = "",
     /** 至少一个小节，每个小节至少一集（空的在 [CollectionPolicy.fromView] 里去掉了）。 */
     val sections: List<CollectionSection>,
     /** 当前视频在 [episodes] 里的位置；找不到为 null。 */

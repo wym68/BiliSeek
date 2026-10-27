@@ -111,6 +111,25 @@ class CollectionPolicyTest {
     }
 
     @Test
+    fun `合集封面 没有时用第一集的`() {
+        val noCover = CollectionPolicy.fromView(view("BV1", UgcSection(episodes = listOf(ep("BV1"), ep("BV2")))))!!
+        assertEquals("//i0/BV1.jpg", noCover.cover)
+
+        val withCover = CollectionPolicy.fromView(
+            VideoViewInfo(
+                bvid = "BV1",
+                ugcSeason = UgcSeason(
+                    id = 100,
+                    title = "合集甲",
+                    cover = "//i0/season.jpg",
+                    sections = listOf(UgcSection(episodes = listOf(ep("BV1")))),
+                ),
+            ),
+        )!!
+        assertEquals("//i0/season.jpg", withCover.cover)
+    }
+
+    @Test
     fun `UP 空间合集在前系列在后 编号相同也不撞 key 第二行写类型和视频数`() {
         val page = SpaceCollectionsPage(
             seasons = listOf(SpaceSeasonMeta(seasonId = 100, name = "合集甲", cover = "c1", total = 24)),

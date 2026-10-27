@@ -16,6 +16,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
+import com.biliseek.app.collection.CollectionEpisode
+import com.biliseek.app.collection.CollectionSection
+import com.biliseek.app.collection.VideoCollection
 import com.biliseek.app.interaction.VideoInteractionState
 import com.biliseek.app.ui.MiniPlayer
 import com.biliseek.app.ui.PlayerScreen
@@ -360,5 +363,42 @@ class PlayerUiTest {
 
         compose.onNodeWithText("网络不可达").assertIsDisplayed()
         compose.onNodeWithText("重试").assertIsDisplayed()
+    }
+
+    // ── 合集 ────────────────────────────────────────────
+
+    private fun collection(currentIndex: Int?) = VideoCollection(
+        seasonId = 100,
+        title = "测试合集",
+        sections = listOf(
+            CollectionSection(
+                "正片",
+                listOf("BV1" to "第一集", "BV2" to "第二集", "BV3" to "第三集").map { (bvid, title) ->
+                    CollectionEpisode(bvid, title, "", 60, "UP", 9)
+                },
+            ),
+        ),
+        currentIndex = currentIndex,
+    )
+
+    @Test
+    fun 播放页_属于合集时显示入口行_点开弹层列出各集() {
+        setPlayerScreen(
+            playingState.copy(bvid = "BV2"),
+            interaction = VideoInteractionState(bvid = "BV2", collection = collection(currentIndex = 1)),
+        )
+
+        compose.onNodeWithText("测试合集").assertIsDisplayed()
+        compose.onNodeWithText("合集 · 第 2/3 集").assertIsDisplayed().performClick()
+
+        compose.onNodeWithText("共 3 集").assertIsDisplayed()
+        compose.onNodeWithText("第三集").assertIsDisplayed()
+    }
+
+    @Test
+    fun 播放页_不属于合集时没有入口行() {
+        setPlayerScreen(playingState.copy(bvid = "BV2"), interaction = VideoInteractionState(bvid = "BV2"))
+
+        compose.onNodeWithText("合集").assertDoesNotExist()
     }
 }

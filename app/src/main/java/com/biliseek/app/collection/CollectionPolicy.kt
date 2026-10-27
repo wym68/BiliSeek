@@ -35,6 +35,7 @@ object CollectionPolicy {
         return VideoCollection(
             seasonId = season.id,
             title = season.title,
+            cover = season.cover.ifBlank { sections.first().episodes.first().cover },
             sections = sections,
             currentIndex = index.takeIf { it >= 0 },
         )

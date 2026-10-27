@@ -225,6 +225,7 @@ class MainActivity : ComponentActivity() {
                 val dynamic by viewModel.dynamics.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.state.collectAsState()
                 val upSpaceCollection by viewModel.collections.openedInUpSpace.collectAsState()
+                val collectionSubscribeBusy by viewModel.collections.subscribeBusy.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayView by viewModel.dayView.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
@@ -549,6 +550,16 @@ class MainActivity : ComponentActivity() {
                             onCoin = viewModel.videoInteraction::addCoin,
                         )
                     },
+                    collectionHandlers = remember {
+                        com.biliseek.app.ui.CollectionSheetHandlers(
+                            onPlayEpisode = viewModel.collections::playEpisodes,
+                            onSetSubscribed = { collection, subscribe ->
+                                viewModel.collections.setSubscribed(collection.seasonId, collection.title, subscribe)
+                            },
+                        )
+                    },
+                    isLoggedIn = session.isLoggedIn,
+                    subscribeBusy = collectionSubscribeBusy,
                     onSummary = viewModel::summarizeCurrent,
                     hasSummary = currentHasSummary,
                     onDescriptionTimestamp = viewModel::seekFromDescription,
