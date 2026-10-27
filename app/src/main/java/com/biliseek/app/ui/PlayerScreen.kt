@@ -278,6 +278,8 @@ fun PlayerScreen(
                 defaultAudioQuality = defaultAudioQuality,
                 onSetAudioQuality = onSetAudioQuality,
                 onSetDefaultAudioQuality = onSetDefaultAudioQuality,
+                onOpenSpeed = { showSpeedSheet = true },
+                onOpenTimer = { showTimerSheet = true },
             )
         }
 
