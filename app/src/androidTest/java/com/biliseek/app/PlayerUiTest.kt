@@ -399,6 +399,6 @@ class PlayerUiTest {
     fun 播放页_不属于合集时没有入口行() {
         setPlayerScreen(playingState.copy(bvid = "BV2"), interaction = VideoInteractionState(bvid = "BV2"))
 
-        compose.onNodeWithText("合集").assertDoesNotExist()
+        compose.onNodeWithText("合集 · ", substring = true).assertDoesNotExist()
     }
 }

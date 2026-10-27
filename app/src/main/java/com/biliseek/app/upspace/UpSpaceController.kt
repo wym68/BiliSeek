@@ -123,7 +123,7 @@ class UpSpaceController(
         _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
     }
 
-    /** 投稿 / 动态 视图切换：各视图独立分页状态，互不干扰。 */
+    /** 投稿 / 动态 / 合集 视图切换：各视图独立分页状态，互不干扰。 */
     fun setUpSpaceView(view: UpSpaceView) {
         // 切视图退出投稿复选：另一视图的列表与勾选集无关
         onExitSelection()
@@ -249,7 +249,8 @@ class UpSpaceController(
                 .onSuccess { result ->
                     if (_upSpace.value.up?.mid != up.mid) return@onSuccess
                     val base = _upSpace.value.collections
-                    val incoming = CollectionPolicy.spaceCollections(result, up.mid, up.uname)
+                    // 列表 key 是 SpaceCollection.key：同一页里重复的去掉，免得 LazyColumn 撞 key
+                    val incoming = CollectionPolicy.spaceCollections(result, up.mid, up.uname).distinctBy { it.key }
                     _upSpace.value = _upSpace.value.copy(
                         collections = base.copy(
                             items = appendUnseen(if (loadingMore) base.items else emptyList(), incoming, emptySet()) { it.key },
