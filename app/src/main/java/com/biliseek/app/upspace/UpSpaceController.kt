@@ -146,15 +146,8 @@ class UpSpaceController(
             )
             repository.spaceArchives(up.mid, page)
                 .onSuccess { result ->
-                    val base = _upSpace.value.posts
                     _upSpace.value = _upSpace.value.copy(
-                        posts = base.copy(
-                            items = if (loadingMore) base.items + result.items else result.items,
-                            hasMore = result.hasMore,
-                            isLoading = false,
-                            isLoadingMore = false,
-                            errorMessage = null,
-                        ),
+                        posts = UpSpacePolicy.applyPostsPage(_upSpace.value.posts, result, loadingMore),
                     )
                 }
                 .onFailure {
