@@ -37,6 +37,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.collection.CollectionRef
+import com.biliseek.app.collection.CollectionSlot
 import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.ChartScreen
 import com.biliseek.app.ui.DayHistoryScreen
@@ -253,9 +255,9 @@ class MainActivity : ComponentActivity() {
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
                 val downloadTasks by viewModel.downloadTasks.collectAsState()
-                val openedSeries by viewModel.remoteLibrary.openedSeries.collectAsState()
-                val collectedList by viewModel.remoteLibrary.collectedList.collectAsState()
-                val collectedListState by viewModel.remoteLibrary.collectedListState.collectAsState()
+                val openedSeries by viewModel.collections.openedInLibrary.collectAsState()
+                val collectedList by viewModel.collections.collectedList.collectAsState()
+                val collectedListState by viewModel.collections.collectedListState.collectAsState()
                 val unreadSummary by viewModel.messages.unreadSummary.collectAsState()
 
                 val coroutineScope = rememberCoroutineScope()
@@ -470,10 +472,10 @@ class MainActivity : ComponentActivity() {
 
                 // 已登录且合集列表从未加载过 → 自动拉一次订阅合集列表
                 LaunchedEffect(session.isLoggedIn) {
-                    if (session.isLoggedIn && viewModel.remoteLibrary.collectedList.value.isEmpty() &&
-                        viewModel.remoteLibrary.collectedListState.value.isLoading.not()
+                    if (session.isLoggedIn && viewModel.collections.collectedList.value.isEmpty() &&
+                        viewModel.collections.collectedListState.value.isLoading.not()
                     ) {
-                        viewModel.remoteLibrary.loadCollectedList(1)
+                        viewModel.collections.loadCollectedList(1)
                     }
                 }
 
@@ -865,14 +867,16 @@ class MainActivity : ComponentActivity() {
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = openedSeries,
-                                onCloseSeries = viewModel.remoteLibrary::closeSeries,
+                                onCloseSeries = { viewModel.collections.close(CollectionSlot.LIBRARY) },
                                 collectedList = collectedList,
                                 collectedListState = collectedListState,
-                                onOpenSeries = viewModel.remoteLibrary::openSeries,
-                                onCollectedLoadMore = viewModel.remoteLibrary::loadCollectedList,
-                                onSeriesLoadMore = viewModel.remoteLibrary::loadSeriesPage,
-                                onPlaySeriesArchive = viewModel.remoteLibrary::playSeriesArchive,
-                                onUnsubscribeSeries = viewModel.remoteLibrary::unsubscribeOpenedSeries,
+                                onOpenSeries = { id, title ->
+                                    viewModel.collections.open(CollectionSlot.LIBRARY, CollectionRef.Subscribed(id), title)
+                                },
+                                onCollectedLoadMore = viewModel.collections::loadCollectedList,
+                                onSeriesLoadMore = { viewModel.collections.loadPage(CollectionSlot.LIBRARY, it) },
+                                onPlaySeriesArchive = { viewModel.collections.play(CollectionSlot.LIBRARY, it) },
+                                onUnsubscribeSeries = viewModel.collections::unsubscribeOpenedInLibrary,
                                 videoActions = videoMenuActions,
                             )
                         }

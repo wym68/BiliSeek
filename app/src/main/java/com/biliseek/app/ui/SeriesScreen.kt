@@ -43,7 +43,7 @@ import com.biliseek.core.player.formatDuration
 /**
  * 合集内容页（M13-N）。分页拉取，滚动到底自动加载下一页。
  *
- * 结构与 [FavoriteDetail] 一致。标题右侧「取消订阅」：确认后取消订阅这个合集（成功后宿主关掉本页）。
+ * 结构与 [FavoriteDetail] 一致。「列表」tab 里打开时标题右侧有「取消订阅」：确认后取消订阅这个合集（成功后宿主关掉本页）；UP 空间里打开的合集 / 系列不显示。
  */
 @Composable
 fun SeriesScreen(
@@ -51,7 +51,8 @@ fun SeriesScreen(
     onClose: () -> Unit,
     onItemClick: (SeriesArchive) -> Unit,
     onLoadMore: (Int) -> Unit,
-    onUnsubscribe: () -> Unit,
+    /** 取消订阅这个合集；null = 不显示「取消订阅」（UP 空间里打开的合集 / 系列）。 */
+    onUnsubscribe: (() -> Unit)?,
     modifier: Modifier = Modifier,
     /** 视频行右侧三点菜单的动作，与搜索结果一致。 */
     videoActions: VideoMenuActions = VideoMenuActions(),
@@ -71,7 +72,7 @@ fun SeriesScreen(
             destructive = true,
             onConfirm = {
                 confirmingUnsubscribe = false
-                onUnsubscribe()
+                onUnsubscribe?.invoke()
             },
             onDismiss = { confirmingUnsubscribe = false },
         )
@@ -83,7 +84,9 @@ fun SeriesScreen(
             subtitle = "${state.items.size} 首",
             onNavigate = onClose,
             actions = {
-                TextButton(onClick = { confirmingUnsubscribe = true }) { Text("取消订阅") }
+                if (onUnsubscribe != null) {
+                    TextButton(onClick = { confirmingUnsubscribe = true }) { Text("取消订阅") }
+                }
             },
         )
 

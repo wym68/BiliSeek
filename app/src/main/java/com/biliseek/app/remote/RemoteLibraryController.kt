@@ -2,7 +2,6 @@ package com.biliseek.app.remote
 
 import com.biliseek.app.FavoriteTrack
 import com.biliseek.app.SyncState
-import com.biliseek.app.data.CollectedListLoadState
 import com.biliseek.app.data.FavoriteFolderEntity
 import com.biliseek.app.data.LibraryRepository
 import com.biliseek.app.data.RemoteListState
@@ -10,10 +9,7 @@ import com.biliseek.app.data.TrackListId
 import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.FavoriteResourcePage
-import com.biliseek.core.network.dto.CollectedItem
-import com.biliseek.core.network.dto.CollectionMediaItem
 import com.biliseek.core.network.dto.FavoriteMedia
-import com.biliseek.core.network.dto.SeriesArchive
 import com.biliseek.core.network.dto.WatchLaterItem
 import com.biliseek.core.network.normalizeCoverUrl
 import com.biliseek.core.network.stripHighlight
@@ -45,12 +41,12 @@ fun interface ListPlayer {
 }
 
 /**
- * B 站远程列表：收藏夹（目录快照 + 内容分页）、稍后再看、订阅合集（列表 + 内容分页）。
+ * B 站远程列表：收藏夹（目录快照 + 内容分页）、稍后再看。订阅合集在 CollectionController。
  *
  * 从 AppViewModel 拆出，由 `AppViewModel.remoteLibrary` 持有；生命周期挂在宿主的 [scope] 上。
  * 只有收藏夹「目录」落库（断网可见）；内容一律只在内存里分页，不落库（见 CLAUDE.md）。
  * 点条目起播经 [playBvid] 回到宿主。收藏夹的增删改仍在宿主里，改完调 [syncFavoriteFolders]；
- * 从稍后再看 / 收藏夹移除条目、取消订阅合集在这里（只动这里的列表状态），结果经 [notify] 提示；
+ * 从稍后再看 / 收藏夹移除条目在这里（只动这里的列表状态），结果经 [notify] 提示；
  * 「加入列表 → 稍后再看」（[addToWatchLater]）也在这里。
  */
 class RemoteLibraryController(
@@ -272,128 +268,6 @@ class RemoteLibraryController(
         }
     }
 
-    // ── 合集（M13-N）────────────────────────────────
-
-    /** 订阅合集列表（分页）。 */
-    private val _collectedList = MutableStateFlow<List<CollectedItem>>(emptyList())
-    val collectedList: StateFlow<List<CollectedItem>> = _collectedList.asStateFlow()
-
-    /** 当前打开的合集内容页（分页拉取，不落库）。 */
-    private val _openedSeries = MutableStateFlow<RemoteListState<SeriesArchive>?>(null)
-    val openedSeries: StateFlow<RemoteListState<SeriesArchive>?> = _openedSeries.asStateFlow()
-
-    /** 订阅合集列表加载状态。 */
-    private val _collectedListState = MutableStateFlow(CollectedListLoadState())
-    val collectedListState: StateFlow<CollectedListLoadState> = _collectedListState.asStateFlow()
-
-    /** 加载订阅合集列表第 [page] 页。 */
-    fun loadCollectedList(page: Int = 1) {
-        val mid = session.value.dedeUserId.toLongOrNull() ?: return
-        val state = _collectedListState.value
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        scope.launch {
-            val loadingMore = page > 1
-            _collectedListState.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            repository.collectedList(mid, page)
-                .onSuccess { result ->
-                    val base = _collectedListState.value
-                    _collectedList.value = if (loadingMore) _collectedList.value + result.items else result.items
-                    _collectedListState.value = base.copy(
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        totalCount = result.totalCount,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    _collectedListState.value = _collectedListState.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /** 打开合集内容页。 */
-    fun openSeries(seriesId: Long, title: String) {
-        _openedSeries.value = RemoteListState(
-            id = TrackListId.Series(seriesId),
-            title = title,
-        )
-        loadSeriesPage(1)
-    }
-
-    fun closeSeries() { _openedSeries.value = null }
-
-    /** 加载合集内容第 [page] 页。 */
-    fun loadSeriesPage(page: Int) {
-        val state = _openedSeries.value ?: return
-        val seriesId = (state.id as? TrackListId.Series)?.seriesId ?: return
-        if (state.isLoading || state.isLoadingMore) return
-        if (page > 1 && !state.hasMore) return
-        scope.launch {
-            val loadingMore = page > 1
-            _openedSeries.value = state.copy(
-                isLoading = !loadingMore,
-                isLoadingMore = loadingMore,
-                errorMessage = null,
-            )
-            repository.collectionSeasonList(seriesId, page)
-                .onSuccess { result ->
-                    val base = _openedSeries.value ?: return@onSuccess
-                    val archives = result.items.map { it.toArchive() }
-                    _openedSeries.value = base.copy(
-                        items = if (loadingMore) base.items + archives else archives,
-                        page = result.page,
-                        hasMore = result.hasMore,
-                        isLoading = false,
-                        isLoadingMore = false,
-                    )
-                }
-                .onFailure {
-                    val base = _openedSeries.value ?: return@onFailure
-                    _openedSeries.value = base.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        errorMessage = it.message ?: "加载失败",
-                    )
-                }
-        }
-    }
-
-    /**
-     * 点合集条目：已加载的合集内容作为来源，从这一条开始播；播到末尾附近自动续下一页（docs/10）。
-     * 续页用自己的页码，不动界面上的列表状态。
-     */
-    fun playSeriesArchive(archive: SeriesArchive) {
-        val state = _openedSeries.value
-        val seriesId = (state?.id as? TrackListId.Series)?.seriesId
-        val index = state?.items?.indexOf(archive) ?: -1
-        if (state != null && seriesId != null && index >= 0) {
-            val source = PagedQueueSource(nextPage = state.page + 1, hasMore = state.hasMore) { page ->
-                repository.collectionSeasonList(seriesId, page).map { result ->
-                    QueuePage(result.items.map { it.toArchive().toRequest() }, result.hasMore)
-                }
-            }
-            playList.play(state.items.map { it.toRequest() }, index, loadMore = source::next)
-            return
-        }
-        playBvid.play(
-            bvid = archive.bvid,
-            title = archive.title,
-            coverUrl = normalizeCoverUrl(archive.cover),
-            author = archive.author,
-            durationSec = archive.duration,
-        )
-    }
-
     /**
      * 加载收藏夹内容。[page] 为 1 是刷新（从第 1 页替换），大于 1 是往下翻（追加）。
      * 往下翻时不直接用 [page]：删过条目后服务器上的序号前移，改按已加载条数算该取哪一页（[favoriteFetchPage]），
@@ -469,7 +343,7 @@ class RemoteLibraryController(
         )
     }
 
-    // ── 移除条目（稍后再看 / 收藏夹内容）、取消订阅合集 ─────────────────
+    // ── 移除条目（稍后再看 / 收藏夹内容）─────────────────
     // 设计稿：docs/superpowers/specs/2026-10-04-list-manage-and-swipe-remove-design.md
 
     /** 「已从…移除」：宿主弹带「撤销」的提示，点了调 [undoRemoval]。 */
@@ -577,59 +451,12 @@ class RemoteLibraryController(
         )
     }
 
-    /** 取消订阅请求进行中：再点不重复发。 */
-    private var unsubscribing = false
-
-    /** 取消订阅当前打开的合集：成功后从合集列表里去掉并关掉内容页；失败只提示，页面不动。 */
-    fun unsubscribeOpenedSeries() {
-        val state = _openedSeries.value ?: return
-        val seasonId = (state.id as? TrackListId.Series)?.seriesId ?: return
-        if (unsubscribing) return
-        unsubscribing = true
-        scope.launch {
-            try {
-                repository.unfavSeason(seasonId)
-                    .onSuccess {
-                        _collectedList.value = _collectedList.value.filterNot { it.id == seasonId }
-                        _collectedListState.value = _collectedListState.value.let {
-                            it.copy(totalCount = (it.totalCount - 1).coerceAtLeast(0))
-                        }
-                        if ((_openedSeries.value?.id as? TrackListId.Series)?.seriesId == seasonId) {
-                            _openedSeries.value = null
-                        }
-                        notify("已取消订阅「${state.title}」")
-                    }
-                    .onFailure { notify("取消订阅失败：${it.message ?: "网络错误"}") }
-            } finally {
-                unsubscribing = false
-            }
-        }
-    }
-
-    private fun CollectionMediaItem.toArchive() = SeriesArchive(
-        bvid = bvid,
-        cid = id,
-        title = title,
-        cover = cover,
-        duration = duration.toLong(),
-        author = upper.name,
-        authorMid = upper.mid,
-    )
-
     // 列表条目 → 播放请求。cid 一律留空：轮到播放时取分 P，多 P 原地展开（docs/10）
     private fun WatchLaterItem.toRequest() = PlaybackRequest.Bili(
         bvid = bvid,
         title = title,
         coverUrl = normalizeCoverUrl(pic),
         author = owner?.name.orEmpty(),
-        durationSec = duration,
-    )
-
-    private fun SeriesArchive.toRequest() = PlaybackRequest.Bili(
-        bvid = bvid,
-        title = title,
-        coverUrl = normalizeCoverUrl(cover),
-        author = author,
         durationSec = duration,
     )
 

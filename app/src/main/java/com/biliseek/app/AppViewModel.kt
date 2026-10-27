@@ -55,6 +55,7 @@ import com.biliseek.app.comment.shouldDropPlayerComments
 import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.app.chart.ChartController
+import com.biliseek.app.collection.CollectionController
 import com.biliseek.app.upspace.UpSpaceController
 import com.biliseek.app.search.SearchController
 import com.biliseek.app.data.RemoteListState
@@ -536,6 +537,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         },
         notify = { emitMessage(it) },
+    )
+
+    // ── 合集（订阅列表、合集内容页、播放页合集弹层）：见 CollectionController ──
+
+    val collections: CollectionController = CollectionController(
+        scope = viewModelScope,
+        repository = network.repository,
+        session = session,
+        playList = { items, startIndex, loadMore ->
+            viewModelScope.launch {
+                connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
+            }
+        },
+        notify = { emitMessage(it) },
+        // videoInteraction 在后面才声明；这里的 lambda 只在订阅成功后才调，那时早已初始化
+        onSubscriptionChanged = { seasonId, subscribed -> videoInteraction.markSeasonSubscribed(seasonId, subscribed) },
     )
 
     // ── 首页榜单（每周必看 / 入站必刷 / 热歌榜）：见 ChartController ──

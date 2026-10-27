@@ -1,5 +1,7 @@
 package com.biliseek.app.data
 
+import com.biliseek.app.collection.CollectionRef
+
 /**
  * 远程列表的标识（《架构设计篇》§6.3「一切皆歌单」）。
  *
@@ -17,8 +19,8 @@ sealed interface TrackListId {
     /** 稍后再看（M12）：远程列表，一次性拉取（无分页）。 */
     data object WatchLater : TrackListId
 
-    /** 合集（M13-N）：订阅合集分页拉取。 */
-    data class Series(val seriesId: Long) : TrackListId
+    /** 合集 / 系列（M13-N；2026-10-26 起含 UP 空间的合集与系列）：内容分页拉取，[ref] 决定用哪个接口。 */
+    data class Collection(val ref: CollectionRef) : TrackListId
 
     /** 消息中心·回复与@ tab。 */
     data object MessageReply : TrackListId
