@@ -21,12 +21,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.biliseek.app.collection.CollectionSlot
 import com.biliseek.app.ui.AppShell
 import com.biliseek.app.ui.ChartScreen
 import com.biliseek.app.ui.DayHistoryScreen
@@ -222,6 +225,8 @@ class MainActivity : ComponentActivity() {
                 val openedFavorite by viewModel.remoteLibrary.openedFavorite.collectAsState()
                 val dynamic by viewModel.dynamics.dynamic.collectAsState()
                 val upSpace by viewModel.upSpace.state.collectAsState()
+                val upSpaceCollection by viewModel.collections.openedInUpSpace.collectAsState()
+                val collectionSubscribeBusy by viewModel.collections.subscribeBusy.collectAsState()
                 val dayHistoryDate by viewModel.dayHistoryDate.collectAsState()
                 val dayView by viewModel.dayView.collectAsState()
                 val watchLater by viewModel.remoteLibrary.watchLater.collectAsState()
@@ -245,6 +250,9 @@ class MainActivity : ComponentActivity() {
                 val selectedPageKeys by viewModel.pageSelection.selected.collectAsState()
                 val upSelectionActive by viewModel.upSelection.active.collectAsState()
                 val selectedUpKeys by viewModel.upSelection.selected.collectAsState()
+                val collectionSelectionActive by viewModel.collectionSelection.active.collectAsState()
+                val collectionSelected by viewModel.collectionSelection.selected.collectAsState()
+                val collectionSelectionSlot by viewModel.collectionSelectionSlot.collectAsState()
                 val danmakuEnabled by viewModel.danmakuEnabled.collectAsState()
                 val danmakuItems by viewModel.danmakuItems.collectAsState()
                 val previewImage by viewModel.previewImage.collectAsState()
@@ -253,10 +261,29 @@ class MainActivity : ComponentActivity() {
                 val settings by viewModel.settings.collectAsState()
                 val videoBlocked by viewModel.videoBlocked.collectAsState()
                 val downloadTasks by viewModel.downloadTasks.collectAsState()
-                val openedSeries by viewModel.remoteLibrary.openedSeries.collectAsState()
-                val collectedList by viewModel.remoteLibrary.collectedList.collectAsState()
-                val collectedListState by viewModel.remoteLibrary.collectedListState.collectAsState()
+                val openedSeries by viewModel.collections.openedInLibrary.collectAsState()
+                val collectedList by viewModel.collections.collectedList.collectAsState()
+                val collectedListState by viewModel.collections.collectedListState.collectAsState()
                 val unreadSummary by viewModel.messages.unreadSummary.collectAsState()
+                val libraryHistory by remember(openedSeries?.items?.map { it.bvid }) {
+                    viewModel.collections.historyOf(openedSeries?.items?.map { it.bvid }.orEmpty())
+                }.collectAsState(emptyMap())
+                val upSpaceHistory by remember(upSpaceCollection?.items?.map { it.bvid }) {
+                    viewModel.collections.historyOf(upSpaceCollection?.items?.map { it.bvid }.orEmpty())
+                }.collectAsState(emptyMap())
+                fun collectionSelectionUi(slot: CollectionSlot) = com.biliseek.app.ui.CollectionSelectionUi(
+                    active = collectionSelectionActive && collectionSelectionSlot == slot,
+                    selected = if (collectionSelectionSlot == slot) collectionSelected else emptySet(),
+                    isLoggedIn = session.isLoggedIn,
+                    onEnter = { viewModel.enterCollectionSelection(slot, it) },
+                    onToggle = viewModel.collectionSelection::toggle,
+                    onSelectAll = { viewModel.selectAllCollection(slot) },
+                    onClear = viewModel.collectionSelection::clear,
+                    onExit = viewModel.collectionSelection::exit,
+                    onAction = { viewModel.runCollectionBatch(slot, it) },
+                )
+                // 合集内容页关掉、换合集或换顺序时退出多选（取消订阅成功后页面是控制器关的，回调里拦不到）
+                LaunchedEffect(openedSeries?.id, upSpaceCollection?.id) { viewModel.collectionSelection.exit() }
 
                 val coroutineScope = rememberCoroutineScope()
                 var expansion by remember { mutableStateOf(PlayerExpansion.COLLAPSED) }
@@ -470,10 +497,10 @@ class MainActivity : ComponentActivity() {
 
                 // 已登录且合集列表从未加载过 → 自动拉一次订阅合集列表
                 LaunchedEffect(session.isLoggedIn) {
-                    if (session.isLoggedIn && viewModel.remoteLibrary.collectedList.value.isEmpty() &&
-                        viewModel.remoteLibrary.collectedListState.value.isLoading.not()
+                    if (session.isLoggedIn && viewModel.collections.collectedList.value.isEmpty() &&
+                        viewModel.collections.collectedListState.value.isLoading.not()
                     ) {
-                        viewModel.remoteLibrary.loadCollectedList(1)
+                        viewModel.collections.loadCollectedList(1)
                     }
                 }
 
@@ -546,6 +573,18 @@ class MainActivity : ComponentActivity() {
                             onCoin = viewModel.videoInteraction::addCoin,
                         )
                     },
+                    collectionHandlers = remember {
+                        com.biliseek.app.ui.CollectionSheetHandlers(
+                            onPlayEpisode = viewModel.collections::playEpisodes,
+                            onSetSubscribed = { collection, subscribe ->
+                                viewModel.collections.setSubscribed(collection.seasonId, collection.title, subscribe)
+                            },
+                            onQueueCollection = viewModel.collections::queueEpisodesAround,
+                            historyOf = viewModel.collections::historyOf,
+                        )
+                    },
+                    isLoggedIn = session.isLoggedIn,
+                    subscribeBusy = collectionSubscribeBusy,
                     onSummary = viewModel::summarizeCurrent,
                     hasSummary = currentHasSummary,
                     onDescriptionTimestamp = viewModel::seekFromDescription,
@@ -865,14 +904,20 @@ class MainActivity : ComponentActivity() {
                                 selectedTab = tab,
                                 onTabSelected = onTab,
                                 openedSeries = openedSeries,
-                                onCloseSeries = viewModel.remoteLibrary::closeSeries,
+                                onCloseSeries = { viewModel.collections.close(CollectionSlot.LIBRARY) },
                                 collectedList = collectedList,
                                 collectedListState = collectedListState,
-                                onOpenSeries = viewModel.remoteLibrary::openSeries,
-                                onCollectedLoadMore = viewModel.remoteLibrary::loadCollectedList,
-                                onSeriesLoadMore = viewModel.remoteLibrary::loadSeriesPage,
-                                onPlaySeriesArchive = viewModel.remoteLibrary::playSeriesArchive,
-                                onUnsubscribeSeries = viewModel.remoteLibrary::unsubscribeOpenedSeries,
+                                onOpenSeries = viewModel.collections::openSubscribed,
+                                onCollectedLoadMore = viewModel.collections::loadCollectedList,
+                                onSeriesLoadMore = { viewModel.collections.loadPage(CollectionSlot.LIBRARY, it) },
+                                onPlaySeriesArchive = { viewModel.collections.play(CollectionSlot.LIBRARY, it) },
+                                onUnsubscribeSeries = viewModel.collections::unsubscribeOpenedInLibrary,
+                                onToggleSeriesSort = (openedSeries?.id as? com.biliseek.app.data.TrackListId.Collection)
+                                    ?.takeIf { com.biliseek.app.collection.CollectionPolicy.canSort(it.ref) }
+                                    ?.let { { viewModel.collections.toggleSort(CollectionSlot.LIBRARY) } },
+                                seriesHistory = libraryHistory,
+                                playingBvid = playback.bvid,
+                                seriesSelection = collectionSelectionUi(CollectionSlot.LIBRARY),
                                 videoActions = videoMenuActions,
                             )
                         }
@@ -950,52 +995,81 @@ class MainActivity : ComponentActivity() {
                     },
                     upSpaceContent = { onBack ->
                         BackHandler(onBack = { viewModel.upSpace.closeUpSpace(); onBack() })
-                        UpSpaceScreen(
-                            state = upSpace,
-                            onClose = { viewModel.upSpace.closeUpSpace(); onBack() },
-                            onViewChange = viewModel.upSpace::setUpSpaceView,
-                            onPostClick = viewModel::playUpPost,
-                            onLoadMorePosts = viewModel.upSpace::loadMoreUpPosts,
-                            onRetryPosts = { viewModel.upSpace.loadUpPosts(1) },
-                            onDynamicClick = viewModel::playDynamic,
-                            onLoadMoreDynamic = viewModel.upSpace::loadMoreUpDynamic,
-                            // Ch4
-                            onToggleFollow = viewModel.upSpace::toggleRelation,
-                            onOpenImagePreview = viewModel::openImagePreview,
-                            onOpenRepost = { idStr ->
-                                copyToClipboard(viewModel.dynamicUrl(idStr))
-                                viewModel.notifyLinkCopied()
-                            },
-                            onOpenComment = viewModel.dynamics::openCommentDialog,
-                            onToggleLike = viewModel.dynamics::toggleDynamicLike,
-                            onAuthorClick = { entry ->
-                                viewModel.openUpSpace(
-                                    SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
-                                )
-                            },
-                            dynamicExpand = dynamicExpand,
-                            onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
-                            videoActions = dynamicVideoActions,
-                            // 投稿复选与动作
-                            isSelection = upSelectionActive,
-                            selectedBvids = selectedUpKeys,
-                            isLoggedIn = session.isLoggedIn,
-                            onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
-                            onToggleSelection = viewModel::toggleUpSelection,
-                            onSelectAll = viewModel::selectAllUp,
-                            onClearSelection = viewModel::clearUpSelection,
-                            onExitSelection = viewModel::exitUpSelection,
-                            onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
-                            onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
-                            onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
-                            onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
-                            onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
-                            onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
-                            onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
-                            onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
-                            onPostDownload = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.Download) },
-                            onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
-                        )
+                        // 列表状态放在 if 外面：合集内容页盖上来时 UpSpaceScreen 不在组合里，状态仍留着，关掉后列表回到原位；
+                        // 用 rememberSaveable：普通 remember 进不了 NavHost 的 SaveableStateHolder，去播放页 / 切底部 tab 回来就回到顶部了
+                        val upCollectionsListState = rememberSaveable(upSpace.up?.mid, saver = LazyListState.Saver) { LazyListState() }
+                        val openedUpCollection = upSpaceCollection
+                        if (openedUpCollection != null) {
+                            // UP 空间里点开的合集 / 系列：盖在空间页上；返回先关它（后注册的 BackHandler 优先）
+                            BackHandler(onBack = { viewModel.collections.close(CollectionSlot.UP_SPACE) })
+                            com.biliseek.app.ui.SeriesScreen(
+                                state = openedUpCollection,
+                                onClose = { viewModel.collections.close(CollectionSlot.UP_SPACE) },
+                                onItemClick = { viewModel.collections.play(CollectionSlot.UP_SPACE, it) },
+                                onLoadMore = { viewModel.collections.loadPage(CollectionSlot.UP_SPACE, it) },
+                                onUnsubscribe = null,
+                                videoActions = videoMenuActions,
+                                onToggleSort = (openedUpCollection.id as? com.biliseek.app.data.TrackListId.Collection)
+                                    ?.takeIf { com.biliseek.app.collection.CollectionPolicy.canSort(it.ref) }
+                                    ?.let { { viewModel.collections.toggleSort(CollectionSlot.UP_SPACE) } },
+                                history = upSpaceHistory,
+                                playingBvid = playback.bvid,
+                                selection = collectionSelectionUi(CollectionSlot.UP_SPACE),
+                            )
+                        } else {
+                            UpSpaceScreen(
+                                state = upSpace,
+                                onClose = { viewModel.upSpace.closeUpSpace(); onBack() },
+                                onViewChange = viewModel.upSpace::setUpSpaceView,
+                                onPostClick = viewModel::playUpPost,
+                                onLoadMorePosts = viewModel.upSpace::loadMoreUpPosts,
+                                onRetryPosts = { viewModel.upSpace.loadUpPosts(1) },
+                                onDynamicClick = viewModel::playDynamic,
+                                onLoadMoreDynamic = viewModel.upSpace::loadMoreUpDynamic,
+                                onCollectionClick = { item ->
+                                    viewModel.collections.open(CollectionSlot.UP_SPACE, item.ref, item.name)
+                                },
+                                onLoadMoreCollections = viewModel.upSpace::loadMoreUpCollections,
+                                onRetryCollections = { viewModel.upSpace.loadUpCollections(1) },
+                                // Ch4
+                                onToggleFollow = viewModel.upSpace::toggleRelation,
+                                onOpenImagePreview = viewModel::openImagePreview,
+                                onOpenRepost = { idStr ->
+                                    copyToClipboard(viewModel.dynamicUrl(idStr))
+                                    viewModel.notifyLinkCopied()
+                                },
+                                onOpenComment = viewModel.dynamics::openCommentDialog,
+                                onToggleLike = viewModel.dynamics::toggleDynamicLike,
+                                onAuthorClick = { entry ->
+                                    viewModel.openUpSpace(
+                                        SearchUser(mid = entry.authorMid, uname = entry.authorName, upic = entry.authorFace),
+                                    )
+                                },
+                                dynamicExpand = dynamicExpand,
+                                onToggleExpand = viewModel.dynamics::toggleDynamicExpand,
+                                videoActions = dynamicVideoActions,
+                                // 投稿复选与动作
+                                isSelection = upSelectionActive,
+                                selectedBvids = selectedUpKeys,
+                                isLoggedIn = session.isLoggedIn,
+                                onEnterSelection = { viewModel.enterUpSelection(it.bvid) },
+                                onToggleSelection = viewModel::toggleUpSelection,
+                                onSelectAll = viewModel::selectAllUp,
+                                onClearSelection = viewModel::clearUpSelection,
+                                onExitSelection = viewModel::exitUpSelection,
+                                onAddSelectionToPlaylist = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AddToPlaylist) },
+                                onAppendSelectionToQueue = { viewModel.runUpBatch(com.biliseek.app.PendingAction.AppendToQueue) },
+                                onEnqueueSelectionNext = { viewModel.runUpBatch(com.biliseek.app.PendingAction.EnqueueNext) },
+                                onDownloadSelection = { viewModel.runUpBatch(com.biliseek.app.PendingAction.Download) },
+                                onPostAddToPlaylist = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AddToPlaylist) },
+                                onPostAppendToQueue = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.AppendToQueue) },
+                                onPostPlayNext = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.EnqueueNext) },
+                                onPostCopyLink = { copyToClipboard(viewModel.upVideoUrl(it)) },
+                                onPostDownload = { viewModel.startUpSingleAction(it, com.biliseek.app.PendingAction.Download) },
+                                onPostSummarize = { viewModel.summarizeVideo(it.toSearchVideo()) },
+                                collectionsListState = upCollectionsListState,
+                            )
+                        }
                     },
                     followingListContent = { onBack ->
                         BackHandler(onBack = { onBack() })

@@ -155,11 +155,18 @@ fun LibraryScreen(
     onPlaySeriesArchive: (SeriesArchive) -> Unit = {},
     /** 取消订阅当前打开的合集。 */
     onUnsubscribeSeries: () -> Unit = {},
+    /** 切换合集内容页的正序 / 倒序；null = 不显示排序图标。 */
+    onToggleSeriesSort: (() -> Unit)? = null,
+    seriesHistory: Map<String, com.biliseek.app.collection.EpisodeHistory> = emptyMap(),
+    playingBvid: String = "",
+    seriesSelection: CollectionSelectionUi = CollectionSelectionUi(),
     /** 收藏夹 / 稍后再看 / 合集内容页里视频行三点菜单的动作，与搜索结果一致。 */
     videoActions: VideoMenuActions = VideoMenuActions(),
     modifier: Modifier = Modifier,
 ) {
     var showCreate by remember { mutableStateOf(false) }
+    // 放在下面几个提前 return 之前：合集内容页盖上来时「合集」tab 不在组合里，状态仍留着，关掉后列表回到原位
+    val seriesListState = rememberLazyListState()
     var playlistsExpanded by rememberSaveable { mutableStateOf(true) }
     if (favoriteContent != null) {
         BackHandler(onBack = onCloseFavorite)
@@ -211,6 +218,10 @@ fun LibraryScreen(
             onUnsubscribe = onUnsubscribeSeries,
             modifier = modifier,
             videoActions = videoActions,
+            onToggleSort = onToggleSeriesSort,
+            history = seriesHistory,
+            playingBvid = playingBvid,
+            selection = seriesSelection,
         )
         return
     }
@@ -553,6 +564,7 @@ fun LibraryScreen(
                 ) {
                     LazyColumn(
                         Modifier.fillMaxSize(),
+                        state = seriesListState,
                         contentPadding = miniBarContentPadding(top = 8.dp, bottom = 8.dp),
                     ) {
                         if (!session.isLoggedIn) {

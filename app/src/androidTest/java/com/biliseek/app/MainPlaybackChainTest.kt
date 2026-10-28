@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -117,11 +118,17 @@ class MainPlaybackChainTest {
         composeRule.waitForIdle()
     }
 
-    /** 点迷你播放条打开播放页，等顶栏「正在播放」出现。 */
+    /**
+     * 播放页独有的节点：顶栏右侧三点按钮（无障碍描述「菜单」，只有 PlayerScreen 用这个描述）。
+     * 迷你播放条、其他页面都没有它，所以出现 = 播放页开着，数量为 0 = 播放页已收起。
+     */
+    private fun playerPageMarker() = composeRule.onAllNodesWithContentDescription("菜单")
+
+    /** 点迷你播放条打开播放页，等顶栏三点「菜单」按钮出现。 */
     private fun openPlayerPage() {
         composeRule.onAllNodesWithText("测试曲目 A").onFirst().performClick()
         composeRule.waitUntil(5_000) {
-            composeRule.onAllNodesWithText("正在播放").fetchSemanticsNodes().isNotEmpty()
+            playerPageMarker().fetchSemanticsNodes().isNotEmpty()
         }
     }
 
@@ -139,7 +146,7 @@ class MainPlaybackChainTest {
 
         // ── 起播：停在迷你播放条（不自动打开播放页），是听 ──
         composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
-        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        playerPageMarker().assertCountEquals(0)
         check(vm.connection.state.value.presentation == PresentationMode.NONE) { "起播应停在听" }
 
         // ── 点迷你播放条打开播放页：开关停在听 ──
@@ -173,13 +180,13 @@ class MainPlaybackChainTest {
         composeRule.onNodeWithText("列表").performClick()
         waitForState { vm.connection.state.value.presentation == PresentationMode.NONE }
         composeRule.waitForIdle()
-        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        playerPageMarker().assertCountEquals(0)
         composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
 
         // ── 切回打开播放页前所在的「搜索」：播放页不会又冒出来 ──
         composeRule.onNodeWithText("搜索").performClick()
         composeRule.waitForIdle()
-        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        playerPageMarker().assertCountEquals(0)
     }
 
     @Test
@@ -192,7 +199,7 @@ class MainPlaybackChainTest {
         Espresso.pressBack()
         waitForState { vm.connection.state.value.presentation == PresentationMode.NONE }
         composeRule.waitForIdle()
-        composeRule.onAllNodesWithText("正在播放").assertCountEquals(0)
+        playerPageMarker().assertCountEquals(0)
         composeRule.onAllNodesWithText("测试曲目 A").onFirst().assertIsDisplayed()
     }
 

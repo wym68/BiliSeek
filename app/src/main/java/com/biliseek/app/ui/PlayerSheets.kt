@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -111,8 +113,8 @@ import com.biliseek.designsystem.theme.CoverPalette
  * 三点菜单 ModalBottomSheet（BBPlayer `PlayerFunctionalMenu` 同款架构）。
  *
  * 调研要点：
- * - 顶部方块按钮（查看UP主 / 加入列表 / 下载）+ Divider + 列表项（画质 / 音质 / 复制链接）
- * - 倍速、定时只从播放页上的胶囊进，菜单里不重复
+ * - 顶部方块按钮（查看UP主 / 加入列表 / 下载）+ Divider + 列表项（倍速 / 定时 / 画质 / 音质 / 复制链接）
+ * - 倍速、定时在菜单里（2026-10-27 起），设了值右侧写当前值；页面上只在设了值时于进度条上方出小标签
  * - 一打开就完整展开：内容不到半屏，刚好显示到最后一项
  * - Curried closer：所有菜单项先 onDismiss 再执行动作（避免 sheet 动画冲突）
  * - Haptics：菜单项点击触发 LongPress
@@ -130,6 +132,10 @@ internal fun PlayerMoreMenuSheet(
     defaultAudioQuality: com.biliseek.core.player.AudioQuality = com.biliseek.core.player.AudioQuality.AUTO,
     onSetAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
     onSetDefaultAudioQuality: (com.biliseek.core.player.AudioQuality) -> Unit = {},
+    /** 打开倍速弹层（2026-10-27 起倍速入口回到菜单）。 */
+    onOpenSpeed: () -> Unit = {},
+    /** 打开定时弹层。 */
+    onOpenTimer: () -> Unit = {},
 ) {
     var showAudioSheet by remember { mutableStateOf(false) }
     var showQualitySheet by remember { mutableStateOf(false) }
@@ -179,6 +185,18 @@ internal fun PlayerMoreMenuSheet(
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            MenuItemRow(
+                Icons.Filled.Speed,
+                "倍速",
+                value = speedButtonLabel(state.speed).takeIf { !isSameSpeed(state.speed, 1.0f) },
+            ) { closeThen(onOpenSpeed) }
+            MenuItemRow(
+                Icons.Filled.Timer,
+                "定时",
+                value = sleepTimerChipLabel(state.sleepTimerRemainingMs, state.sleepTimerEndOfTrack)
+                    .takeIf { state.sleepTimerActive },
+            ) { closeThen(onOpenTimer) }
+
             if (state.videoQualities.isNotEmpty()) {
                 MenuItemRow(Icons.Filled.HighQuality, "画质") { showQualitySheet = true }
             }
@@ -210,7 +228,7 @@ internal fun PlayerMoreMenuSheet(
     }
 }
 
-/** 倍速弹层：选完生效并收起。从播放页的倍速胶囊打开。 */
+/** 倍速弹层：选完生效并收起。从三点菜单的「倍速」，或进度条上方设了值才出现的倍速小标签打开。 */
 @Composable
 internal fun PlayerSpeedSheet(
     state: PlaybackState,
@@ -226,7 +244,7 @@ internal fun PlayerSpeedSheet(
     )
 }
 
-/** 定时关闭弹层：选完生效并收起。从播放页的定时胶囊打开。 */
+/** 定时关闭弹层：选完生效并收起。从三点菜单的「定时」，或进度条上方设了值才出现的定时小标签打开。 */
 @Composable
 internal fun PlayerTimerSheet(
     state: PlaybackState,
@@ -267,6 +285,8 @@ private fun MenuQuickButton(
 private fun MenuItemRow(
     icon: ImageVector,
     label: String,
+    /** 右侧的当前值（主色）；null 不显示。 */
+    value: String? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -279,7 +299,10 @@ private fun MenuItemRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        if (value != null) {
+            Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 

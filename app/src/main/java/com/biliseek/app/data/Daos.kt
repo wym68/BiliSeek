@@ -103,6 +103,10 @@ interface HistoryDao {
     @Query("SELECT * FROM play_history WHERE playedAt >= :cutoffMs ORDER BY playedAt")
     fun observeSince(cutoffMs: Long): Flow<List<PlayHistoryEntity>>
 
+    /** 合集弹层 / 内容页标「已听」用：这些视频的全部记录（多 P 每个分 P 一条）。 */
+    @Query("SELECT * FROM play_history WHERE bvid IN (:bvids)")
+    fun observeByBvids(bvids: List<String>): Flow<List<PlayHistoryEntity>>
+
     /** 某天的播放记录（日历史页用）。本地日 [dayStartMs] → [dayStartMs] + 24h。 */
     @Query(
         """

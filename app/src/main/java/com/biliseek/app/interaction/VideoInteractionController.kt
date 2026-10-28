@@ -1,5 +1,6 @@
 package com.biliseek.app.interaction
 
+import com.biliseek.app.collection.CollectionPolicy
 import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.bvToAv
@@ -11,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 播放页视频互动栏（点赞 / 投币 / 收藏 / 三连）的状态与动作；简介区的数据也出自这里的那次 view 请求。
+ * 播放页视频互动栏（点赞 / 投币 / 收藏 / 三连）的状态与动作；简介区和合集入口的数据也出自这里的那次 view 请求。
  *
  * 请求纪律（风控）：
  * - **只在播放页展开时** [bind] 当前 bvid（纯听后台、迷你播放器都不拉）；
@@ -68,6 +69,8 @@ class VideoInteractionController(
                 viewCount = stat?.view ?: 0,
                 pubDate = view?.pubdate ?: 0,
                 loadFailed = view == null,
+                collection = view?.let(CollectionPolicy::fromView),
+                seasonSubscribed = relation?.seasonFav ?: false,
             )
             // 读失败也落一个「全 0 未激活」的态，按钮照样能点；只有成功才进缓存
             if (_state.value?.bvid == bvid) _state.value = loaded
@@ -117,6 +120,14 @@ class VideoInteractionController(
         val cur = _state.value ?: return
         if (cur.bvid !in bvids) return
         update(VideoActionPolicy.applyFavored(cur))
+    }
+
+    /** 合集弹层订阅 / 取消订阅成功后（宿主调）：当前视频和缓存里同一合集的视频都跟着改。 */
+    fun markSeasonSubscribed(seasonId: Long, subscribed: Boolean) {
+        cache.entries.forEach { it.setValue(VideoActionPolicy.applySeasonSubscribed(it.value, seasonId, subscribed)) }
+        val cur = _state.value ?: return
+        val next = VideoActionPolicy.applySeasonSubscribed(cur, seasonId, subscribed)
+        if (next !== cur) _state.value = next
     }
 
     private fun requireWritable(action: VideoAction, what: String): VideoInteractionState? {

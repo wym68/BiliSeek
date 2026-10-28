@@ -2,6 +2,8 @@ package com.biliseek.app.upspace
 
 import com.biliseek.app.UpSpaceUiState
 import com.biliseek.app.UpSpaceView
+import com.biliseek.app.collection.CollectionPolicy
+import com.biliseek.app.remote.appendUnseen
 import com.biliseek.core.network.BiliRepository
 import com.biliseek.core.network.BiliSession
 import com.biliseek.core.network.DynamicEntry
@@ -14,11 +16,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * UP 空间页：UP 信息卡、关注状态与关注/取关、投稿 / 动态双视图及各自分页。
+ * UP 空间页：UP 信息卡、关注状态与关注/取关、投稿 / 动态 / 合集三个视图及各自分页。
  *
  * 从 AppViewModel 拆出，由 `AppViewModel.upSpace` 持有；生命周期挂在宿主的 [scope] 上。
  * 与宿主的耦合全在构造参数里：[recordUpVisit]（最常访问计数）、[onExitSelection]（退出投稿复选，
- * 复选状态归宿主）、[onFollowChanged]（关注变化后刷新动态页 UP 栏）。
+ * 复选状态归宿主）、[onFollowChanged]（关注变化后刷新动态页 UP 栏）、[onSpaceChanged]（换 UP 主或关闭时，宿主关掉盖在上面的合集内容页）。
  * 点投稿播放、投稿复选、动态卡片互动都不在这里；动态卡片乐观更新经 [patchDynamicEntry] 回写本页列表。
  */
 class UpSpaceController(
@@ -29,6 +31,7 @@ class UpSpaceController(
     private val recordUpVisit: (mid: Long) -> Unit,
     private val onExitSelection: () -> Unit,
     private val onFollowChanged: () -> Unit,
+    private val onSpaceChanged: () -> Unit,
 ) {
 
     private val _upSpace = MutableStateFlow(UpSpaceUiState())
@@ -36,6 +39,7 @@ class UpSpaceController(
 
     /** 点 UP 搜索结果 → 打开空间页（默认投稿视图）。 */
     fun openUpSpace(user: SearchUser) {
+        onSpaceChanged()
         // 本人的空间：不查关注状态、不计访问（B 站不允许关注自己）
         val isSelf = UpSpacePolicy.isSelf(user.mid, session.value)
         _upSpace.value = UpSpaceUiState(up = user, isSelf = isSelf)
@@ -62,6 +66,7 @@ class UpSpaceController(
 
     fun closeUpSpace() {
         onExitSelection()
+        onSpaceChanged()
         _upSpace.value = UpSpaceUiState()
     }
 
@@ -118,7 +123,7 @@ class UpSpaceController(
         _upSpace.value = space.copy(dynamic = space.dynamic.copy(items = newItems))
     }
 
-    /** 投稿 / 动态 视图切换：各视图独立分页状态，互不干扰。 */
+    /** 投稿 / 动态 / 合集 视图切换：各视图独立分页状态，互不干扰。 */
     fun setUpSpaceView(view: UpSpaceView) {
         // 切视图退出投稿复选：另一视图的列表与勾选集无关
         onExitSelection()
@@ -127,6 +132,9 @@ class UpSpaceController(
         _upSpace.value = cur.copy(view = view)
         if (view == UpSpaceView.DYNAMIC && cur.dynamic.items.isEmpty() && !cur.dynamic.isLoading) {
             loadUpDynamicPage(offset = "")
+        }
+        if (view == UpSpaceView.COLLECTIONS && cur.collections.page == 0 && !cur.collections.isLoading) {
+            loadUpCollections(1)
         }
     }
 
@@ -213,5 +221,57 @@ class UpSpaceController(
         val cur = _upSpace.value
         if (!cur.dynamic.hasMore) return
         loadUpDynamicPage(cur.dynamicOffset)
+    }
+
+    /** 「合集」视图第 [page] 页。结果回来时已换成别的 UP 主就丢掉。 */
+    fun loadUpCollections(page: Int) {
+        val cur = _upSpace.value
+        val up = cur.up ?: return
+        if (cur.collections.isLoading || cur.collections.isLoadingMore) return
+        val loadingMore = page > 1
+        if (loadingMore && !cur.collections.hasMore) return
+        scope.launch {
+            _upSpace.value = cur.copy(
+                collections = cur.collections.copy(
+                    isLoading = !loadingMore,
+                    isLoadingMore = loadingMore,
+                    errorMessage = null,
+                ),
+            )
+            repository.spaceCollections(up.mid, page)
+                .onSuccess { result ->
+                    if (_upSpace.value.up?.mid != up.mid) return@onSuccess
+                    val base = _upSpace.value.collections
+                    // 列表 key 是 SpaceCollection.key：同一页里重复的去掉，免得 LazyColumn 撞 key
+                    val incoming = CollectionPolicy.spaceCollections(result, up.mid, up.uname).distinctBy { it.key }
+                    _upSpace.value = _upSpace.value.copy(
+                        collections = base.copy(
+                            items = appendUnseen(if (loadingMore) base.items else emptyList(), incoming, emptySet()) { it.key },
+                            page = page,
+                            hasMore = result.hasMore,
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = null,
+                        ),
+                    )
+                }
+                .onFailure {
+                    if (_upSpace.value.up?.mid != up.mid) return@onFailure
+                    val base = _upSpace.value.collections
+                    _upSpace.value = _upSpace.value.copy(
+                        collections = base.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            errorMessage = it.message ?: "加载失败",
+                        ),
+                    )
+                }
+        }
+    }
+
+    fun loadMoreUpCollections() {
+        val cur = _upSpace.value
+        if (!cur.collections.hasMore) return
+        loadUpCollections(cur.collections.page + 1)
     }
 }

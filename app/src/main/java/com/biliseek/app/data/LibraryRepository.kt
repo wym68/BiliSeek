@@ -66,6 +66,13 @@ class LibraryRepository(private val db: BiliSeekDatabase) {
     fun observeRecent(limit: Int = 20): Flow<List<PlayHistoryEntity>> =
         history.observeRecent(limit)
 
+    /**
+     * 这些视频的播放记录（合集标「已听」）。只取前 900 个不同的 bvid（SQLite 单条语句的参数上限是 999），
+     * 更大的合集后面的集不标。
+     */
+    fun observeHistory(bvids: List<String>): Flow<List<PlayHistoryEntity>> =
+        history.observeByBvids(bvids.distinct().take(900))
+
     fun observeHeatmap(days: Int = 90): Flow<List<DayCount>> = history.observeHeatmap(days)
 
     /** 本地日期聚合热力图的原始数据源：拉 [cutoffMs] 之后的所有播放记录。 */

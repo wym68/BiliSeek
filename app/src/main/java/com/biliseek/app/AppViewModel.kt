@@ -38,6 +38,7 @@ import com.biliseek.app.ui.shouldAutoWatchOnPlayerPage
 import com.biliseek.app.data.LibraryRepository
 import com.biliseek.app.data.DayView
 import com.biliseek.app.ui.heatmapCellAlpha
+import com.biliseek.app.ui.toSearchVideo
 import com.biliseek.app.data.ListenKey
 import com.biliseek.app.data.resolveDayView
 import com.biliseek.app.data.ListenTimeTracker
@@ -55,6 +56,9 @@ import com.biliseek.app.comment.shouldDropPlayerComments
 import com.biliseek.app.dynamic.DynamicFeedController
 import com.biliseek.app.remote.RemoteLibraryController
 import com.biliseek.app.chart.ChartController
+import com.biliseek.app.collection.CollectionController
+import com.biliseek.app.collection.CollectionSlot
+import com.biliseek.app.collection.SpaceCollection
 import com.biliseek.app.upspace.UpSpaceController
 import com.biliseek.app.search.SearchController
 import com.biliseek.app.data.RemoteListState
@@ -242,14 +246,16 @@ data class DynamicUiState(
 enum class SearchMode { VIDEO, USER }
 
 /** UP 空间页的视图（M11-D）。 */
-enum class UpSpaceView { POSTS, DYNAMIC }
+enum class UpSpaceView { POSTS, DYNAMIC, COLLECTIONS }
 
-/** UP 空间页状态：UP 头部卡 + 投稿 / 动态双视图。 */
+/** UP 空间页状态：UP 头部卡 + 投稿 / 动态 / 合集三个视图。 */
 data class UpSpaceUiState(
     val up: SearchUser? = null,
     val view: UpSpaceView = UpSpaceView.POSTS,
     val posts: RemoteListState<SpaceVideo> = RemoteListState.empty(),
     val dynamic: RemoteListState<DynamicEntry> = RemoteListState.empty(),
+    /** 「合集」视图：UP 主的合集与系列（合集在前）。第一次切过来才取。 */
+    val collections: RemoteListState<SpaceCollection> = RemoteListState.empty(),
     /** 动态视图的 offset 游标（feed/space）。 */
     val dynamicOffset: String = "",
     /** 关注状态：null=未拉取，true=已关注，false=未关注。乐观更新支持。 */
@@ -538,6 +544,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         notify = { emitMessage(it) },
     )
 
+    // ── 合集（订阅列表、合集内容页、播放页合集弹层）：见 CollectionController ──
+
+    val collections: CollectionController = CollectionController(
+        scope = viewModelScope,
+        repository = network.repository,
+        library = library,
+        session = session,
+        playList = { items, startIndex, loadMore ->
+            viewModelScope.launch {
+                connection.playFromContext(items, startIndex, expandParts = true, loadMore = loadMore)
+            }
+        },
+        adoptList = { items, index -> connection.adoptContext(items, index) },
+        notify = { emitMessage(it) },
+        // videoInteraction 在后面才声明；这里的 lambda 只在订阅成功后才调，那时早已初始化
+        onSubscriptionChanged = { seasonId, subscribed -> videoInteraction.markSeasonSubscribed(seasonId, subscribed) },
+    )
+
     // ── 首页榜单（每周必看 / 入站必刷 / 热歌榜）：见 ChartController ──
 
     val charts: ChartController = ChartController(
@@ -752,6 +776,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // 多 P 面板 / UP 空间投稿的复选作用域（与搜索结果复选互斥，enter 时互相复位）
     val pageSelection = SelectionScope()
     val upSelection = SelectionScope()
+    val collectionSelection = SelectionScope()
 
     /** 单条多 P 选择页状态（三点按钮触发）；非空时 UI 渲染 MultiPagePickerScreen。 */
     private val _multiPagePicker = MutableStateFlow<MultiPagePickerState?>(null)
@@ -765,9 +790,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val pendingBatchAdd: StateFlow<List<TrackEntity>?> = _pendingBatchAdd.asStateFlow()
 
     fun enterSelectionMode(initialBvid: String) {
-        // 搜索结果复选与多 P / UP 空间复选互斥，进入时复位另两套
+        // 搜索结果复选与多 P / UP 空间 / 合集内容页复选互斥，进入时复位另三套
         pageSelection.exit()
         upSelection.exit()
+        collectionSelection.exit()
         _selectionMode.value = SelectionMode.On(initialBvid)
         _selectedBvids.value = setOf(initialBvid)
     }
@@ -893,6 +919,7 @@ return pages.map { p ->
     fun enterPageSelection(cid: Long) {
         exitSelectionMode()
         upSelection.exit()
+        collectionSelection.exit()
         pageSelection.enter(cid.toString())
     }
 
@@ -935,6 +962,7 @@ return pages.map { p ->
     fun enterUpSelection(bvid: String) {
         exitSelectionMode()
         pageSelection.exit()
+        collectionSelection.exit()
         upSelection.enter(bvid)
     }
 
@@ -952,6 +980,38 @@ return pages.map { p ->
     fun runUpBatch(action: PendingAction) = viewModelScope.launch {
         val videos = selectedUpVideos()
         upSelection.exit()
+        execute(action, videos.flatMap { expandToRequests(it) })
+    }
+
+    // ── 合集内容页的复选与动作 ──────────────────────────
+
+    private val _collectionSelectionSlot = MutableStateFlow<CollectionSlot?>(null)
+
+    /** 合集多选是在哪个内容页里进的：两页共用 [collectionSelection]，另一页不显示勾选。 */
+    val collectionSelectionSlot: StateFlow<CollectionSlot?> = _collectionSelectionSlot.asStateFlow()
+
+    /** 合集内容页长按进多选（与其他复选互斥）。 */
+    fun enterCollectionSelection(slot: CollectionSlot, bvid: String) {
+        exitSelectionMode()
+        pageSelection.exit()
+        upSelection.exit()
+        _collectionSelectionSlot.value = slot
+        collectionSelection.enter(bvid)
+    }
+
+    private fun collectionItems(slot: CollectionSlot) = when (slot) {
+        CollectionSlot.LIBRARY -> collections.openedInLibrary.value
+        CollectionSlot.UP_SPACE -> collections.openedInUpSpace.value
+    }?.items.orEmpty()
+
+    /** 全选只选已加载的（合集第三轮 §3）。 */
+    fun selectAllCollection(slot: CollectionSlot) = collectionSelection.selectAll(collectionItems(slot).map { it.bvid })
+
+    /** 批量动作：同 UP 投稿的多选（逐个取分 P 后执行）。 */
+    fun runCollectionBatch(slot: CollectionSlot, action: PendingAction) = viewModelScope.launch {
+        val sel = collectionSelection.selected.value
+        val videos = collectionItems(slot).filter { it.bvid in sel }.map { it.toSearchVideo() }
+        collectionSelection.exit()
         execute(action, videos.flatMap { expandToRequests(it) })
     }
 
@@ -1410,6 +1470,8 @@ return pages.map { p ->
         recordUpVisit = ::recordUpVisit,
         onExitSelection = { upSelection.exit() },
         onFollowChanged = { dynamics.refreshUpChips() },
+        // 换 UP 主或关闭空间页：盖在上面的合集内容页一起关
+        onSpaceChanged = { collections.close(CollectionSlot.UP_SPACE) },
     )
 
     /** 打开 UP 空间页。消息中心、动态、关注列表、播放页「查看作者」等多处入口共用。 */

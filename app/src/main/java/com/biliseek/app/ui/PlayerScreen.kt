@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -31,7 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.biliseek.core.player.PlaybackState
 import com.biliseek.core.player.PresentationMode
@@ -108,6 +112,12 @@ fun PlayerScreen(
     onDescriptionLink: (DescLinkTarget) -> Unit = {},
     /** 看模式下离开播放页时截下的最后一帧：撤掉画面后顶替视频，和整页一起淡出（见 AppShell 的 leavePlayerThen）。 */
     frozenFrame: androidx.compose.ui.graphics.ImageBitmap? = null,
+    /** 合集弹层的动作（点某一集、订阅 / 取消订阅）。 */
+    collectionHandlers: CollectionSheetHandlers = CollectionSheetHandlers(),
+    /** 已登录：合集弹层显示「订阅 / 已订阅」。 */
+    isLoggedIn: Boolean = false,
+    /** 订阅请求进行中：订阅按钮不能点。 */
+    subscribeBusy: Boolean = false,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     // 长按加速在手势里读最新的播放状态（是否在播、当前速度、音质）
@@ -116,9 +126,18 @@ fun PlayerScreen(
     var showTimerSheet by remember { mutableStateOf(false) }
     // 换视频（切歌 / 自动下一首）时简介弹层跟着收起
     var showDescriptionSheet by remember(state.bvid) { mutableStateOf(false) }
+    // 换视频时合集弹层跟着收起
+    var showCollectionSheet by remember(state.bvid) { mutableStateOf(false) }
     val isAudio = state.presentation == PresentationMode.NONE
     val boundInteraction = interaction?.takeIf { it.bvid == state.bvid }
     val activeColor = accent.accent ?: MaterialTheme.colorScheme.primary
+    val switchMode = {
+        if (isAudio) {
+            onPresentationChange(PresentationMode.INLINE, surfaceView)
+        } else {
+            onPresentationChange(PresentationMode.NONE, null)
+        }
+    }
     // 只有播放页展开时才绑定（= 才可能发互动读请求）；纯听后台不会走到这里
     LaunchedEffect(state.bvid) { interactionHandlers.onBind(state.bvid) }
 
@@ -140,11 +159,10 @@ fun PlayerScreen(
             Box(Modifier.fillMaxSize().background(scrim))
         }
 
-        // 顶部栏 → CoverArea → 标题/互动栏/简介行 → 进度条/控制行/听看开关，统一放进同一条纵向流里、
-        // 始终显示——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
+        // 顶部栏（收起 · 听 | 看 · 小窗 / 菜单）→ CoverArea → 中段（占满剩余高度）→ 倍速 / 定时标签（设了值才有）→ 进度条 → 控制行，
+        // 统一放进同一条纵向流里——音频/视频模式布局完全一致，只有 CoverArea 内容不同。
         // 不再各自作为 Box 的平级子项——否则它们会叠在一起画（曾经的重叠 bug）。
-        // 中段（标题/互动栏/简介行）按内容高度排，进度条与控制行紧跟其后——简介正文不在页面上占地方（点「简介」弹层看），
-        // 控制行因此上提，屏幕下方留空；屏幕矮、放不下时中段被压矮并可滑动，封面与控制行始终在。
+        // 进度条与控制行沉在页面底部；倍速 / 定时入口在三点菜单（设计稿 2026-10-27-player-layout-and-collection-queue-design.md）。
         Column(
             Modifier
                 .fillMaxSize()
@@ -152,6 +170,8 @@ fun PlayerScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             PlayerTopBar(
+                isAudioMode = isAudio,
+                onSwitchMode = switchMode,
                 onCollapse = onCollapse,
                 onOpenMenu = { showMenu = true },
                 // 小窗只对看模式有意义：纯听本来就能在后台放
@@ -172,44 +192,67 @@ fun PlayerScreen(
                 frozenFrame = frozenFrame,
             )
 
-            // 换视频时滚动位置回到顶部
+            // 中段占满封面与底部控制块之间的空间；顺序：标题 → 互动栏 → 合集卡片 → 简介行 → 简介预览（填满剩下的高度）。
+            // 正常屏幕不滚动：固定几行按自然高度排，剩下的高度都给简介预览（TopThenFillColumn）。
+            // 屏幕特别矮、固定几行放不下时，它们改成可上下滑、预览拿到 0 高度，不会被挤扁。换视频时整块重建。
             key(state.bvid) {
-                Column(
-                    Modifier
-                        .weight(1f, fill = false)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        state.title.ifBlank { "BiliSeek" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-
-                    VideoActionBar(
-                        state = boundInteraction,
-                        handlers = interactionHandlers,
-                        onOpenFavorite = onOpenAddToList,
-                        onOpenComments = onOpenComments,
-                        onShare = onShare,
-                        activeColor = activeColor,
-                        onSummary = onSummary,
-                        hasSummary = hasSummary,
-                    )
-
-                    boundInteraction?.let { info ->
-                        VideoDescriptionRow(
-                            desc = info.desc,
-                            viewCount = info.viewCount,
-                            pubDate = info.pubDate,
-                            linkColor = activeColor,
-                            onOpen = { showDescriptionSheet = true },
+                TopThenFillColumn(
+                    spacing = 8.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    top = {
+                        Text(
+                            state.title.ifBlank { "BiliSeek" },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                }
+
+                        VideoActionBar(
+                            state = boundInteraction,
+                            handlers = interactionHandlers,
+                            onOpenFavorite = onOpenAddToList,
+                            onOpenComments = onOpenComments,
+                            onShare = onShare,
+                            activeColor = activeColor,
+                            onSummary = onSummary,
+                            hasSummary = hasSummary,
+                        )
+
+                        boundInteraction?.collection?.let { collection ->
+                            CollectionEntryRow(
+                                collection = collection,
+                                onOpen = { showCollectionSheet = true },
+                            )
+                        }
+
+                        boundInteraction?.let { info ->
+                            VideoDescriptionRow(
+                                desc = info.desc,
+                                viewCount = info.viewCount,
+                                pubDate = info.pubDate,
+                                linkColor = activeColor,
+                                onOpen = { showDescriptionSheet = true },
+                            )
+                        }
+                    },
+                    fill = {
+                        boundInteraction?.takeIf { VideoDescriptionPolicy.shouldShow(it.desc) }?.let { info ->
+                            VideoDescriptionPreview(
+                                desc = info.desc,
+                                onOpen = { showDescriptionSheet = true },
+                            )
+                        }
+                    },
+                )
             }
+
+            PlayerStatusChips(
+                state = state,
+                onOpenSpeed = { showSpeedSheet = true },
+                onOpenTimer = { showTimerSheet = true },
+            )
 
             ProgressBar(state, onSeek)
 
@@ -223,20 +266,6 @@ fun PlayerScreen(
                 onOpenQueue = onOpenQueue,
                 hasPrevious = state.hasPrevious,
                 hasNext = state.hasNext,
-            )
-
-            PlayerSwitchRow(
-                state = state,
-                isAudioMode = isAudio,
-                onSwitchMode = {
-                    if (isAudio) {
-                        onPresentationChange(PresentationMode.INLINE, surfaceView)
-                    } else {
-                        onPresentationChange(PresentationMode.NONE, null)
-                    }
-                },
-                onOpenSpeed = { showSpeedSheet = true },
-                onOpenTimer = { showTimerSheet = true },
             )
 
             state.error?.let {
@@ -263,6 +292,8 @@ fun PlayerScreen(
                 defaultAudioQuality = defaultAudioQuality,
                 onSetAudioQuality = onSetAudioQuality,
                 onSetDefaultAudioQuality = onSetDefaultAudioQuality,
+                onOpenSpeed = { showSpeedSheet = true },
+                onOpenTimer = { showTimerSheet = true },
             )
         }
 
@@ -284,14 +315,79 @@ fun PlayerScreen(
                 onDismiss = { showDescriptionSheet = false },
             )
         }
+
+        val collection = boundInteraction?.collection
+        if (showCollectionSheet && collection != null) {
+            val sheetHistory by remember(collection) {
+                collectionHandlers.historyOf(collection.episodes.map { it.bvid })
+            }.collectAsState(initial = emptyMap())
+            CollectionSheet(
+                collection = collection,
+                playingBvid = state.bvid,
+                subscribed = boundInteraction.seasonSubscribed,
+                showSubscribe = isLoggedIn,
+                subscribeBusy = subscribeBusy,
+                accent = activeColor,
+                onPlayEpisode = { index -> collectionHandlers.onPlayEpisode(collection, index) },
+                onSetSubscribed = { subscribe -> collectionHandlers.onSetSubscribed(collection, subscribe) },
+                onQueueCollection = { index -> collectionHandlers.onQueueCollection(collection, index) },
+                onDismiss = { showCollectionSheet = false },
+                history = sheetHistory,
+            )
+        }
     }
 }
 
 /**
- * 播放页顶部栏：收起 + 标题 + （看模式）小窗 + 三点菜单。
+ * 上面一块（[top]）按自然高度排，下面一块（[fill]）拿剩下的全部高度。
+ *
+ * 正常屏幕上 [top] 完整显示、不滚动；[top] 比可用高度还高时它改成可上下滑（高度 = 可用高度），
+ * [fill] 拿到 0 高度——不会把固定的那几行挤扁。[fill] 看到的 `maxHeight` 就是剩余高度，
+ * 简介预览据此算能放几行。两块之间隔 [spacing]。
+ *
+ * 用多内容的 `Layout(contents = …)`：两块各量一次，不需要 SubcomposeLayout 的二次组合。
+ */
+@Composable
+private fun TopThenFillColumn(
+    spacing: Dp,
+    top: @Composable ColumnScope.() -> Unit,
+    fill: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Layout(
+        contents = listOf<@Composable () -> Unit>(
+            {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(spacing),
+                    content = top,
+                )
+            },
+            fill,
+        ),
+        modifier = modifier,
+    ) { (topMeasurables, fillMeasurables), constraints ->
+        val spacingPx = spacing.roundToPx()
+        val topPlaceables = topMeasurables.map { it.measure(constraints.copy(minHeight = 0)) }
+        val topHeight = topPlaceables.maxOfOrNull { it.height } ?: 0
+        val fillMax = (constraints.maxHeight - topHeight - spacingPx).coerceAtLeast(0)
+        val fillPlaceables = fillMeasurables.map {
+            it.measure(constraints.copy(minHeight = 0, maxHeight = fillMax))
+        }
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            topPlaceables.forEach { it.placeRelative(0, 0) }
+            fillPlaceables.forEach { it.placeRelative(0, topHeight + spacingPx) }
+        }
+    }
+}
+
+/**
+ * 播放页顶部栏：左收起，正中听 | 看开关（2026-10-27 起取代「正在播放」），右边（看模式）小窗 + 三点菜单。
  */
 @Composable
 private fun PlayerTopBar(
+    isAudioMode: Boolean,
+    onSwitchMode: () -> Unit,
     onCollapse: () -> Unit,
     onOpenMenu: () -> Unit,
     onEnterPip: (() -> Unit)?,
@@ -306,7 +402,7 @@ private fun PlayerTopBar(
         IconButton(onClick = onCollapse, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "收起")
         }
-        Text("正在播放", style = MaterialTheme.typography.titleSmall)
+        ListenWatchSwitch(isAudioMode, onSwitchMode)
         Row(Modifier.align(Alignment.CenterEnd)) {
             if (onEnterPip != null) {
                 IconButton(onClick = onEnterPip) {

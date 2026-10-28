@@ -56,6 +56,10 @@ object VideoDescriptionPolicy {
         pubDateLabel.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
 
+    /** 播放页简介预览能放几行：可用高度 ÷ 行高，向下取整、不小于 0；行高不正时 0 行。 */
+    fun previewLines(availableHeightPx: Int, lineHeightPx: Int): Int =
+        if (lineHeightPx <= 0) 0 else (availableHeightPx / lineHeightPx).coerceAtLeast(0)
+
     fun parse(desc: String, durationMs: Long): List<DescSegment> {
         if (desc.isEmpty()) return emptyList()
         val out = ArrayList<DescSegment>()

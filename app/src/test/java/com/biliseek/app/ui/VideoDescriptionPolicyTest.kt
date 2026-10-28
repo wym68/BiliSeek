@@ -32,6 +32,15 @@ class VideoDescriptionPolicyTest {
         assertEquals("", VideoDescriptionPolicy.statsLine(0, ""))
     }
 
+    @Test
+    fun `简介预览行数 可用高度除以行高向下取整 不小于0`() {
+        assertEquals(5, VideoDescriptionPolicy.previewLines(availableHeightPx = 340, lineHeightPx = 64))
+        assertEquals(1, VideoDescriptionPolicy.previewLines(availableHeightPx = 64, lineHeightPx = 64))
+        assertEquals(0, VideoDescriptionPolicy.previewLines(availableHeightPx = 63, lineHeightPx = 64))
+        assertEquals(0, VideoDescriptionPolicy.previewLines(availableHeightPx = 0, lineHeightPx = 64))
+        assertEquals(0, VideoDescriptionPolicy.previewLines(availableHeightPx = 300, lineHeightPx = 0))
+    }
+
     // ── 时间点 ──
 
     @Test

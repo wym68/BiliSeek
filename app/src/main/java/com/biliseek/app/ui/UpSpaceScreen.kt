@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,7 +35,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -59,6 +62,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.biliseek.app.UpSpaceUiState
 import com.biliseek.app.UpSpaceView
+import com.biliseek.app.collection.CollectionPolicy
+import com.biliseek.app.collection.SpaceCollection
 import com.biliseek.app.data.DynamicExpandState
 import com.biliseek.core.network.DynamicEntry
 import com.biliseek.core.network.dto.SearchUser
@@ -71,8 +76,8 @@ import com.biliseek.core.player.formatDuration
 /**
  * UP 空间页（M11-D）。
  *
- * 点 UP 搜索结果进入。双视图：**投稿**（arc/search，全可播）与 **动态**
- * （feed/space，复用动态 tab 的卡片组件）。两视图分页状态独立。
+ * 点 UP 搜索结果进入。三个视图：**投稿**（arc/search，全可播）、**动态**
+ * （feed/space，复用动态 tab 的卡片组件）、**合集**（UP 主的合集与旧版系列，点开是合集内容页，由宿主盖在本页上）。各视图分页状态独立。
  * Ch4：头部加关注按钮，动态视图接入互动按钮。
  *
  * 投稿视图与搜索结果同一套交互：长按进复选（工具栏批量操作），
@@ -88,6 +93,9 @@ fun UpSpaceScreen(
     onRetryPosts: () -> Unit = {},
     onDynamicClick: (DynamicEntry) -> Unit,
     onLoadMoreDynamic: () -> Unit,
+    onCollectionClick: (SpaceCollection) -> Unit = {},
+    onLoadMoreCollections: () -> Unit = {},
+    onRetryCollections: () -> Unit = {},
     // Ch4
     onToggleFollow: (Long, Boolean) -> Unit = { _, _ -> },
     onOpenImagePreview: (List<String>, Int) -> Unit = { _, _ -> },
@@ -119,6 +127,8 @@ fun UpSpaceScreen(
     onPostCopyLink: (SpaceVideo) -> Unit = {},
     onPostDownload: (SpaceVideo) -> Unit = {},
     onPostSummarize: (SpaceVideo) -> Unit = {},
+    /** 「合集」视图的列表状态。由调用方持有，合集内容页盖上来又关掉后，列表还在原来的位置。 */
+    collectionsListState: LazyListState = rememberLazyListState(),
     modifier: Modifier = Modifier,
 ) {
     val up = state.up
@@ -177,13 +187,18 @@ fun UpSpaceScreen(
             SegmentedButton(
                 selected = state.view == UpSpaceView.POSTS,
                 onClick = { onViewChange(UpSpaceView.POSTS) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
             ) { Text("投稿") }
             SegmentedButton(
                 selected = state.view == UpSpaceView.DYNAMIC,
                 onClick = { onViewChange(UpSpaceView.DYNAMIC) },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
             ) { Text("动态") }
+            SegmentedButton(
+                selected = state.view == UpSpaceView.COLLECTIONS,
+                onClick = { onViewChange(UpSpaceView.COLLECTIONS) },
+                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+            ) { Text("合集") }
         }
 
         when (state.view) {
@@ -210,6 +225,13 @@ fun UpSpaceScreen(
                 dynamicExpand = dynamicExpand,
                 onToggleExpand = onToggleExpand,
                 videoActions = videoActions,
+            )
+            UpSpaceView.COLLECTIONS -> UpCollectionsList(
+                collections = state.collections,
+                onItemClick = onCollectionClick,
+                onLoadMore = onLoadMoreCollections,
+                onRetry = onRetryCollections,
+                collectionsListState = collectionsListState,
             )
         }
     }
@@ -455,6 +477,67 @@ private fun UpDynamicList(
                         BsLoadMoreFooter(
                             isLoadingMore = dynamic.isLoadingMore,
                             errorMessage = dynamic.errorMessage,
+                            onRetry = onLoadMore,
+                            endText = "加载中…",
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 「合集」视图：每行封面 + 名称 +「合集 / 系列 · N 个视频」（行样式同「列表 → 合集」）。 */
+@Composable
+private fun UpCollectionsList(
+    collections: com.biliseek.app.data.RemoteListState<SpaceCollection>,
+    onItemClick: (SpaceCollection) -> Unit,
+    onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
+    collectionsListState: LazyListState,
+) {
+    when {
+        collections.isLoading && collections.items.isEmpty() -> BsLoadingState()
+        collections.errorMessage != null && collections.items.isEmpty() ->
+            BsErrorState(collections.errorMessage, onRetry = onRetry)
+        collections.items.isEmpty() -> BsEmptyState("这位 UP 主还没有合集", icon = Icons.Outlined.VideoLibrary)
+        else -> {
+            LazyColumn(Modifier.fillMaxSize(), state = collectionsListState, contentPadding = miniBarContentPadding()) {
+                items(collections.items, key = { it.key }) { item ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onItemClick(item) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CoverThumbnail(normalizeCoverUrl(item.cover), width = 72.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                item.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                CollectionPolicy.countLabel(item),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                }
+                if (collections.hasMore || collections.isLoadingMore) {
+                    item(key = "footer") {
+                        // 失败后不自动再来（否则会一直重打 B 站），等用户点「重试」
+                        if (shouldAutoLoadMore(collections.hasMore, collections.isLoadingMore, collections.errorMessage)) {
+                            LaunchedEffect(collections.items.size) { onLoadMore() }
+                        }
+                        BsLoadMoreFooter(
+                            isLoadingMore = collections.isLoadingMore,
+                            errorMessage = collections.errorMessage,
                             onRetry = onLoadMore,
                             endText = "加载中…",
                         )
